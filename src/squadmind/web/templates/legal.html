@@ -42,7 +42,7 @@ a { color: var(--accent); }
   <div class="eyebrow">Privacy policy</div>
   <h1>Gizlilik</h1>
   <p class="date">Son güncelleme: 23.10.2026</p>
-  <p>SquadMind, bir CS2 takımının kendi FACEIT maçlarını ve demolarını analiz ettiği küçük, davetli bir araçtır. Burada hangi veriyi neden tuttuğumuzu yazıyoruz.</p>
+  <p>SquadMind, CS2 oyuncularının FACEIT maçlarını ve demolarını analiz edip takım kurmasına yardım eden küçük bir araçtır. Burada hangi veriyi neden tuttuğumuzu yazıyoruz.</p>
   <h2>Hangi veriler</h2>
   <ul>
     <li><strong>FACEIT ile girişte:</strong> sadece FACEIT oyuncu kimliğin (ID). Şifren bize hiç gelmez; giriş FACEIT'in kendi sayfasında yapılır. E-posta adresini kullanmıyoruz.</li>
@@ -51,14 +51,14 @@ a { color: var(--accent); }
     <li><strong>Çerez:</strong> oturumunu açık tutan imzalı bir çerez (30 gün) ve giriş sırasında 10 dakikalık bir doğrulama çerezi. Reklam ya da izleme çerezi yok.</li>
   </ul>
   <h2>Ne için ve kim görüyor</h2>
-  <p>Veriler sadece takım analizi için kullanılır: oyuncu ve takım raporları, taktik tahtası. Raporları yalnızca giriş yapmış takım üyeleri görür. Veriler satılmaz, reklam için kullanılmaz, üçüncü taraflarla paylaşılmaz.</p>
+  <p>Veriler sadece oyuncu ve takım analizi için kullanılır. Kendi raporunu sen görürsün. Bir takıma eklendiğinde daveti <strong>kabul edersen</strong> FACEIT istatistiklerin (maç, kazanma, K/D, ADR) ve harita bazında demo durumun o takımın üyeleriyle paylaşılır; takımdan ayrılınca paylaşım biter. Diğer kullanıcılar oyuncu ararken FACEIT'te zaten herkese açık olan nickname ve seviyeni görebilir. Veriler satılmaz, reklam için kullanılmaz, üçüncü taraflarla paylaşılmaz.</p>
   <h2>Nerede tutuluyor</h2>
-  <p>Veriler, takım kaptanının bilgisayarındaki bir veritabanında ve demo klasöründe tutulur; site Cloudflare tüneli üzerinden yayınlanır.</p>
+  <p>Veriler, SquadMind işletmecisinin bilgisayarındaki bir veritabanında ve demo klasöründe tutulur; site Cloudflare tüneli üzerinden yayınlanır.</p>
   <h2>Silme</h2>
   <p>Hesabının ve yüklediğin demoların silinmesini istersen <a href="mailto:support@squadmind.info">support@squadmind.info</a> adresine yaz; elle silinir. FACEIT bağlantısını FACEIT hesap ayarlarından da kaldırabilirsin.</p>
   <div class="en">
     <h2>In English</h2>
-    <p>SquadMind is a small, invite-only tool for one CS2 team to analyse its own FACEIT matches and demos. With FACEIT login we receive only your FACEIT player ID (never your password or e-mail); nickname, level, Steam ID and match history come from the public FACEIT Data API. Uploaded demos and the match data parsed from them are stored on the team captain's computer and shown only to logged-in team members. We use one signed session cookie and a short-lived login cookie, no tracking. Data is never sold or shared. To have your data deleted, e-mail <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
+    <p>SquadMind is a small tool that helps CS2 players analyse their FACEIT matches and demos and build teams. With FACEIT login we receive only your FACEIT player ID (never your password or e-mail); nickname, level, Steam ID and match history come from the public FACEIT Data API. Uploaded demos and the match data parsed from them are stored on the operator's computer. Your statistics and demo coverage are shared only with teams whose invitation you accept; other users may see your public FACEIT nickname and level in search. We use one signed session cookie and a short-lived login cookie, no tracking. Data is never sold or shared. To have your data deleted, e-mail <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
   </div>
 {% else %}
   <div class="eyebrow">Terms of service</div>
@@ -78,7 +78,7 @@ a { color: var(--accent); }
   <p>Site olduğu gibi sunulur; kesintisiz çalışma garantisi yoktur. Kurallara uymayan hesap kapatılabilir. Sorular için <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
   <div class="en">
     <h2>In English</h2>
-    <p>SquadMind is a free, invite-only analysis tool provided as is, without warranty. Log in only with your own FACEIT account and upload only demos of matches you played. Do not attempt to disrupt the site or access other users' data. SquadMind is independent and not affiliated with or endorsed by FACEIT, ESL FACEIT Group or Valve; it never reads data during a match. Accounts that break these rules may be removed. Contact: <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
+    <p>SquadMind is a free analysis tool provided as is, without warranty. Log in only with your own FACEIT account and upload only demos of matches you played. Do not attempt to disrupt the site or access other users' data. SquadMind is independent and not affiliated with or endorsed by FACEIT, ESL FACEIT Group or Valve; it never reads data during a match. Accounts that break these rules may be removed. Contact: <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
   </div>
 {% endif %}
 </div></main>

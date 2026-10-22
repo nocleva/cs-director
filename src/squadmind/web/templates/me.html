@@ -1,35 +1,75 @@
 {% extends "base.html" %}
-{% block title %}{{ user.nickname }} · SquadMind{% endblock %}
-{% block nav %}<a href="/rapor/ben">Raporum</a><a href="/rapor/takim">Takım raporu</a><a href="/taktik">Taktik tahtası</a><a href="/cikis">Çıkış</a>{% endblock %}
+{% block title %}{{ user.nickname }} · Demolarım · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .maps { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .map { background: var(--bg-2); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; border: 1px solid transparent; }
+  .map.lvl-ok { border-color: rgba(63, 185, 80, .35); }
+  .map .top { display: flex; justify-content: space-between; align-items: center; }
+  .map .name { font-weight: 600; }
+  .map .n { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+  .map .n span { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .map .state { font-size: 11px; color: var(--c); font-weight: 600; }
+  .map a { font-size: 12px; text-decoration: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--text-2); margin: 4px 0 24px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .upload { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  .upload label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  #progress p { margin: 6px 0 0; font-size: 13px; color: var(--text-2); }
+  .info { font-size: 13px; color: var(--text-2); margin: 0 0 14px; max-width: 70ch; }
+</style>
+{% endblock %}
 {% block body %}
-<div class="card">
-  <h1>{{ user.nickname }}</h1>
-  {% if "uyarı" in user.sync_status %}<p class="error">{{ user.sync_status }} Yanlış hesapla katıldıysan "Çıkış"a basıp doğru nickname ile tekrar katıl.</p>{% else %}<p class="muted">FACEIT maç geçmişi: {{ user.sync_status }}</p>{% endif %}
-  <p><strong>{{ done }} / {{ required }}</strong> {{ map_name }} demosu analizde.
-    {% if done < required %}{{ required - done }} demo daha yükle.{% else %}Hedef tamam.{% endif %}</p>
-  <div class="bar"><div style="width: {{ [100 * done / required, 100] | min }}%"></div></div>
+<div class="pagehead">
+  <div>
+    <div class="eyebrow">Demolarım</div>
+    <h1>{{ user.nickname }}</h1>
+    {% if "uyarı" in user.sync_status %}<p class="error">{{ user.sync_status }}</p>
+    {% else %}<p class="sub">FACEIT maç geçmişi: {{ user.sync_status }}</p>{% endif %}
+  </div>
+</div>
+
+<h2>Harita bazında analiz durumu</h2>
+<div class="maps">
+  {% for c in cards %}
+  <div class="map lvl-{{ c.level }}">
+    <div class="top"><span class="name">{{ c.label }}</span><span class="dot"></span></div>
+    <div class="n tnum">{{ c.n }} <span>/ {{ min_demos }} demo</span></div>
+    <div class="meter"><div style="width: {{ [100 * c.n / min_demos, 100] | min }}%"></div></div>
+    <div class="state">{% if c.level == "ok" %}Analiz hazır{% elif c.level == "mid" %}Gelişiyor · {{ min_demos - c.n }} demo daha{% else %}Yetersiz · {{ min_demos - c.n }} demo daha{% endif %}</div>
+    {% if c.n %}<a href="/rapor/ben?harita={{ c.map }}">Raporu aç →</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+<div class="legend">
+  <span class="lvl-low"><span class="dot"></span>5 ve altı: yetersiz</span>
+  <span class="lvl-mid"><span class="dot"></span>6-9: gelişiyor</span>
+  <span class="lvl-ok"><span class="dot"></span>10 ve üstü: analiz hazır</span>
 </div>
 
 <div class="card">
   <h2>Demo yükle</h2>
-  <p class="muted">FACEIT maç sayfasından "Watch demo" ile indirdiğin dosyayı (.dem.zst) seç;
-    açmadan, olduğu gibi. Sadece {{ map_name or "seçili harita" }} maçların ve sadece oynadığın maçlar
-    kabul edilir. Aynı demo bir kez eklenir; takım arkadaşın yüklediyse senin için de sayılır.</p>
-  <input type="file" id="files" multiple accept=".dem,.zst,.gz">
-  <p><button id="go" type="button">Yükle</button></p>
-  <div id="progress"></div>
+  <p class="info">Güvenilir bir analiz için her haritada <strong>en az {{ min_demos }} demo</strong> gerekir; daha fazla demo, daha gerçekçi sonuç verir. FACEIT maç sayfasındaki "Watch demo" ile indirdiğin dosyayı (.dem.zst) açmadan yükle. Yalnızca oynadığın maçlar kabul edilir; aynı demo bir kez eklenir ve takım arkadaşının yüklediği maç senin için de sayılır.</p>
+  <div class="upload">
+    <div><label for="map">Harita</label>
+      <select id="map">{% for m, label in pool %}<option value="{{ m }}">{{ label }}</option>{% endfor %}</select></div>
+    <div><label for="files">Demo dosyaları</label><input type="file" id="files" multiple accept=".dem,.zst,.gz"></div>
+    <button id="go" type="button">Yükle</button>
+  </div>
+  <div id="progress" aria-live="polite"></div>
 </div>
 
 <div class="card table-wrap">
   <h2>Yüklemelerim</h2>
   {% if uploads %}
   <table>
-    <tr><th>Dosya</th><th>Durum</th><th>Maç</th><th>Not</th></tr>
+    <tr><th>Dosya</th><th>Harita</th><th>Durum</th><th>Not</th></tr>
     {% for u in uploads %}
     <tr>
       <td>{{ u.file_name }}</td>
+      <td>{{ (u.map or "") | replace("de_", "") | capitalize }}</td>
       <td class="st-{{ u.status }}">{{ u.status }}</td>
-      <td>{{ (u.match_id or "")[:14] }}</td>
       <td class="muted">{{ u.message or "" }}</td>
     </tr>
     {% endfor %}
@@ -46,11 +86,11 @@ function line(text) {
   const p = document.createElement("p"); p.textContent = text; box.appendChild(p); return p;
 }
 
-async function send(file) {
+async function send(file, map) {
   const p = line(file.name + ": başlıyor…");
   if (file.size < MIN || file.size > MAX) { p.textContent = file.name + ": boyut demo için şüpheli, atlandı"; return; }
   let r = await fetch("/api/yukleme", {method: "POST", headers: {"Content-Type": "application/json"},
-                                        body: JSON.stringify({name: file.name, size: file.size})});
+                                        body: JSON.stringify({name: file.name, size: file.size, map})});
   if (!r.ok) { p.textContent = file.name + ": " + ((await r.json()).detail || "reddedildi"); return; }
   const {id} = await r.json();
   const parts = Math.ceil(file.size / CHUNK);
@@ -70,8 +110,9 @@ async function send(file) {
 document.getElementById("go").onclick = async () => {
   const files = [...document.getElementById("files").files];
   if (!files.length || uploading) return;
+  const map = document.getElementById("map").value;
   uploading = true; box.innerHTML = "";
-  for (const f of files) { await send(f); }
+  for (const f of files) { await send(f, map); }
   uploading = false; location.reload();
 };
 

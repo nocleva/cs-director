@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Takımlarım · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .list { display: grid; gap: 10px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; background: var(--bg-2); border-radius: 8px; text-decoration: none; color: var(--line); border: 1px solid transparent; }
+  .row:hover { border-color: var(--bg-3); }
+  .row .name { font-weight: 600; font-size: 15px; }
+  .chip { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 100px; background: var(--bg-3); color: var(--text-2); }
+  .chip.invite { background: rgba(243, 115, 33, .15); color: var(--accent); }
+  form.create { display: flex; gap: 10px; flex-wrap: wrap; }
+  form.create input { flex: 1 1 220px; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="eyebrow">Takım oluşturma</div>
+<h1>Takımlarım</h1>
+<p class="sub" style="margin-bottom:20px">Takım kur, oyuncu ekle; daveti kabul eden oyuncuların verisi takımla paylaşılır ve birlikte oynama dinamikleri çıkar. Aynı takımda geçmişiniz olması gerekmez.</p>
+
+<div class="card">
+  <h2>Yeni takım</h2>
+  <form class="create" method="post" action="/takimlar">
+    <input type="text" name="name" maxlength="40" placeholder="Takım adı (ör. {{ user.nickname }} 5'lisi)" aria-label="Takım adı">
+    <button type="submit">Takım oluştur</button>
+  </form>
+</div>
+
+{% if teams %}
+<div class="list">
+  {% for t in teams %}
+  <a class="row" href="/takimlar/{{ t.id }}">
+    <span><span class="name">{{ t.name }}</span><br><span class="muted tnum" style="font-size:12px">{{ t.members }} oyuncu</span></span>
+    {% if t.status == "davet" %}<span class="chip invite">Davet: kabul bekliyor</span>{% else %}<span class="chip">Üye</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}<p class="muted">Henüz bir takımın yok.</p>{% endif %}
+{% endblock %}

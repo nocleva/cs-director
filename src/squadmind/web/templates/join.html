@@ -91,7 +91,7 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
           <a class="btn" href="/giris/faceit{% if davet %}?davet={{ davet | urlencode }}{% endif %}">FACEIT ile giriş yap
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7h8M8 4l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"></path></svg></a>
           <p class="note"><b>Güvenli giriş.</b> Kimlik doğrulama FACEIT üzerinden yapılır; şifren SquadMind ile paylaşılmaz. Profil, seviye ve maç geçmişi hesabından otomatik olarak alınır.</p>
-          <p class="note">Erişim, takımla birlikte oynadığın maçlara göre otomatik tanımlanır.</p>
+          <p class="note">Giriş yaptıktan sonra kendi takımını kurabilirsin. Verilerin yalnızca katılmayı kabul ettiğin takımlarla paylaşılır.</p>
         {% else %}
           <form method="post" action="/katil">
             <input type="hidden" name="davet" value="{{ davet }}">

@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name }} · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+  .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-radius: 8px; border: 1px solid rgba(243, 115, 33, .4); background: rgba(243, 115, 33, .08); margin-bottom: 16px; }
+  .banner form { display: inline; }
+  .members { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .member { background: var(--bg-2); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .member .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .member .nm { font-weight: 600; font-size: 15px; word-break: break-all; }
+  .member .lv { font-size: 12px; color: var(--muted); }
+  .chip { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 100px; background: var(--bg-3); color: var(--text-2); white-space: nowrap; }
+  .chip.ok { background: rgba(63, 185, 80, .15); color: var(--ok); }
+  .chip.wait { background: rgba(243, 115, 33, .15); color: var(--accent); }
+  .kv { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .kv div { font-size: 11px; color: var(--muted); }
+  .kv b { display: block; font-size: 14px; color: var(--line); font-weight: 600; }
+  .member form { margin-top: auto; }
+  .people { display: grid; gap: 6px; }
+  .person { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 4px; background: var(--bg-1); }
+  .person .muted { font-size: 12px; }
+  .search { display: flex; gap: 8px; margin-bottom: 12px; }
+  .search input { flex: 1; min-width: 0; }
+  .ready td, .ready th { text-align: center; }
+  .ready td:first-child, .ready th:first-child { text-align: left; }
+  .cell { display: inline-flex; align-items: center; gap: 6px; }
+  .note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <div class="eyebrow"><a href="/takimlar" style="color:inherit;text-decoration:none">Takımlarım</a> / Takım</div>
+    <h1>{{ team.name }}</h1>
+    <p class="sub tnum">{{ members | length }} / {{ max_members }} oyuncu · {{ shared | length }} paylaşıyor</p>
+  </div>
+  {% if mine.status == "üye" and not is_owner %}
+  <form method="post" action="/takimlar/{{ team.id }}/cikar"><input type="hidden" name="faceit_id" value="{{ user.faceit_id }}"><button class="ghost small" type="submit">Takımdan ayrıl</button></form>
+  {% endif %}
+</div>
+
+{% if mine.status == "davet" %}
+<div class="banner">
+  <span>Bu takıma eklendin. Kabul edersen FACEIT istatistiklerin ve demo durumun takım üyeleriyle paylaşılır.</span>
+  <span>
+    <form method="post" action="/takimlar/{{ team.id }}/kabul"><button class="small" type="submit">Kabul et</button></form>
+    <form method="post" action="/takimlar/{{ team.id }}/cikar"><input type="hidden" name="faceit_id" value="{{ user.faceit_id }}"><button class="ghost small" type="submit">Reddet</button></form>
+  </span>
+</div>
+{% endif %}
+
+<h2>Kadro</h2>
+<div class="members">
+  {% for m in members %}
+  {% set st = stats.get(m.faceit_id) %}
+  <div class="member">
+    <div class="top">
+      <div><div class="nm">{{ m.nickname }}</div><div class="lv tnum">{% if m.level %}Level {{ m.level }}{% if m.elo %} · {{ m.elo }} ELO{% endif %}{% else %}Seviye bilinmiyor{% endif %}</div></div>
+      {% if m.status == "üye" %}<span class="chip ok">Paylaşıyor</span>
+      {% elif not m.joined %}<span class="chip">Siteye katılmadı</span>
+      {% else %}<span class="chip wait">Davet bekliyor</span>{% endif %}
+    </div>
+    {% if m.status == "üye" and st %}
+    <div class="kv tnum">
+      <div><b>{{ st.matches }}</b>maç</div>
+      <div><b>%{{ (100 * st.win) | round | int }}</b>kazanma</div>
+      <div><b>{{ "%.2f" | format(st.kd or 0) }}</b>K/D</div>
+      <div><b>{{ (st.adr or 0) | round | int }}</b>ADR</div>
+    </div>
+    {% elif m.status == "üye" %}<p class="muted" style="margin:0;font-size:12px">Maç verisi henüz yok.</p>
+    {% elif not m.joined %}<p class="muted" style="margin:0;font-size:12px">SquadMind'a FACEIT ile girip daveti kabul edince verisi görünür.</p>
+    {% else %}<p class="muted" style="margin:0;font-size:12px">Daveti kabul edince verisi görünür.</p>{% endif %}
+    {% if is_owner and m.faceit_id != user.faceit_id %}
+    <form method="post" action="/takimlar/{{ team.id }}/cikar"><input type="hidden" name="faceit_id" value="{{ m.faceit_id }}"><button class="ghost small" type="submit">Çıkar</button></form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% if mine.status == "üye" and not full %}
+<div class="grid2">
+  <div class="card">
+    <h2>Önerilen oyuncular</h2>
+    <p class="muted" style="margin:-6px 0 12px;font-size:12px">En çok aynı tarafta oynadıkların.</p>
+    {% if suggest %}
+    <div class="people">
+      {% for p in suggest %}
+      <div class="person">
+        <span><b>{{ p.nickname }}</b><br><span class="muted tnum">{{ p.together }} maç birlikte · %{{ (100 * p.wins / p.together) | round | int }} kazanma{% if p.level %} · Level {{ p.level }}{% endif %}</span></span>
+        <form method="post" action="/takimlar/{{ team.id }}/ekle"><input type="hidden" name="faceit_id" value="{{ p.faceit_id }}"><input type="hidden" name="nickname" value="{{ p.nickname }}"><button class="small" type="submit">Ekle</button></form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}<p class="muted">Öneri için maç geçmişin henüz çekilmedi.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Oyuncu ara</h2>
+    <form class="search" method="get" action="/takimlar/{{ team.id }}">
+      <input type="text" name="q" value="{{ q }}" placeholder="FACEIT nickname" aria-label="FACEIT nickname">
+      <button class="ghost" type="submit">Ara</button>
+    </form>
+    {% if q %}
+      {% if request.query_params.get("yok") %}<p class="error" style="font-size:13px">FACEIT'te "{{ q }}" bulunamadı. Büyük / küçük harfe dikkat et.</p>{% endif %}
+      <div class="people">
+        {% for p in found %}
+        <div class="person">
+          <span><b>{{ p.nickname }}</b>{% if p.level %}<br><span class="muted">Level {{ p.level }}</span>{% endif %}</span>
+          {% if p.faceit_id in names %}<span class="muted">Takımda</span>
+          {% else %}<form method="post" action="/takimlar/{{ team.id }}/ekle"><input type="hidden" name="faceit_id" value="{{ p.faceit_id }}"><input type="hidden" name="nickname" value="{{ p.nickname }}"><button class="small" type="submit">Ekle</button></form>{% endif %}
+        </div>
+        {% endfor %}
+        <div class="person">
+          <span class="muted">Listede yok mu? FACEIT'te tam adıyla ara: <b style="color:var(--line)">{{ q }}</b></span>
+          <form method="post" action="/takimlar/{{ team.id }}/ekle"><input type="hidden" name="nickname" value="{{ q }}"><button class="ghost small" type="submit">FACEIT'ten ekle</button></form>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% elif full %}<p class="muted">Takım dolu ({{ max_members }} oyuncu).</p>{% endif %}
+
+{% if mine.status == "üye" %}
+<div class="card table-wrap">
+  <h2>Harita hazırlığı</h2>
+  {% if shared | length >= 1 %}
+  <table class="ready">
+    <tr><th>Harita</th>{% for f in shared %}<th>{{ names[f] }}</th>{% endfor %}<th>Hazır</th></tr>
+    {% for r in readiness %}
+    <tr>
+      <td>{{ r.label }}</td>
+      {% for nick, n, lvl in r.per %}<td><span class="cell lvl-{{ lvl }} tnum"><span class="dot"></span>{{ n }}</span></td>{% endfor %}
+      <td class="tnum">{{ r.ready }} / {{ shared | length }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="note">Her oyuncu için harita başına en az {{ min_demos }} demo: 5 ve altı kırmızı, 6-9 turuncu, 10 ve üstü yeşil. Daha fazla demo daha gerçekçi analiz demek.</p>
+  {% endif %}
+</div>
+
+{% if shared | length >= 2 %}
+<div class="grid2">
+  <div class="card table-wrap">
+    <h2>Birlikte oynama</h2>
+    <table>
+      <tr><th>İkili</th><th>Aynı tarafta</th><th>Kazanma</th></tr>
+      {% for p in pairs | sort(attribute="together", reverse=True) %}
+      <tr><td>{{ names[p.a] }} + {{ names[p.b] }}</td><td class="tnum">{{ p.together }} maç</td>
+        <td class="tnum">{% if p.together %}%{{ (100 * p.wins / p.together) | round | int }}{% else %}<span class="muted">hiç birlikte oynamadı</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="card table-wrap">
+    <h2>Birlikteyken haritalar</h2>
+    {% if maps %}
+    <table>
+      <tr><th>Harita</th><th>Maç</th><th>Kazanma</th><th>En kalabalık</th></tr>
+      {% for m in maps %}
+      <tr><td>{{ map_label(m.map or "?") }}</td><td class="tnum">{{ m.matches }}</td><td class="tnum">%{{ (100 * m.wins / m.matches) | round | int }}</td><td class="tnum">{{ m.most }} kişi</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted">Kadrodan en az iki kişinin aynı tarafta oynadığı maç yok; dinamikler ilk ortak maçlardan sonra çıkar.</p>{% endif %}
+  </div>
+</div>
+<p class="note">Sayılar, siteye katılan oyuncuların FACEIT geçmişinden (son 100 maç) ve yüklenen demolardan gelir; siteye katılmayan oyuncunun maçları eksik olabilir. Az maçlık oranları dikkatli oku.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -211,7 +211,8 @@ CREATE TABLE IF NOT EXISTS web_users (
     faceit_id    VARCHAR,
     nickname     VARCHAR,
     sync_status  VARCHAR,                -- bekliyor / alınıyor / tamam / hata: <mesaj>
-    joined_at    TIMESTAMP DEFAULT current_timestamp
+    joined_at    TIMESTAMP DEFAULT current_timestamp,
+    team_access  BOOLEAN DEFAULT false   -- (v6) takım sahibinin kadro sayfalarını görebilir
 );
 
 CREATE TABLE IF NOT EXISTS web_uploads (
@@ -223,5 +224,24 @@ CREATE TABLE IF NOT EXISTS web_uploads (
     match_id     VARCHAR,
     message      VARCHAR,
     created_at   TIMESTAMP DEFAULT current_timestamp,
-    finished_at  TIMESTAMP
+    finished_at  TIMESTAMP,
+    map_hint     VARCHAR                 -- (v6) yüklerken seçilen harita (asıl harita demodan)
+);
+
+-- Takım oluşturma (şema v6): herkes takım kurar; üye daveti kabul edince verisi takımla paylaşılır
+CREATE TABLE IF NOT EXISTS web_teams (
+    id             VARCHAR PRIMARY KEY,
+    name           VARCHAR,
+    owner_steam_id VARCHAR,
+    created_at     TIMESTAMP DEFAULT current_timestamp
+);
+
+CREATE TABLE IF NOT EXISTS web_team_members (
+    team_id     VARCHAR,
+    faceit_id   VARCHAR,
+    nickname    VARCHAR,
+    status      VARCHAR,                 -- davet (eklendi, kabul bekliyor) / üye (kabul etti)
+    added_by    VARCHAR,                 -- ekleyenin steam_id'si
+    added_at    TIMESTAMP DEFAULT current_timestamp,
+    PRIMARY KEY (team_id, faceit_id)
 );

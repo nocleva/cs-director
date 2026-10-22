@@ -80,7 +80,7 @@ def test_join_then_upload_and_ingest(web):
     assert store.done_count(SELF) == 1
 
     page = client.get("/ben").text
-    assert "1 / 10" in page and f"{M1}-1-1.dem" in page
+    assert "1 <span>/ 10 demo</span>" in page and f"{M1}-1-1.dem" in page
     assert client.get("/rapor/ben").status_code == 200
 
 
@@ -184,11 +184,19 @@ def test_faceit_login_creates_user_from_faceit_id(oauth_web):
     assert oauth.calls[0][0] == "kod" and len(oauth.calls[0][1]) > 40  # PKCE doğrulayıcı gitti
 
 
-def test_faceit_login_rejects_bad_state_and_missing_invite(oauth_web):
+def test_faceit_login_rejects_bad_state(oauth_web):
     client, store, _ = oauth_web
     assert "doğrulanamadı" in _faceit_login(client, state="sahte").text
-    assert "davet linki iste" in _faceit_login(client, davet="yanlis").text
     assert store.users() == []
+
+
+def test_faceit_login_without_invite_gets_in_but_not_owner_pages(oauth_web):
+    # FACEIT'le doğrulanan herkes girer (kendi takımını kurar); kadro sayfaları kapalı
+    client, store, _ = oauth_web
+    assert _faceit_login(client, davet="yanlis").headers["location"] == "/ben"
+    assert store.users()[0].team_access is False
+    assert "kadrosuna özel" in client.get("/taktik").text
+    assert "kadrosuna özel" in client.get("/rapor/takim").text
 
 
 def test_faceit_login_known_user_needs_no_invite(oauth_web):
@@ -230,13 +238,14 @@ def test_faceit_login_admits_teammate_without_invite(oauth_web):
     _shared_matches(store, 3)
     r = _faceit_login(client, davet="")
     assert r.status_code == 303 and r.headers["location"] == "/ben"
+    assert store.users()[0].team_access is True
 
 
 def test_faceit_login_rejects_opponent_and_rare_teammate(oauth_web):
     client, store, _ = oauth_web
     _shared_matches(store, 5, same_side=False)   # hep rakip taraftaydı
-    assert "en az 3" in _faceit_login(client, davet="").text
-    assert store.users() == []
+    _faceit_login(client, davet="")
+    assert store.users()[0].team_access is False
 
 
 def test_nickname_join_never_uses_teammate_rule(web):
@@ -251,3 +260,60 @@ def test_legal_pages_are_public(web):
     for path, text in (("/privacy", "Şifren bize hiç gelmez"), ("/terms", "bağlantılı değildir")):
         r = client.get(path)
         assert r.status_code == 200 and text in r.text
+
+
+
+# --- takım oluşturma ----------------------------------------------------------------
+
+def test_team_flow_invite_accept_share(oauth_web, make_client):
+    client, store, _ = oauth_web
+    _faceit_login(client)                        # TestNick (p-self)
+    r = client.post("/takimlar", data={"name": "Beşli"}, follow_redirects=False)
+    team_url = r.headers["location"]
+    team_id = team_url.rsplit("/", 1)[1]
+    assert "Beşli" in client.get("/takimlar").text
+
+    # Başka bir oyuncuyu ekle: daveti kabul edene kadar verisi paylaşılmaz
+    store.run(lambda con: con.execute(
+        "INSERT INTO players (faceit_id, steam_id, nickname, level) VALUES ('p-mate', 's-mate', 'Mate', 8)"))
+    client.post(f"/takimlar/{team_id}/ekle", data={"faceit_id": "p-mate", "nickname": "Mate"})
+    page = client.get(team_url).text
+    assert "Mate" in page and "Siteye katılmadı" in page
+    assert [m["status"] for m in store.team_members(team_id)] == ["üye", "davet"]
+
+    # Mate siteye katılıp daveti kabul eder → paylaşıyor
+    store.add_user("s-mate", "p-mate", "Mate")
+    from squadmind.web.app import COOKIE
+    from itsdangerous import URLSafeTimedSerializer
+    mate = TestClient(client.app)
+    mate.cookies.set(COOKIE, URLSafeTimedSerializer("test-secret", salt="squadmind-oturum").dumps("s-mate"))
+    assert "Kabul et" in mate.get(team_url).text
+    mate.post(f"/takimlar/{team_id}/kabul")
+    assert all(m["status"] == "üye" for m in store.team_members(team_id))
+    assert "Birlikte oynama" in client.get(team_url).text
+
+    # Üye başkasını çıkaramaz, kendini çıkarabilir; yabancı takımı göremez
+    assert mate.post(f"/takimlar/{team_id}/cikar", data={"faceit_id": "p-self"}).status_code == 403
+    mate.post(f"/takimlar/{team_id}/cikar", data={"faceit_id": "p-mate"})
+    assert mate.get(team_url).status_code == 404
+
+
+def test_team_add_unknown_nickname_via_faceit(oauth_web):
+    client, store, _ = oauth_web
+    _faceit_login(client)
+    team_id = client.post("/takimlar", data={"name": "X"}, follow_redirects=False).headers["location"].rsplit("/", 1)[1]
+    r = client.post(f"/takimlar/{team_id}/ekle", data={"nickname": "yok_boyle"}, follow_redirects=False)
+    assert "yok=1" in r.headers["location"]
+    assert len(store.team_members(team_id)) == 1
+
+
+def test_upload_map_hint_and_map_cards(oauth_web):
+    client, store, _ = oauth_web
+    _faceit_login(client)
+    page = client.get("/ben").text
+    assert "Dust2" in page and "Mirage" in page and "en az 10 demo" in page
+    r = client.post("/api/yukleme", json={"name": "a.dem", "size": 100, "map": "de_hayali"})
+    assert r.status_code == 400
+    r = client.post("/api/yukleme", json={"name": "a.dem", "size": 100, "map": "de_mirage"})
+    assert r.status_code == 200
+    assert store.upload(r.json()["id"])["map_hint"] == "de_mirage"

@@ -32,6 +32,7 @@ class WebUser:
     faceit_id: str
     nickname: str
     sync_status: str
+    team_access: bool = False   # takım sahibinin kadro sayfaları (takım raporu, taktik tahtası)
 
 
 class Store:
@@ -72,26 +73,29 @@ class Store:
 
     # --- kullanıcılar -------------------------------------------------------------
 
-    def add_user(self, steam_id: str, faceit_id: str, nickname: str) -> None:
+    def add_user(self, steam_id: str, faceit_id: str, nickname: str,
+                 team_access: bool = False) -> None:
+        """Kullanıcıyı ekler / adını günceller; kadro erişimi bir kez verilince geri alınmaz."""
         with self.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO web_users (steam_id, faceit_id, nickname, sync_status)
-                VALUES (?, ?, ?, 'bekliyor')
-                ON CONFLICT (steam_id) DO UPDATE SET nickname = excluded.nickname
+                INSERT INTO web_users (steam_id, faceit_id, nickname, sync_status, team_access)
+                VALUES (?, ?, ?, 'bekliyor', ?)
+                ON CONFLICT (steam_id) DO UPDATE SET nickname = excluded.nickname,
+                    team_access = web_users.team_access OR excluded.team_access
                 """,
-                [steam_id, faceit_id, nickname],
+                [steam_id, faceit_id, nickname, team_access],
             )
 
     def user(self, steam_id: str) -> WebUser | None:
         with self.cursor() as cur:
-            row = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status FROM web_users "
+            row = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status, coalesce(team_access, false) FROM web_users "
                               "WHERE steam_id = ?", [steam_id]).fetchone()
         return WebUser(*row) if row else None
 
     def users(self) -> list[WebUser]:
         with self.cursor() as cur:
-            rows = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status FROM web_users "
+            rows = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status, coalesce(team_access, false) FROM web_users "
                                "ORDER BY joined_at").fetchall()
         return [WebUser(*r) for r in rows]
 
@@ -102,29 +106,36 @@ class Store:
 
     # --- yüklemeler ---------------------------------------------------------------
 
-    def new_upload(self, steam_id: str, file_name: str, size: int) -> str:
+    def new_upload(self, steam_id: str, file_name: str, size: int,
+                   map_hint: str | None = None) -> str:
         upload_id = uuid.uuid4().hex
         with self.cursor() as cur:
-            cur.execute("INSERT INTO web_uploads (id, steam_id, file_name, size_bytes, status) "
-                        "VALUES (?, ?, ?, ?, ?)", [upload_id, steam_id, file_name, size, UPLOADING])
+            cur.execute("INSERT INTO web_uploads (id, steam_id, file_name, size_bytes, status, "
+                        "map_hint) VALUES (?, ?, ?, ?, ?, ?)",
+                        [upload_id, steam_id, file_name, size, UPLOADING, map_hint])
         return upload_id
 
     def upload(self, upload_id: str) -> dict[str, Any] | None:
         with self.cursor() as cur:
             row = cur.execute("SELECT id, steam_id, file_name, size_bytes, status, match_id, "
-                              "message FROM web_uploads WHERE id = ?", [upload_id]).fetchone()
+                              "message, map_hint FROM web_uploads WHERE id = ?",
+                              [upload_id]).fetchone()
         if not row:
             return None
-        keys = ("id", "steam_id", "file_name", "size_bytes", "status", "match_id", "message")
+        keys = ("id", "steam_id", "file_name", "size_bytes", "status", "match_id", "message",
+                "map_hint")
         return dict(zip(keys, row, strict=True))
 
     def uploads_of(self, steam_id: str) -> list[dict[str, Any]]:
         with self.cursor() as cur:
             rows = cur.execute(
-                "SELECT id, file_name, size_bytes, status, match_id, message, created_at "
-                "FROM web_uploads WHERE steam_id = ? ORDER BY created_at DESC", [steam_id]
+                "SELECT u.id, u.file_name, u.size_bytes, u.status, u.match_id, u.message, "
+                "u.created_at, coalesce(m.map, u.map_hint) FROM web_uploads u "
+                "LEFT JOIN matches m USING (match_id) WHERE u.steam_id = ? "
+                "ORDER BY u.created_at DESC", [steam_id]
             ).fetchall()
-        keys = ("id", "file_name", "size_bytes", "status", "match_id", "message", "created_at")
+        keys = ("id", "file_name", "size_bytes", "status", "match_id", "message", "created_at",
+                "map")
         return [dict(zip(keys, r, strict=True)) for r in rows]
 
     def open_uploads(self, steam_id: str) -> int:
@@ -164,3 +175,81 @@ class Store:
             ).fetchone()[0]
 
     map_name: str | None = None  # done_count'un saydığı harita (uygulama ayarlar)
+
+    def demo_counts(self, steam_id: str) -> dict[str, int]:
+        """Harita → bu oyuncunun analize giren (doğrulanmış demolu) maç sayısı.
+
+        Kim yüklerse yüklesin: aynı maçın demosu herkes için bir kez yüklenir.
+        """
+        with self.cursor() as cur:
+            rows = cur.execute(
+                """
+                SELECT m.map, count(DISTINCT m.match_id)
+                FROM matches m
+                JOIN match_player_stats s USING (match_id)
+                JOIN players p ON p.faceit_id = s.player_id
+                WHERE p.steam_id = ? AND m.demo_status = 'processed'
+                GROUP BY m.map
+                """, [steam_id]).fetchall()
+        return {m: n for m, n in rows}
+
+    # --- takımlar -------------------------------------------------------------------
+
+    def create_team(self, name: str, owner: WebUser) -> str:
+        team_id = uuid.uuid4().hex[:12]
+        with self.cursor() as cur:
+            cur.execute("INSERT INTO web_teams (id, name, owner_steam_id) VALUES (?, ?, ?)",
+                        [team_id, name, owner.steam_id])
+            cur.execute("INSERT INTO web_team_members (team_id, faceit_id, nickname, status, "
+                        "added_by) VALUES (?, ?, ?, 'üye', ?)",
+                        [team_id, owner.faceit_id, owner.nickname, owner.steam_id])
+        return team_id
+
+    def team(self, team_id: str) -> dict[str, Any] | None:
+        with self.cursor() as cur:
+            row = cur.execute("SELECT id, name, owner_steam_id, created_at FROM web_teams "
+                              "WHERE id = ?", [team_id]).fetchone()
+        return dict(zip(("id", "name", "owner_steam_id", "created_at"), row, strict=True)) if row else None
+
+    def team_members(self, team_id: str) -> list[dict[str, Any]]:
+        """Üyeler: siteye katılıp katılmadığı (steam_id) ve FACEIT seviyesiyle."""
+        with self.cursor() as cur:
+            rows = cur.execute(
+                """
+                SELECT t.faceit_id, coalesce(w.nickname, p.nickname, t.nickname), t.status,
+                       w.steam_id IS NOT NULL, p.steam_id, p.level, p.elo
+                FROM web_team_members t
+                LEFT JOIN players p ON p.faceit_id = t.faceit_id
+                LEFT JOIN web_users w ON w.faceit_id = t.faceit_id
+                WHERE t.team_id = ? ORDER BY t.added_at
+                """, [team_id]).fetchall()
+        keys = ("faceit_id", "nickname", "status", "joined", "steam_id", "level", "elo")
+        return [dict(zip(keys, r, strict=True)) for r in rows]
+
+    def teams_of(self, faceit_id: str) -> list[dict[str, Any]]:
+        """Oyuncunun üyesi olduğu ya da davet edildiği takımlar (üye sayısıyla)."""
+        with self.cursor() as cur:
+            rows = cur.execute(
+                """
+                SELECT t.id, t.name, me.status,
+                       (SELECT count(*) FROM web_team_members x WHERE x.team_id = t.id) AS n
+                FROM web_teams t JOIN web_team_members me ON me.team_id = t.id
+                WHERE me.faceit_id = ? ORDER BY t.created_at DESC
+                """, [faceit_id]).fetchall()
+        return [dict(zip(("id", "name", "status", "members"), r, strict=True)) for r in rows]
+
+    def add_member(self, team_id: str, faceit_id: str, nickname: str, added_by: str) -> None:
+        with self.cursor() as cur:
+            cur.execute("INSERT INTO web_team_members (team_id, faceit_id, nickname, status, "
+                        "added_by) VALUES (?, ?, ?, 'davet', ?) ON CONFLICT DO NOTHING",
+                        [team_id, faceit_id, nickname, added_by])
+
+    def set_member_status(self, team_id: str, faceit_id: str, status: str) -> None:
+        with self.cursor() as cur:
+            cur.execute("UPDATE web_team_members SET status = ? WHERE team_id = ? AND faceit_id = ?",
+                        [status, team_id, faceit_id])
+
+    def remove_member(self, team_id: str, faceit_id: str) -> None:
+        with self.cursor() as cur:
+            cur.execute("DELETE FROM web_team_members WHERE team_id = ? AND faceit_id = ?",
+                        [team_id, faceit_id])
