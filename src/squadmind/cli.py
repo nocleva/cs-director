@@ -361,6 +361,7 @@ def web(
     from squadmind.config import (
         FACEIT_CLIENT_ID,
         FACEIT_CLIENT_SECRET,
+        FACEIT_FLOW,
         FACEIT_AUTHORIZE_URL,
         FACEIT_PKCE,
         WEB_BASE_URL,
@@ -386,7 +387,8 @@ def web(
                            map_name=WEB_MAP, uploads_dir=WEB_UPLOADS,
                            oauth=FaceitOAuth(FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL,
                                              pkce=FACEIT_PKCE,
-                                             authorize_base=FACEIT_AUTHORIZE_URL))
+                                             authorize_base=FACEIT_AUTHORIZE_URL,
+                                             flow=FACEIT_FLOW))
     if not settings.oauth.configured:
         console.print("[yellow]FACEIT ile giriş ayarlı değil (FACEIT_CLIENT_ID): "
                       "nickname ile katılım açık.[/yellow]")

@@ -219,12 +219,42 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         except BadSignature:
             return join_page(request, "", "Giriş süresi doldu; tekrar dene.")
         davet = str(pending.get("d", ""))
+        if not code and not error and oauth.flow == "implicit":
+            # Anahtar adresin # kısmında: sunucuya gelmez, küçük sayfa okuyup POST eder
+            return page(request, "faceit_return.html")
         if error or not code:
             return join_page(request, davet, "FACEIT girişi tamamlanmadı.")
         if not hmac.compare_digest(state, str(pending.get("s", ""))):
             return join_page(request, davet, "Giriş isteği doğrulanamadı; tekrar dene.")
         try:
             user = oauth.fetch_user(code, str(pending["v"]))
+            with client_factory() as client:
+                profile = client.get_player(user["guid"])
+        except FaceitAuthError as exc:
+            return join_page(request, davet, str(exc))
+        except FaceitAPIError as exc:
+            return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
+        return enter(request, profile, invite_ok(davet), davet, verified=True)
+
+    @app.post("/giris/faceit/anahtar", response_class=HTMLResponse)
+    def faceit_token(request: Request, access_token: str = Form(""), state: str = Form(""),
+                     error: str = Form("")):
+        """Implicit akış: dönüş sayfası # kısmındaki anahtarı ve state'i buraya gönderir."""
+        if oauth is None:
+            raise HTTPException(404, "FACEIT ile giriş ayarlı değil.")
+        try:
+            pending = login_signer.loads(request.cookies.get(LOGIN_COOKIE, ""), max_age=LOGIN_SECONDS)
+        except BadSignature:
+            return join_page(request, "", "Giriş süresi doldu; tekrar dene.")
+        davet = str(pending.get("d", ""))
+        if error or not access_token:
+            log.warning("FACEIT implicit dönüşü anahtarsız: %s", error[:200])
+            detail = f": {error[:80]}" if error else "."
+            return join_page(request, davet, f"FACEIT girişi tamamlanmadı{detail}")
+        if not hmac.compare_digest(state, str(pending.get("s", ""))):
+            return join_page(request, davet, "Giriş isteği doğrulanamadı; tekrar dene.")
+        try:
+            user = oauth.user_from_token(access_token)
             with client_factory() as client:
                 profile = client.get_player(user["guid"])
         except FaceitAuthError as exc:

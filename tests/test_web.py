@@ -354,8 +354,44 @@ def test_map_art_is_served_and_cached(web):
 
 def test_faceit_authorize_url_pkce_toggle():
     from squadmind.web.faceit_auth import FaceitOAuth
-    off = FaceitOAuth("id", "sec", "https://app.squadmind.info", pkce=False).authorize_url("st", "ch")
+    off = FaceitOAuth("id", "sec", "https://app.squadmind.info", pkce=False, flow="code").authorize_url("st", "ch")
     assert "code_challenge" not in off and "redirect_popup=true" in off and "state=st" in off
-    on = FaceitOAuth("id", "sec", "https://app.squadmind.info").authorize_url("st", "ch")
+    on = FaceitOAuth("id", "sec", "https://app.squadmind.info", flow="code").authorize_url("st", "ch")
     assert on.startswith("https://accounts.faceit.com?")
     assert "code_challenge=ch" in on and "code_challenge_method=S256" in on
+
+
+def test_faceit_implicit_flow(tmp_path, make_client, monkeypatch):
+    """Implicit: dönüş sayfası anahtarı POST eder, sunucu userinfo'dan kimliği alır."""
+    from squadmind.web.faceit_auth import FaceitAuthError, FaceitOAuth
+
+    oauth = FaceitOAuth("id", "sec", "https://app.squadmind.info")
+    url = oauth.authorize_url("st", "ch")
+    assert "response_type=token" in url and "code_challenge" not in url
+
+    def fake_user(self, token):
+        if token != "iyi":
+            raise FaceitAuthError("geçersiz anahtar")
+        return {"guid": "p-self"}
+
+    monkeypatch.setattr(FaceitOAuth, "user_from_token", fake_user)
+    store = Store(tmp_path / "web.duckdb")
+    worker = Worker(store, tmp_path / "p", tmp_path / "t", client_factory=make_client)
+    worker.submit = lambda job: None
+    settings = WebSettings(invite_code=INVITE, secret="s", required_demos=10, team_owner=None,
+                           map_name=None, uploads_dir=tmp_path / "u", oauth=oauth)
+    client = TestClient(create_app(settings, store, worker, client_factory=make_client))
+    try:
+        r = client.get("/giris/faceit", follow_redirects=False)
+        state = r.headers["location"].split("state=")[1].split("&")[0]
+        back = client.get("/giris/faceit/donus")            # # kısmı sunucuya gelmez
+        assert "giris/faceit/anahtar" in back.text
+        bad = client.post("/giris/faceit/anahtar", data={"access_token": "kotu", "state": state})
+        assert "geçersiz anahtar" in bad.text and store.users() == []
+        wrong = client.post("/giris/faceit/anahtar", data={"access_token": "iyi", "state": "sahte"})
+        assert "doğrulanamadı" in wrong.text
+        ok = client.post("/giris/faceit/anahtar", data={"access_token": "iyi", "state": state},
+                         follow_redirects=False)
+        assert ok.headers["location"] == "/ben" and store.users()[0].nickname == "TestNick"
+    finally:
+        store.close()

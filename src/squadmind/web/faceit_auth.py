@@ -52,6 +52,10 @@ class FaceitOAuth:
     # (doğrulayıcısız istek doğru gizli anahtarla da 401); FACEIT_PKCE=0 ile kapatılır
     pkce: bool = True
     authorize_base: str = AUTHORIZE_URL
+    # Akış: "implicit" (FACEIT erişim anahtarını dönüş adresinin # kısmında verir; token adımı
+    # yok) ya da "code" (yetki kodu + token adımı). 23.10.2026: code akışında token adımı her
+    # biçimde 401 verdiği için varsayılan implicit; FACEIT_FLOW ile değişir
+    flow: str = "implicit"
 
     @property
     def configured(self) -> bool:
@@ -64,7 +68,7 @@ class FaceitOAuth:
     def authorize_url(self, state: str, challenge: str) -> str:
         """Kullanıcının yönlendirileceği FACEIT giriş sayfası."""
         params = {
-            "response_type": "code",
+            "response_type": "code" if self.flow == "code" else "token",
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
             # FACEIT: true = giriş sonrası açılan sayfayı dönüş adresine yönlendir (false hata verir)
@@ -72,7 +76,7 @@ class FaceitOAuth:
             "scope": "openid profile",
             "state": state,
         }
-        if self.pkce:
+        if self.flow == "code" and self.pkce:
             params |= {"code_challenge": challenge, "code_challenge_method": "S256"}
         return f"{self.authorize_base}?{urlencode(params)}"
 
@@ -107,12 +111,24 @@ class FaceitOAuth:
                 if tok.status_code != 200:
                     raise FaceitAuthError(f"FACEIT giriş anahtarı verilmedi ({tok.status_code}).")
                 access = tok.json().get("access_token")
-                info = http.get(USERINFO_URL, headers={"Authorization": f"Bearer {access}"})
-                if info.status_code != 200:
-                    raise FaceitAuthError(f"FACEIT kullanıcı bilgisi alınamadı ({info.status_code}).")
-                user = info.json()
         except httpx.HTTPError as exc:
             raise FaceitAuthError(f"FACEIT'e ulaşılamadı: {exc}") from exc
+        return self.user_from_token(access)
+
+    def user_from_token(self, access_token: str) -> dict[str, Any]:
+        """Erişim anahtarı → kullanıcı bilgisi (en az `guid`). Anahtar FACEIT'e sorularak
+        doğrulanır: sahte ya da süresi dolmuş anahtar kimlik vermez."""
+        if not access_token:
+            raise FaceitAuthError("FACEIT erişim anahtarı gelmedi.")
+        try:
+            with httpx.Client(timeout=self.timeout) as http:
+                info = http.get(USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
+        except httpx.HTTPError as exc:
+            raise FaceitAuthError(f"FACEIT'e ulaşılamadı: {exc}") from exc
+        if info.status_code != 200:
+            log.warning("FACEIT userinfo yanıtı %s", info.status_code)
+            raise FaceitAuthError(f"FACEIT kullanıcı bilgisi alınamadı ({info.status_code}).")
+        user = info.json()
         if not user.get("guid"):
             raise FaceitAuthError("FACEIT kullanıcı kimliği gelmedi.")
         return user
