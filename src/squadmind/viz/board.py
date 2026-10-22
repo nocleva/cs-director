@@ -44,6 +44,8 @@ class Theme:
     label_font: str
     label_upper: bool         # bölge adları büyük harf mi
     mono_font: str
+    wall_width: float = 7.0         # duvar konturu kalınlığı (zeminin dışına taşan yarısı görünür)
+    wall_opacity: float = 1.0
 
 
 # Keskin Taktik Masası: HUD hissi, ızgara, büyük harf etiketler
@@ -76,6 +78,19 @@ APPLE = Theme(
     grid=None, route_width=2.2,
     label_font="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif",
     label_upper=False, mono_font="SF Mono, Menlo, Consolas, monospace",
+)
+
+# Taktik: kullanıcının tasarım promptundaki değişkenler (koyu gri, ince beyaz çizgi, turuncu
+# bizim takım, turkuaz utility bilgisi, kırmızı rakip). Duvar: --line %70, 1,5 px görünür.
+# Hedef site: --map-high üstüne --accent %8 (opak karışım: üçgen izi bırakmaz)
+TAKTIK = Theme(
+    bg="#111214", floor_low="#1E2023", floor_mid="#272A2E", floor_high="#33373C",
+    wall="#E9EBEE", target_floor="#423C3A", label="#8B9198", text="#E9EBEE",
+    t="#F37321", support="#3DB5AE", t_ink="#111214", support_ink="#111214",
+    enemy="#E5484D", smoke="#E9EBEE", flash="#E9EBEE", molly="#F37321",
+    grid=None, route_width=1.5, label_font="Inter, Segoe UI, Helvetica, Arial, sans-serif",
+    label_upper=True, mono_font="Inter, Segoe UI, sans-serif",
+    wall_width=3.0, wall_opacity=0.7,
 )
 
 # Oyuncu rolleri (renk temadan gelir); eski adlar geriye uyumluluk için
@@ -308,7 +323,8 @@ def render_board(board: Board, width: int = 1000, pad: int = 28,
 
     # 1) Kontur: tüm alanlar kalın duvar rengiyle (dış kenar duvar gibi görünür)
     walls = " ".join(poly_d(poly) for poly, _ in polys)
-    out.append(f'<path d="{walls}" fill="{th.wall}" stroke="{th.wall}" stroke-width="7" stroke-linejoin="round"/>')
+    out.append(f'<path d="{walls}" fill="{th.wall}" fill-opacity="{th.wall_opacity}" stroke="{th.wall}" '
+               f'stroke-opacity="{th.wall_opacity}" stroke-width="{th.wall_width}" stroke-linejoin="round"/>')
     # 2) Zemin: yükseklik bandına göre ton; aynı renkte ince çizgi alan aralarını kapatır
     for color, cond in ((th.floor_low, lambda z: z < Z_LOW), (th.floor_mid, lambda z: Z_LOW <= z < Z_HIGH),
                         (th.floor_high, lambda z: z >= Z_HIGH)):
