@@ -16,9 +16,12 @@ import numpy as np
 import polars as pl
 from awpy import Demo, VisibilityChecker
 
+from director.parse.damage import cap_damage
+
 # Parser sürümü: DB'deki hangi maçın hangi alanlara sahip olduğunu ayırt etmek için.
 # v1: ilk sürüm · v2: kill'de wallbang (penetrated) + hasar tablosu (duvar arkası tespiti)
-PARSER_VERSION = 2
+# v3: utility (HE / molotof) hasarı kurbanın kalan canına göre kırpılır
+PARSER_VERSION = 3
 
 # Görüş kontrolü: ayakta / çömelik göz yüksekliği ve kurbanın baş / gövde / ayak noktası
 # (Hammer birimi). Herhangi bir göz → hedef çizgisi açıksa vuruş "direkt" sayılır.
@@ -460,11 +463,14 @@ def build_utility(demo: Demo, proj: pl.DataFrame, windows: pl.DataFrame,
     hes = _attach_by_entity(
         _detonations(events, "hegrenade_detonate"), proj, "he"
     ).with_row_index("hid")
-    he_dmg = demo.damages.filter(pl.col("weapon") == "hegrenade").select(
+    # Hasar kalan cana göre kırpılır: 10 canı kalan rakibe HE 10 hasar sayılır
+    capped = cap_damage(assign_round(demo.damages, windows), ["round_no", "victim_steamid"],
+                        out="dmg_capped")
+    he_dmg = capped.filter(pl.col("weapon") == "hegrenade").select(
         pl.col("tick").cast(pl.Int64).alias("dtick"),
         pl.col("attacker_steamid").alias("thrower_steamid"),
         pl.when(pl.col("victim_side") != pl.col("attacker_side"))
-        .then(pl.col("dmg_health")).otherwise(0).cast(pl.Float64).alias("dmg"),
+        .then(pl.col("dmg_capped")).otherwise(0).cast(pl.Float64).alias("dmg"),
     )
     he_fx = (
         hes.select("hid", "tick", "thrower_steamid")
@@ -508,11 +514,11 @@ def build_utility(demo: Demo, proj: pl.DataFrame, windows: pl.DataFrame,
         pl.coalesce("fire_thrower_name", "thrower_name").alias("thrower_name"),
         pl.coalesce("fire_thrower_side", "thrower_side").alias("thrower_side"),
     )
-    fire_dmg = demo.damages.filter(pl.col("weapon").is_in(FIRE_DAMAGE_WEAPONS)).select(
+    fire_dmg = capped.filter(pl.col("weapon").is_in(FIRE_DAMAGE_WEAPONS)).select(
         pl.col("tick").cast(pl.Int64).alias("dtick"),
         pl.col("attacker_steamid").alias("thrower_steamid"),
         pl.when(pl.col("victim_side") != pl.col("attacker_side"))
-        .then(pl.col("dmg_health")).otherwise(0).cast(pl.Float64).alias("dmg"),
+        .then(pl.col("dmg_capped")).otherwise(0).cast(pl.Float64).alias("dmg"),
     )
     m_fx = (
         m.select("mid", "tick", "fire_end", "thrower_steamid")

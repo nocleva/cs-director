@@ -14,6 +14,7 @@ import duckdb
 import polars as pl
 
 from director.analysis.player_metrics import (
+    DemoData,
     Rate,
     aggregate,
     economy_breakdown,
@@ -21,6 +22,7 @@ from director.analysis.player_metrics import (
     place_breakdown,
     player_match_metrics,
     weapon_breakdown,
+    weapon_exposure,
     weapon_place_breakdown,
 )
 from director.analysis.roles import (
@@ -40,6 +42,11 @@ MIN_EVENTS = 10
 # yüzdelerde mutlak puan, diğer metriklerde göreli oran
 MIN_PCT_POINTS = 0.05
 MIN_REL_DIFF = 0.15
+# Silah maruziyeti tablosunda gösterilecek en az round; bunun altı gösterilmez,
+# EXPOSURE_FEW altı "az örnek" diye işaretlenir
+EXPOSURE_MIN_ROUNDS = 5
+EXPOSURE_FEW = 15
+SNIPERS = ("awp", "scout")
 
 
 @dataclass(frozen=True)
@@ -318,7 +325,7 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
     lines.append("")
 
     # --- silah × bölge (kill + hasar + duvar arkası)
-    wp = weapon_place_breakdown(d, steam_id)
+    wp_all = wp = weapon_place_breakdown(d, steam_id)
     has_dmg = "damage" in wp.columns
     # Anlamlı satırlar: en az 3 kill ya da (hasar verisi varsa) en az 300 hasar
     keep = pl.col("kills") >= 3
@@ -359,6 +366,9 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
         lines.append(f"- {n_all - n_v2} maç eski parser ile işlendi; wallbang ve hasar verisi "
                      "için demoları yeniden işlenmeli.")
     lines.append("")
+
+    # --- silah maruziyeti: toplam yerine "o silahla oynanan round" başına
+    lines += _exposure_section(d, steam_id, wp_all)
 
     # --- bölgeler
     lines += ["## Bölgeler", ""]
@@ -402,3 +412,60 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
     ]
     return PlayerReport(nick, "\n".join(lines), mine.height,
                         t_role.name if t_role else None, ct_role.name if ct_role else None)
+
+
+def _exposure_table(ex: pl.DataFrame, with_side: bool = True) -> list[str]:
+    """weapon_exposure çıktısını round başına oranlarla Markdown tabloya çevirir."""
+    ex = ex.filter(pl.col("rounds") >= EXPOSURE_MIN_ROUNDS)
+    if ex.height == 0:
+        return ["Yeterli round yok.", ""]
+    side_head, side_sep = ("Taraf | ", "---|") if with_side else ("", "")
+    lines = [f"| {side_head}Ana silah | Round (full buy) | Round kazanma | Kill/R | "
+             "Ana silahla kill/R | Opening/R | Wallbang kill | Hasar/R | Duvar arkası hasar*/R "
+             "| Ölüm/R |",
+             f"|{side_sep}---|---|---|---|---|---|---|---|---|---|"]
+    for r in ex.iter_rows(named=True):
+        n = r["rounds"]
+        few = " (az örnek)" if n < EXPOSURE_FEW else ""
+        side = f"{r['side']} | " if with_side else ""
+        lines.append(
+            f"| {side}{r['main_weapon']} | {n} ({r['full_rounds']}){few} | "
+            f"%{100 * r['wins'] / n:.0f} | {r['kills'] / n:.2f} | {r['kills_main'] / n:.2f} | "
+            f"{r['openings'] / n:.2f} | {r['wallbangs']} ({r['wallbangs'] / n:.2f}/R) | "
+            f"{r['damage'] / n:.0f} | {r['wall_damage'] / n:.0f} | {r['deaths'] / n:.2f} |"
+        )
+    return lines + [""]
+
+
+def _exposure_section(d: DemoData, steam_id: str, wp: pl.DataFrame) -> list[str]:
+    """Ana silaha göre round başına performans; genel + keskin nişancı bölgesi."""
+    ex = weapon_exposure(d, steam_id)
+    if ex.height == 0:
+        return []
+    lines = ["## Silah maruziyeti (round başına)", "",
+             "Toplam kill, silahın kaç round kullanıldığını yok sayar. Burada her round'a "
+             "oyuncunun **ana silahı** atanır (konum kayıtlarında en çok elde tutulan birincil "
+             "silah; hiç yoksa pistol) ve değerler o silahla oynanan round sayısına bölünür. "
+             "Parantezdeki sayı, o round'lardan kaçında takımın full buy yaptığıdır: force "
+             "round'larda takımın donanımı da zayıftır, kazanma oranını düşürür.", ""]
+    lines += _exposure_table(ex)
+
+    # Keskin nişancı kill'lerinin en çok geldiği bölge: hem tüm round'lar hem full buy
+    sn = (wp.filter(pl.col("weapon").is_in(SNIPERS) & pl.col("place").is_not_null())
+          .group_by("place").agg(pl.col("kills").sum()).sort("kills", descending=True))
+    if sn.height and sn["kills"][0] >= MIN_EVENTS:
+        place = sn["place"][0]
+        for buy, title in ((None, "tüm round'lar"), ("full", "sadece full buy")):
+            part = weapon_exposure(d, steam_id, place, buy).filter(
+                pl.col("main_weapon").is_in(SNIPERS))
+            lines += [f"### {place}: AWP ve Scout, {title}", ""]
+            lines += _exposure_table(part)
+        lines.append(f"- {place} tablolarında sadece oyuncunun o bölgede bulunduğu round'lar var; "
+                     "kill, hasar ve ölüm de sadece o bölgeden sayılır.")
+    lines += [
+        "- Ana silah round boyunca en çok tutulan silahtır: AWP ile başlayıp düşürülen ya da "
+        "sonradan alınan silah round'u o silaha saymayabilir.",
+        "- (*) Duvar arkası hasar **tahmini** (bkz. Silah × bölge).",
+        "",
+    ]
+    return lines

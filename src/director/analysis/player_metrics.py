@@ -18,6 +18,7 @@ import duckdb
 import polars as pl
 
 from director.analysis.maps import ZONES
+from director.parse.damage import cap_damage
 
 # Silah kategorileri (kill dağılımı için)
 WEAPON_CATEGORIES = {
@@ -36,6 +37,10 @@ LURK_WINDOW = (5.0, 40.0)       # T: takımdan uzaklık ölçülen erken/orta fa
 CT_SETUP_WINDOW = (15.0, 35.0)  # CT: oyuncunun "tuttuğu" alan
 DEATH_EARLY, DEATH_LATE = 20.0, 60.0
 
+# Round'un "ana silahı" seçilirken bakılan birincil silah kategorileri
+# (bıçak, granat, pistol elde tutulsa da ana silah sayılmaz; birincil yoksa "pistol")
+PRIMARY_CATEGORIES = ("rifle", "awp", "scout", "smg", "heavy")
+
 
 @dataclass
 class DemoData:
@@ -48,7 +53,7 @@ class DemoData:
     positions: pl.DataFrame
     stats: pl.DataFrame       # demo_player_stats
     match_maps: pl.DataFrame  # match_id, map, date, parser_version
-    damages: pl.DataFrame | None = None  # parser v2+ maçlar için
+    damages: pl.DataFrame | None = None  # parser v2+ maçlar için; `dmg` = kırpılmış hasar
 
     def v2_match_ids(self) -> list[str]:
         """Wallbang ve hasar verisi olan (parser v2+) maçlar."""
@@ -93,12 +98,15 @@ def load_demo_data(con: duckdb.DuckDBPyConnection, map_name: str | None = None) 
         kills=per_match("SELECT * FROM kills WHERE list_contains(?, match_id)"),
         utility=per_match("SELECT * FROM utility WHERE list_contains(?, match_id)"),
         positions=per_match(
-            "SELECT match_id, round_no, tick, time_in_round, player, side, x, y, place_name "
+            "SELECT match_id, round_no, tick, time_in_round, player, side, x, y, place_name, "
+            "active_weapon "
             "FROM positions_snapshot WHERE list_contains(?, match_id)"
         ),
         stats=per_match("SELECT * FROM demo_player_stats WHERE list_contains(?, match_id)"),
         match_maps=maps,
-        damages=per_match("SELECT * FROM damages WHERE list_contains(?, match_id)"),
+        # DB'de ham hasar var; kalan cana göre kırpılmış `dmg` kolonu burada eklenir
+        damages=cap_damage(per_match("SELECT * FROM damages WHERE list_contains(?, match_id)"),
+                           ["match_id", "round_no", "victim"]),
     )
 
 
@@ -203,10 +211,10 @@ def ct_zone_behaviour(d: DemoData) -> pl.DataFrame:
 
 # --- (maç, oyuncu) ham sayımları -----------------------------------------------
 
-def _weapon_category() -> pl.Expr:
+def _weapon_category(col: str = "weapon") -> pl.Expr:
     expr = pl.lit("other")
     for cat, weapons in reversed(WEAPON_CATEGORIES.items()):
-        expr = pl.when(pl.col("weapon").is_in(weapons)).then(pl.lit(cat)).otherwise(expr)
+        expr = pl.when(pl.col(col).is_in(weapons)).then(pl.lit(cat)).otherwise(expr)
     return expr
 
 
@@ -452,7 +460,8 @@ def weapon_place_breakdown(d: DemoData, steam_id: str) -> pl.DataFrame:
     - kills / openings: o bölgeden o silahla (tüm maçlar)
     - wallbangs: motorun "mermi yüzey deldi" dediği kill'ler (parser v2+ maçlar)
     - deaths_here: oyuncunun o bölgede ölümü (silahtan bağımsız; bölgedeki bedel)
-    - damage / hits / wall_damage: hasar, isabet ve tahmini duvar arkası hasar (v2+ maçlar)
+    - damage / hits / wall_damage: kırpılmış hasar, isabet ve tahmini duvar arkası hasar
+      (v2+ maçlar)
     """
     weapon_cat = _weapon_category()
     k = (
@@ -479,9 +488,9 @@ def weapon_place_breakdown(d: DemoData, steam_id: str) -> pl.DataFrame:
             .with_columns(weapon_cat.alias("wcat"))
             .group_by(pl.col("attacker_place").alias("place"), "wcat")
             .agg(
-                pl.col("dmg_health").sum().alias("damage"),
+                pl.col("dmg").sum().alias("damage"),
                 pl.len().alias("hits"),
-                pl.col("dmg_health").filter(pl.col("through_wall")).sum().alias("wall_damage"),
+                pl.col("dmg").filter(pl.col("through_wall")).sum().alias("wall_damage"),
                 pl.col("through_wall").sum().alias("wall_hits"),
             )
         )
@@ -491,4 +500,130 @@ def weapon_place_breakdown(d: DemoData, steam_id: str) -> pl.DataFrame:
         .with_columns(pl.col(c).fill_null(0) for c in ("kills", "openings", "wallbangs"))
         .rename({"wcat": "weapon"})
         .sort("kills", descending=True)
+    )
+
+
+# --- silah maruziyeti (round başına karşılaştırma) ---------------------------
+
+_ROUND_KEY = ["match_id", "round_no"]
+
+
+def round_main_weapon(d: DemoData, steam_id: str) -> pl.DataFrame:
+    """Oyuncunun her round'daki ana silahı.
+
+    Ana silah = konum kayıtlarında (2 sn'de bir, sadece hayattayken) en çok elde
+    tutulan birincil silah kategorisi. AWP'ci koşarken bıçağa geçse de round AWP
+    round'u sayılır. Hiç birincil silah tutulmadıysa "pistol". Konum kaydı olmayan
+    round (ör. ilk saniyede ölüm) tabloda yer almaz.
+    Kolonlar: match_id, round_no, main_weapon, held_snaps (ana silahla kayıt sayısı)
+    """
+    empty = pl.DataFrame(schema={"match_id": pl.String, "round_no": pl.Int64,
+                                 "main_weapon": pl.String, "held_snaps": pl.UInt32})
+    if "active_weapon" not in d.positions.columns:
+        return empty
+    pos = d.positions.filter(pl.col("player") == steam_id)
+    if pos.height == 0:
+        return empty
+    held = (
+        pos.with_columns(_weapon_category("active_weapon").alias("wcat"))
+        .group_by(*_ROUND_KEY, "wcat").agg(pl.len().alias("held_snaps"))
+    )
+    # En çok tutulan birincil silah; eşitlikte alfabetik (deterministik olsun)
+    primary = (
+        held.filter(pl.col("wcat").is_in(PRIMARY_CATEGORIES))
+        .sort(["held_snaps", "wcat"], descending=[True, False])
+        .group_by(_ROUND_KEY, maintain_order=True).first()
+    )
+    return (
+        pos.select(_ROUND_KEY).unique()
+        .join(primary, on=_ROUND_KEY, how="left")
+        .with_columns(
+            pl.col("wcat").fill_null("pistol").alias("main_weapon"),
+            pl.col("held_snaps").fill_null(0),
+        )
+        .select(*_ROUND_KEY, "main_weapon", "held_snaps")
+        .cast({"round_no": pl.Int64, "held_snaps": pl.UInt32})
+    )
+
+
+def weapon_exposure(d: DemoData, steam_id: str, place: str | None = None,
+                    buy: str | None = None) -> pl.DataFrame:
+    """Ana silaha göre round başına performans (taraf × ana silah).
+
+    Toplam kill karşılaştırması, silahın kaç round kullanıldığını yok sayar; burada
+    payda "o silahla oynanan round" olur. `place` verilirse sadece oyuncunun o
+    bölgede bulunduğu round'lar (konum kaydı veya oradan kill / hasar / orada ölüm)
+    alınır ve olaylar sadece o bölgeden sayılır. `buy` verilirse (ör. "full") sadece
+    takımın o alım tipiyle oynadığı round'lar alınır; Scout'un force round'larda,
+    AWP'nin full buy'da kullanılması karşılaştırmayı bozmasın diye.
+
+    Kolonlar: side, main_weapon, rounds, full_rounds (takım full buy), wins, kills,
+    kills_main (ana silahla), openings, wallbangs, deaths, damage,
+    wall_damage (tahmini duvar arkası)
+    """
+    mw = round_main_weapon(d, steam_id)
+    pr = player_rounds(d).filter(pl.col("steam_id") == steam_id)
+    if buy is not None:
+        pr = pr.filter(pl.col("own_buy") == buy)
+    pr = pr.select(*_ROUND_KEY, "side", "won", "own_buy").cast({"round_no": pl.Int64})
+    base = mw.join(pr, on=_ROUND_KEY)
+
+    def key(df: pl.DataFrame) -> pl.DataFrame:
+        return df.select(_ROUND_KEY).cast({"round_no": pl.Int64})
+
+    kills = d.kills.filter((pl.col("attacker") == steam_id)
+                           & (pl.col("attacker_side") != pl.col("victim_side")))
+    deaths = d.kills.filter(pl.col("victim") == steam_id)
+    dmg = None
+    if d.damages is not None and d.damages.height:
+        dmg = d.damages.filter((pl.col("attacker") == steam_id)
+                               & (pl.col("attacker_side") != pl.col("victim_side")))
+
+    if place is not None:
+        kills = kills.filter(pl.col("attacker_place") == place)
+        deaths = deaths.filter(pl.col("victim_place") == place)
+        if dmg is not None:
+            dmg = dmg.filter(pl.col("attacker_place") == place)
+        # Oyuncunun o bölgede bulunduğu round'lar
+        present = [key(d.positions.filter((pl.col("player") == steam_id)
+                                          & (pl.col("place_name") == place))),
+                   key(kills), key(deaths)]
+        if dmg is not None:
+            present.append(key(dmg))
+        base = base.join(pl.concat(present).unique(), on=_ROUND_KEY, how="semi")
+
+    kills = kills.cast({"round_no": pl.Int64}).with_columns(_weapon_category().alias("wcat"))
+    per_round = [
+        kills.join(base.select(*_ROUND_KEY, "main_weapon"), on=_ROUND_KEY)
+        .group_by(_ROUND_KEY).agg(
+            pl.len().alias("kills"),
+            (pl.col("wcat") == pl.col("main_weapon")).sum().alias("kills_main"),
+            pl.col("is_opening").sum().alias("openings"),
+            (pl.col("penetrated").fill_null(0) > 0).sum().alias("wallbangs")
+            if "penetrated" in kills.columns else pl.lit(0).alias("wallbangs"),
+        ),
+        deaths.cast({"round_no": pl.Int64}).group_by(_ROUND_KEY).agg(pl.len().alias("deaths")),
+    ]
+    if dmg is not None:
+        per_round.append(
+            dmg.cast({"round_no": pl.Int64}).group_by(_ROUND_KEY).agg(
+                pl.col("dmg").sum().alias("damage"),
+                pl.col("dmg").filter(pl.col("through_wall")).sum().alias("wall_damage"),
+            )
+        )
+    out = base
+    for extra in per_round:
+        out = out.join(extra, on=_ROUND_KEY, how="left")
+    counts = ["kills", "kills_main", "openings", "wallbangs", "deaths", "damage", "wall_damage"]
+    for c in counts:
+        if c not in out.columns:
+            out = out.with_columns(pl.lit(None).alias(c))
+    return (
+        out.with_columns(pl.col(c).fill_null(0) for c in counts)
+        .group_by("side", "main_weapon")
+        .agg(pl.len().alias("rounds"),
+             (pl.col("own_buy") == "full").sum().alias("full_rounds"),
+             pl.col("won").sum().alias("wins"),
+             *(pl.col(c).sum() for c in counts))
+        .sort(["side", "rounds"], descending=[False, True])
     )

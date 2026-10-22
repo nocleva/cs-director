@@ -266,7 +266,7 @@ def test_weapon_place_breakdown_with_damage_and_wallbang(d):
     d.damages = pl.DataFrame({
         "match_id": [M] * 3, "attacker": [A, A, A], "attacker_side": ["CT", "CT", "CT"],
         "victim_side": ["T"] * 3, "weapon": ["awp", "awp", "ssg08"],
-        "dmg_health": [100, 40, 75], "attacker_place": ["LongA"] * 3,
+        "dmg_health": [100, 40, 75], "dmg": [100, 40, 75], "attacker_place": ["LongA"] * 3,
         "through_wall": [True, False, None],
     })
 
@@ -277,3 +277,69 @@ def test_weapon_place_breakdown_with_damage_and_wallbang(d):
     assert (awp["damage"], awp["hits"], awp["wall_damage"]) == (140, 2, 100)
     scout = wp.filter(pl.col("weapon") == "scout").row(0, named=True)
     assert (scout["kills"], scout["damage"]) == (1, 75)
+
+
+def test_cap_damage_clips_to_remaining_health():
+    from director.parse.damage import cap_damage
+
+    dm = pl.DataFrame({
+        "match_id": [M] * 5, "round_no": [1, 1, 1, 1, 2], "tick": [10, 20, 30, 40, 10],
+        "victim": [C, C, C, D, C],
+        # C round 1: 30 (takım arkadaşından da olsa can düşer) + 448 AWP (70 kalmıştı)
+        # + ölüdeki ek isabet → 30, 70, 0 · D: 27 · C round 2: can yeniden 100
+        "dmg_health": [30, 448, 15, 27, 120],
+    })
+    out = cap_damage(dm, ["match_id", "round_no", "victim"]).sort("victim", "round_no", "tick")
+    assert out["dmg"].to_list() == [30, 70, 0, 100, 27]
+
+
+def _with_weapons(d: DemoData, weapons: list[str]) -> DemoData:
+    d.positions = d.positions.with_columns(pl.Series("active_weapon", weapons))
+    return d
+
+
+def test_round_main_weapon_prefers_most_held_primary(d):
+    from director.analysis.player_metrics import round_main_weapon
+
+    # A'nın kayıtları: R3 (1 kayıt), R1 (3 kayıt), R2 (1 kayıt)
+    d = _with_weapons(d, ["knife", "ak47", "ak47", "awp", "awp", "knife", "ssg08",
+                          "m4a1", "m4a1", "ak47"])
+    mw = round_main_weapon(d, A).sort("round_no")
+    # R1: awp 2 kez (bıçak sayılmaz) · R2: scout · R3: sadece bıçak → pistol
+    assert mw["main_weapon"].to_list() == ["awp", "scout", "pistol"]
+    assert mw["held_snaps"].to_list() == [2, 1, 0]
+
+
+def test_round_main_weapon_without_weapon_column(d):
+    from director.analysis.player_metrics import round_main_weapon
+
+    assert round_main_weapon(d, A).height == 0
+
+
+def test_weapon_exposure_per_round_and_place(d):
+    from director.analysis.player_metrics import weapon_exposure
+
+    d = _with_weapons(d, ["knife", "ak47", "ak47", "awp", "awp", "knife", "ssg08",
+                          "m4a1", "m4a1", "ak47"])
+    d.damages = pl.DataFrame({
+        "match_id": [M] * 2, "round_no": [1, 1], "attacker": [A, A],
+        "attacker_side": ["CT", "CT"], "victim_side": ["T", "T"],
+        "dmg": [100, 60], "through_wall": [True, False],
+        "attacker_place": ["LongA", "LongA"],
+    })
+    ex = weapon_exposure(d, A).sort("side", "main_weapon")
+    ct_awp = ex.filter((pl.col("side") == "CT") & (pl.col("main_weapon") == "awp")).row(0, named=True)
+    # R1 (CT, kazanıldı): AWP opening + scout ile trade kill → 2 kill, 1'i ana silahla
+    assert (ct_awp["rounds"], ct_awp["wins"], ct_awp["kills"], ct_awp["kills_main"]) == (1, 1, 2, 1)
+    assert (ct_awp["openings"], ct_awp["damage"], ct_awp["wall_damage"]) == (1, 160, 100)
+    assert ct_awp["full_rounds"] == 0  # R1 pistol round
+    ct_scout = ex.filter((pl.col("side") == "CT") & (pl.col("main_weapon") == "scout")).row(0, named=True)
+    # R2: kayıp round, MidDoors'ta ölüm
+    assert (ct_scout["rounds"], ct_scout["wins"], ct_scout["deaths"]) == (1, 0, 1)
+
+    # MidDoors: sadece orada ölünen R2 kalır
+    mid = weapon_exposure(d, A, "MidDoors")
+    assert mid.select("main_weapon", "rounds", "deaths", "kills").rows() == [("scout", 1, 1, 0)]
+    # full buy filtresi: R1 (pistol round) elenir; R2 CT full (scout), R3 T full (sadece bıçak)
+    full = weapon_exposure(d, A, buy="full")
+    assert full.select("side", "main_weapon").sort("side").rows() == [("CT", "scout"), ("T", "pistol")]

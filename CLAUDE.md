@@ -174,8 +174,8 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | Faz | Durum |
 |---|---|
 | 0, 1a | ✅ FACEIT istemcisi, `sync` / `summary`. Kullanıcı: **Nocleva** (büyük N; FACEIT nickname büyük/küçük harfe duyarlı), level 9, 99 maç DB'de |
-| 1b | ✅ Demo inbox → awpy parse → DB. Parser v2 (wallbang + hasar). 18 Dust2 maçı işlendi, hepsi FACEIT ile doğrulandı |
-| 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, `director report player <nick> [--map dust2]` |
+| 1b | ✅ Demo inbox → awpy parse → DB. Parser v3 (wallbang + hasar; utility hasarı kırpılmış). 18 Dust2 maçı işlendi, hepsi FACEIT ile doğrulandı |
+| 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, silah maruziyeti (round başına), `director report player <nick> [--map dust2]` |
 | 1d | 🟡 `.claude/agents/` altında `director`, `scout`, `tactician` yazıldı; **henüz gerçek bir analizle denenmedi** (bitti kriteri: director rapordan yorum + öneri üretiyor) |
 | 2a+ | ⏳ Başlamadı |
 
@@ -204,23 +204,25 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - **Wallbang:** `kills.penetrated > 0` kesin (motor bilgisi). `damages.through_wall` tahmini: çoklu çizgi görüş kontrolü, wallbang'lerin ~%73'ünü yakalar, direkt vuruşların ~%3'ünü yanlış işaretler. Raporlarda "tahmini" diye geçer.
 - **Lobi karşılaştırması:** "iyi/kötü" yargısı aynı maçlardaki diğer oyunculara göre. Belirgin fark: yüzdelerde ≥5 puan, diğerlerinde ≥%15; ≥20 örnek ve ≥10 olay.
 - **Pozisyon değerlendirmesi** (kullanıcının isteği): sadece kill değil; opening, hasar, wallbang / duvar arkası vuruş, bölgede ölüm ve trade edilme birlikte.
+- **Hasar = kırpılmış hasar:** `damages.dmg_health` ham (20 canlıya AWP 115 yazar). Analiz `director.parse.damage.cap_damage` ile kalan cana göre kırpar (`dmg` kolonu, `load_demo_data` içinde); 180/180 oyuncu-maç ADR'ı FACEIT ile ≤2,3 farkla tutuyor. Parser v3 utility (HE / molotof) hasarını da kırpar.
+- **Silah karşılaştırması round başına:** her round'a oyuncunun ana silahı atanır (`round_main_weapon`: konum kayıtlarında en çok tutulan birincil silah, yoksa pistol); `weapon_exposure` taraf × ana silah, opsiyonel bölge ve alım tipi filtresiyle. Toplam kill/hasar ile silah kıyası yapılmaz.
 
 ### Şimdiye kadarki bulgular (Nocleva, 18 Dust2 maçı)
 - Rol: iki tarafta AWPer (güven yüksek; keskin nişancı payı %50 = AWP %30 + Scout %20, lobi %11). İkincil: T'de entry, CT'de Mid'den rotasyon (CT'de 15/18 maç Mid).
 - Lobiden iyi: K/D 1.19 (lobi 0.98), ADR 92 (78), T opening kazanma %58 (45 deneme; lobi %45), utility hasarı.
 - Lobiden zayıf: flash başına kör edilen takım arkadaşı 0.70 (lobi 0.56).
 - CT ölümlerinin %34'ü Mid Doors'ta (47 ölüm), sadece 2'si trade edildi.
-- Mid Doors (CT) Scout vs AWP: ikisi de 30 kill / 10 opening; Scout 14 wallbang kill (AWP 3), hasar 7.227 vs 5.741. **Dikkat:** her silahın kaç round elde tutulduğu (maruziyet) henüz hesaba katılmadı.
+- Mid Doors (CT) Scout vs AWP, **round başına**: toplamda eşit görünen kill/opening (30/10) maruziyet farkından. Scout 77 round (41'i force), AWP 51 round. Sadece full buy (AWP 50, Scout 36 round): kill/R 0,60 vs 0,42 · opening/R 0,20 vs 0,08 · hasar/R 65 vs 64 · wallbang kill/R 0,06 vs 0,14 · round kazanma %60 vs %56. Yani AWP kill ve opening'de önde, Scout hasarda eşit ve duvar arkasında önde, ~3.000$ ucuz. (Önceki "Scout hasarı 7.227" rakamı kırpılmamış hasardı; kırpılmış 4.605.)
 - FACEIT geneli: Dust2 %71 kazanma; Mirage %31 (13 maç), Inferno K/D 0.80 (9 maç) zayıf.
 
 ### Açık işler (öncelik sırasıyla)
-1. **Silah maruziyeti:** `positions_snapshot.active_weapon` ile her silahın elde tutulduğu round sayısını hesapla; Scout/AWP karşılaştırmasını round başına yap, rapora ekle.
-2. **director ajanını dene:** "director ajanını kullanarak Nocleva'yı analiz et" → çıktıyı kullanıcıyla değerlendir, ajan talimatlarını iyileştir (Faz 1d bitti kriteri).
-3. `inbox/` içindeki `1-806933ec-...dem.zst` awpy ile okunamıyor (protobuf UTF-8 hatası); kullanıcı silecek ya da başka bir parser (demoparser2) denenecek.
-4. Faz 2a: T tarafı ilk 20 sn pozisyonlarından taktik desenleri (default / rush / split / execute) + ekonomi kararları → `director report team`.
-5. Diğer haritalar için `analysis/maps.py` alan tanımı (şimdilik sadece Dust2).
+1. **director ajanını dene:** "director ajanını kullanarak Nocleva'yı analiz et" → çıktıyı kullanıcıyla değerlendir, ajan talimatlarını iyileştir (Faz 1d bitti kriteri).
+2. `inbox/` içindeki `1-806933ec-...dem.zst` awpy ile okunamıyor (protobuf UTF-8 hatası); kullanıcı silecek ya da başka bir parser (demoparser2) denenecek.
+3. Faz 2a: T tarafı ilk 20 sn pozisyonlarından taktik desenleri (default / rush / split / execute) + ekonomi kararları → `director report team`.
+4. Diğer haritalar için `analysis/maps.py` alan tanımı (şimdilik sadece Dust2).
 
 ### Bilinen teknik tuzaklar
 - DuckDB 2.x: `.pl()` yok → `pl.from_arrow(con.cursor().sql(sql, params=...).to_arrow_table())`. Açık sonuç varken aynı bağlantıda yeni sorgu hata verir (ayrı `cursor()` kullan). `ON CONFLICT DO UPDATE` içinde `current_timestamp` yerine `now()`.
 - Polars DataFrame'i DuckDB'ye yazmak için `pyarrow` gerekir.
-- awpy: `kills`/`smokes` ısınma round'unu da içerir (`round_windows` ile elenir); smoke atanı çoğunlukla boş gelir (`resolve_projectiles` ile `shots`'tan eşlenir); bölge adı ham alan `m_szLastPlaceName`.
+- DuckDB 2.x relation'da `fetchone()` yok → `.fetchall()[0]`. `matches.map` değerleri `de_` önekli (`de_dust2`); CLI `--map dust2` kabul eder.
+- awpy: `damages.dmg_health` kırpılmamış ham hasar (bkz. kararlar). `kills`/`smokes` ısınma round'unu da içerir (`round_windows` ile elenir); smoke atanı çoğunlukla boş gelir (`resolve_projectiles` ile `shots`'tan eşlenir); bölge adı ham alan `m_szLastPlaceName`.
