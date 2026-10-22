@@ -111,11 +111,31 @@ def _insert(con: duckdb.DuckDBPyConnection, table: str, match_id: str, df: pl.Da
     return frame.height
 
 
+DEMO_TABLES = ("rounds", "kills", "utility", "positions_snapshot", "demo_player_stats")
+
+
+def discard_demo_data(con: duckdb.DuckDBPyConnection, match_id: str) -> None:
+    """Güvenilmeyen demonun verilerini DB'den çıkarır, maçı 'mismatch' olarak işaretler."""
+    con.execute("BEGIN TRANSACTION")
+    try:
+        for table in DEMO_TABLES:
+            con.execute(f"DELETE FROM {table} WHERE match_id = ?", [match_id])
+        con.execute("UPDATE match_player_stats SET kast = NULL WHERE match_id = ?", [match_id])
+        con.execute(
+            "UPDATE matches SET demo_status = 'mismatch', updated_at = now() WHERE match_id = ?",
+            [match_id],
+        )
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+
+
 def save_demo_tables(con: duckdb.DuckDBPyConnection, match_id: str, tables: DemoTables) -> None:
     """Bir maçın demo tablolarını yazar. Aynı maç tekrar işlenirse önce eskisini siler."""
     con.execute("BEGIN TRANSACTION")
     try:
-        for table in ("rounds", "kills", "utility", "positions_snapshot", "demo_player_stats"):
+        for table in DEMO_TABLES:
             con.execute(f"DELETE FROM {table} WHERE match_id = ?", [match_id])
 
         _insert(con, "rounds", match_id, tables.rounds)
@@ -266,6 +286,10 @@ def ingest_demo(
         result.positions = tables.positions.height
         result.validation = validate_against_faceit(con, match_id)
 
+        # FACEIT ile tutmuyorsa veriye güvenme: analizleri kirletmesin diye DB'den çıkar
+        if result.validated is False:
+            discard_demo_data(con, match_id)
+
         if delete_after:
             reason = keep_reason(result)
             if reason is None:
@@ -293,7 +317,7 @@ def keep_reason(result: DemoIngestResult) -> str | None:
     if result.rounds == 0 or result.kills == 0:
         return "demodan veri çıkmadı"
     if result.validated is False:
-        return "FACEIT ile fark var, inceleme için saklandı"
+        return "FACEIT ile fark var; veriler DB'ye alınmadı, demo inceleme için saklandı"
     return None
 
 

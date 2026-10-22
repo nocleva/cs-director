@@ -147,6 +147,12 @@ def test_validation_flags_mismatch(tmp_path, make_client, con):
 
     bad = [v.nickname for v in r.validation if not v.ok]
     assert bad == ["Mate"] and r.validated is False
+    # Güvenilmeyen veri DB'den çıkarılır, maç işaretlenir
+    assert con.execute("SELECT count(*) FROM kills WHERE match_id = ?", [M1]).fetchone()[0] == 0
+    assert con.execute("SELECT demo_status FROM matches WHERE match_id = ?", [M1]).fetchone()[0]         == "mismatch"
+    assert con.execute(
+        "SELECT count(*) FROM match_player_stats WHERE match_id = ? AND kast IS NOT NULL", [M1]
+    ).fetchone()[0] == 0
 
 
 def test_reingest_replaces_rows(tmp_path, make_client, con):

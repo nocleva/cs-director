@@ -279,6 +279,8 @@ def ingest_demos(
             fate = "[green]silindi[/green] (veriler öğrenildi)"
         elif r.kept_reason:
             fate = f"[yellow]saklandı[/yellow]: {r.kept_reason}"
+        elif r.validated is False:
+            fate = "[yellow]saklandı[/yellow]: veriler DB'ye alınmadı"
         else:
             fate = "processed/'a taşındı"
         table.add_row(r.match_id[:14] + "…", (r.map_name or "").removeprefix("de_"),
