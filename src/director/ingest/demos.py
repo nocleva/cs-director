@@ -18,7 +18,7 @@ import duckdb
 import polars as pl
 import zstandard
 
-from director.parse.demo_parser import DemoTables, parse_demo
+from director.parse.demo_parser import PARSER_VERSION, DemoTables, parse_demo
 
 # FACEIT demo dosya adı maç ID'siyle başlar: "1-<uuid>-1-1.dem.zst"
 MATCH_ID_RE = re.compile(r"^(1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
@@ -111,7 +111,8 @@ def _insert(con: duckdb.DuckDBPyConnection, table: str, match_id: str, df: pl.Da
     return frame.height
 
 
-DEMO_TABLES = ("rounds", "kills", "utility", "positions_snapshot", "demo_player_stats")
+DEMO_TABLES = ("rounds", "kills", "utility", "positions_snapshot", "demo_player_stats",
+               "damages")
 
 
 def discard_demo_data(con: duckdb.DuckDBPyConnection, match_id: str) -> None:
@@ -143,14 +144,18 @@ def save_demo_tables(con: duckdb.DuckDBPyConnection, match_id: str, tables: Demo
         _insert(con, "utility", match_id, tables.utility)
         _insert(con, "positions_snapshot", match_id, tables.positions)
         _insert(con, "demo_player_stats", match_id, tables.player_stats)
+        if tables.damages is not None:
+            _insert(con, "damages", match_id, tables.damages)
 
         # Maç DB'de yoksa (sync yapılmamış) en azından harita ile kayıt aç
         con.execute(
             """
-            INSERT INTO matches (match_id, map, demo_status) VALUES (?, ?, 'processed')
-            ON CONFLICT (match_id) DO UPDATE SET demo_status = 'processed', updated_at = now()
+            INSERT INTO matches (match_id, map, demo_status, parser_version)
+            VALUES (?, ?, 'processed', ?)
+            ON CONFLICT (match_id) DO UPDATE SET demo_status = 'processed',
+                parser_version = excluded.parser_version, updated_at = now()
             """,
-            [match_id, tables.map_name],
+            [match_id, tables.map_name, PARSER_VERSION],
         )
 
         # Her round'da CT olan takım (faction): o round'daki CT konumlarının çoğunluğu
@@ -300,9 +305,10 @@ def ingest_demo(
                 return result
             result.kept_reason = reason
 
-        # Saklanacak: orijinal dosyayı processed/'a taşı
+        # Saklanacak: orijinal dosyayı processed/'a taşı (zaten oradaysa dokunma)
         processed_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(demo_file), str(processed_dir / demo_file.name))
+        if demo_file.parent.resolve() != processed_dir.resolve():
+            shutil.move(str(demo_file), str(processed_dir / demo_file.name))
     except Exception as exc:  # demo bozuk / parse hatası: diğer demolar devam etsin
         result.error = f"{type(exc).__name__}: {exc}"
     finally:

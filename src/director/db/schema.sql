@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS matches (
     winner       VARCHAR,                -- 'faction1' / 'faction2'
     competition  VARCHAR,
     demo_url     VARCHAR,
-    demo_status  VARCHAR,                -- pending / missing / downloaded / processed
+    demo_status  VARCHAR,                -- pending / missing / processed / mismatch
+    parser_version INTEGER,              -- demoyu işleyen parser sürümü (hangi alanlar var)
     updated_at   TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -99,6 +100,8 @@ CREATE TABLE IF NOT EXISTS kills (
     victim_y        DOUBLE,
     victim_z        DOUBLE,
     is_opening      BOOLEAN,             -- round'un ilk kill'i
+    penetrated      INTEGER,             -- delinen yüzey sayısı (>0 = wallbang); parser v2+
+    noscope         BOOLEAN,
     is_trade_kill   BOOLEAN,             -- bu kill bir takım arkadaşının intikamı
     is_traded       BOOLEAN              -- bu ölüm kısa sürede trade edildi
 );
@@ -169,4 +172,23 @@ CREATE TABLE IF NOT EXISTS demo_player_stats (
     enemies_flashed       INTEGER,
     flash_duration_dealt  DOUBLE,
     PRIMARY KEY (match_id, steam_id)
+);
+
+-- Her hasar olayı (parser v2+): kill olmayan vuruşlar, duvar/kapı arkası hasar dahil
+CREATE TABLE IF NOT EXISTS damages (
+    match_id        VARCHAR,
+    round_no        INTEGER,
+    tick            BIGINT,
+    time_in_round   DOUBLE,
+    attacker        VARCHAR,
+    attacker_side   VARCHAR,
+    victim          VARCHAR,
+    victim_side     VARCHAR,
+    weapon          VARCHAR,
+    dmg_health      INTEGER,
+    dmg_armor       INTEGER,
+    hitgroup        VARCHAR,
+    attacker_place  VARCHAR,
+    victim_place    VARCHAR,
+    through_wall    BOOLEAN              -- göz → gövde çizgisi harita geometrisiyle kesiliyor
 );

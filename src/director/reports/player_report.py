@@ -21,6 +21,7 @@ from director.analysis.player_metrics import (
     place_breakdown,
     player_match_metrics,
     weapon_breakdown,
+    weapon_place_breakdown,
 )
 from director.analysis.roles import (
     AWP_THRESHOLD,
@@ -314,6 +315,49 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
     lines += ["## Silahlar", "", "| Silah | Kill | Pay | HS |", "|---|---|---|---|"]
     for weapon, k, hs, share in w.select("weapon", "kills", "hs", "share").iter_rows():
         lines.append(f"| {weapon} | {k} | %{100 * share:.0f} | {hs} |")
+    lines.append("")
+
+    # --- silah × bölge (kill + hasar + duvar arkası)
+    wp = weapon_place_breakdown(d, steam_id)
+    has_dmg = "damage" in wp.columns
+    # Anlamlı satırlar: en az 3 kill ya da (hasar verisi varsa) en az 300 hasar
+    keep = pl.col("kills") >= 3
+    if has_dmg:
+        keep = keep | (pl.col("damage").fill_null(0) >= 300)
+    wp = wp.filter(keep).head(12)
+    v2 = [m for m in d.v2_match_ids() if m in set(mine["match_id"].to_list())]
+    n_all, n_v2 = mine.height, len(v2)
+    lines += ["## Silah × bölge", "",
+              "Oyuncunun hangi bölgeden hangi silahla iş gördüğü. Sadece kill değil: verilen "
+              "hasar ve kapı / duvar arkasından vuruşlar da. Kolon başlığındaki maç sayısına "
+              "dikkat: hasar ve wallbang verisi daha az maçta var.", ""]
+    head = (f"| Bölge | Silah | Kill ({n_all} maç) | Opening ({n_all}) | Bölgede ölüm ({n_all}) "
+            f"| Wallbang kill ({n_v2}) |")
+    sep = "|---|---|---|---|---|---|"
+    if has_dmg:
+        head += f" Hasar ({n_v2}) | İsabet ({n_v2}) | Duvar arkası hasar* ({n_v2}) |"
+        sep += "---|---|---|"
+    lines += [head, sep]
+    for r in wp.iter_rows(named=True):
+        line = (f"| {r['place'] or '?'} | {r['weapon']} | {r['kills']} | {r['openings']} | "
+                f"{r['deaths_here'] or 0} | {r['wallbangs']} |")
+        if has_dmg:
+            line += (f" {r['damage'] or 0:.0f} | {r['hits'] or 0} | "
+                     f"{r['wall_damage'] or 0:.0f} ({r['wall_hits'] or 0} isabet) |")
+        lines.append(line)
+    lines += [
+        "",
+        "- Wallbang kill kesin: oyun motorunun \"mermi yüzey deldi\" bilgisi.",
+    ]
+    if has_dmg:
+        lines.append(
+            "- (*) Duvar arkası hasar **tahmini**: harita geometrisiyle görüş kontrolü. "
+            "Gerçek duvar arkası vuruşların ~%73'ünü yakalar, direkt vuruşların ~%3'ünü "
+            "yanlışlıkla duvar arkası sayar."
+        )
+    if n_v2 < n_all:
+        lines.append(f"- {n_all - n_v2} maç eski parser ile işlendi; wallbang ve hasar verisi "
+                     "için demoları yeniden işlenmeli.")
     lines.append("")
 
     # --- bölgeler

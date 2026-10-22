@@ -314,6 +314,32 @@ def ingest_demos(
             console.print(t)
 
 
+@app.command("reprocess-demos")
+def reprocess_demos(db: Path = DbOption) -> None:
+    """processed/ içindeki demoları güncel parser ile yeniden işler (dosyalar yerinde kalır).
+
+    Parser yeni alanlar kazandığında (ör. wallbang, hasar) eski maçları güncellemek için.
+    """
+    pending = find_demos(DEMOS_PROCESSED)
+    if not pending:
+        console.print(f"[yellow]Yeniden işlenecek demo yok:[/yellow] {DEMOS_PROCESSED}")
+        return
+    with connect(db) as con:
+        init_db(con)
+        with console.status("Demolar yeniden işleniyor...") as status:
+            results = ingest_inbox(
+                con, DEMOS_PROCESSED, DEMOS_PROCESSED, DEMOS_TMP,
+                on_start=lambda f: status.update(f"İşleniyor: {f.name}"),
+                delete_after=False,
+            )
+    ok = [r for r in results if not r.error and r.validated is not False]
+    console.print(f"[green]{len(ok)}/{len(results)} demo güncellendi.[/green]")
+    for r in results:
+        if r.error or r.validated is False:
+            console.print(f"  [yellow]{r.match_id or r.file}[/yellow]: "
+                          f"{r.error or 'FACEIT ile fark var, veriler DB dışı'}")
+
+
 @app.command("clean-demos")
 def clean_demos(
     yes: bool = typer.Option(False, "--yes", "-y", help="Onay sormadan sil"),

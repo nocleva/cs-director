@@ -255,3 +255,25 @@ def test_player_report_unknown_player(con):
 
     with pytest.raises(LookupError):
         build_player_report(con, "kimse")
+
+
+def test_weapon_place_breakdown_with_damage_and_wallbang(d):
+    from director.analysis.player_metrics import weapon_place_breakdown
+
+    d.kills = d.kills.with_columns(
+        pl.Series("penetrated", [1, 0, 0, 0, 0, 0, 0], dtype=pl.Int32)
+    )
+    d.damages = pl.DataFrame({
+        "match_id": [M] * 3, "attacker": [A, A, A], "attacker_side": ["CT", "CT", "CT"],
+        "victim_side": ["T"] * 3, "weapon": ["awp", "awp", "ssg08"],
+        "dmg_health": [100, 40, 75], "attacker_place": ["LongA"] * 3,
+        "through_wall": [True, False, None],
+    })
+
+    wp = weapon_place_breakdown(d, A)
+    awp = wp.filter((pl.col("place") == "LongA") & (pl.col("weapon") == "awp")).row(0, named=True)
+    # R1 opening AWP kill (wallbang) + R3 AWP kill → 2 kill, 2 opening, 1 wallbang
+    assert (awp["kills"], awp["openings"], awp["wallbangs"]) == (2, 2, 1)
+    assert (awp["damage"], awp["hits"], awp["wall_damage"]) == (140, 2, 100)
+    scout = wp.filter(pl.col("weapon") == "scout").row(0, named=True)
+    assert (scout["kills"], scout["damage"]) == (1, 75)

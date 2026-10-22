@@ -14,7 +14,22 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
-from awpy import Demo
+from awpy import Demo, VisibilityChecker
+
+# Parser sürümü: DB'deki hangi maçın hangi alanlara sahip olduğunu ayırt etmek için.
+# v1: ilk sürüm · v2: kill'de wallbang (penetrated) + hasar tablosu (duvar arkası tespiti)
+PARSER_VERSION = 2
+
+# Görüş kontrolü: ayakta / çömelik göz yüksekliği ve kurbanın baş / gövde / ayak noktası
+# (Hammer birimi). Herhangi bir göz → hedef çizgisi açıksa vuruş "direkt" sayılır.
+# 4 demoda motorun wallbang kill bilgisiyle ölçüldü: wallbang'lerin %73'ünü yakalar,
+# direkt vuruşların %3'ünü yanlışlıkla duvar arkası sayar (tek çizgide bu %14'tü).
+EYE_HEIGHTS = (64.0, 46.0)
+TARGET_HEIGHTS = (64.0, 40.0, 12.0)
+
+# Mermi atmayan hasar kaynakları: duvar arkası kontrolü bunlar için anlamsız
+NON_BULLET_WEAPONS = {"hegrenade", "inferno", "molotov", "incgrenade", "planted_c4", "world",
+                      "knife", "knife_t", "taser"}
 
 # awpy taraf adları → raporlarda kullandığımız kısa adlar
 SIDE_MAP = {"counter-terrorist": "CT", "terrorist": "T"}
@@ -54,6 +69,7 @@ class DemoTables:
     utility: pl.DataFrame
     positions: pl.DataFrame
     player_stats: pl.DataFrame
+    damages: pl.DataFrame | None = None
 
 
 # --- yardımcılar -------------------------------------------------------------
@@ -217,10 +233,65 @@ def build_kills(kills: pl.DataFrame, places: pl.DataFrame, windows: pl.DataFrame
         pl.col("victim_y").cast(pl.Float64),
         pl.col("victim_z").cast(pl.Float64),
         "is_opening",
+        # Kaç yüzeyi delip geçti (0 = direkt; >0 = wallbang, ör. kapı arkasından)
+        pl.col("penetrated").cast(pl.Int32),
+        "noscope",
         # Bu kill bir takım arkadaşının ölümünün intikamı mı
         pl.col("is_trade").alias("is_trade_kill"),
         # Bu ölüm kısa sürede trade edildi mi
         pl.col("victim_traded").alias("is_traded"),
+    )
+
+
+def through_wall(df: pl.DataFrame, vis: VisibilityChecker | None) -> pl.Series:
+    """Tahmini duvar / kapı arkası vuruş: saldırgan ile kurban arasındaki tüm çizgiler kapalı mı.
+
+    Motor hasar olayında delme bilgisi vermez (kill'de verir: `penetrated`); bu yüzden
+    harita çarpışma modeliyle kontrol ederiz. Smoke görüşü engellemez (geometri değil).
+    Utility / dünya hasarı → None. Doğruluk için EYE_HEIGHTS açıklamasına bak.
+    """
+    if vis is None or df.height == 0:
+        return pl.Series("through_wall", [None] * df.height, dtype=pl.Boolean)
+    out: list[bool | None] = []
+    for ax, ay, az, vx, vy, vz, weapon in df.select(
+        "attacker_x", "attacker_y", "attacker_z", "victim_x", "victim_y", "victim_z", "weapon"
+    ).iter_rows():
+        if ax is None or vx is None or weapon in NON_BULLET_WEAPONS:
+            out.append(None)
+            continue
+        visible = any(
+            vis.is_visible((ax, ay, az + eye), (vx, vy, vz + target))
+            for eye in EYE_HEIGHTS for target in TARGET_HEIGHTS
+        )
+        out.append(not visible)
+    return pl.Series("through_wall", out, dtype=pl.Boolean)
+
+
+def build_damages(damages: pl.DataFrame, places: pl.DataFrame, windows: pl.DataFrame,
+                  tick_rate: float, vis: VisibilityChecker | None) -> pl.DataFrame:
+    """Her hasar olayı: kim, kime, hangi silahla, nereden nereye, duvar arkasından mı."""
+    d = assign_round(damages, windows).sort("tick").with_columns(pl.col("tick").cast(pl.Int64))
+    att = places.rename({"steamid": "attacker_steamid", "place": "attacker_place"})
+    vic = places.rename({"steamid": "victim_steamid", "place": "victim_place"})
+    d = d.join(att, on=["tick", "attacker_steamid"], how="left").join(
+        vic, on=["tick", "victim_steamid"], how="left"
+    )
+    d = d.with_columns(through_wall(d, vis))
+    return d.select(
+        "round_no",
+        "tick",
+        ((pl.col("tick") - pl.col("freeze_end_tick")) / tick_rate).alias("time_in_round"),
+        _steamid("attacker_steamid").alias("attacker"),
+        _side("attacker_side").alias("attacker_side"),
+        _steamid("victim_steamid").alias("victim"),
+        _side("victim_side").alias("victim_side"),
+        "weapon",
+        pl.col("dmg_health").cast(pl.Int32),
+        pl.col("dmg_armor").cast(pl.Int32),
+        pl.col("hitgroup_name").alias("hitgroup"),
+        "attacker_place",
+        "victim_place",
+        "through_wall",
     )
 
 
@@ -552,6 +623,14 @@ def parse_demo(path: Path | str) -> DemoTables:
 
     proj = resolve_projectiles(demo.grenades, demo.shots)
 
+    # Harita çarpışma modeli (ilk kullanımda awpy-data'dan indirilir); yoksa duvar
+    # arkası tespiti atlanır, diğer tablolar etkilenmez
+    map_name = demo.header.get("map_name", "")
+    try:
+        vis = VisibilityChecker(map_name) if map_name else None
+    except Exception:
+        vis = None
+
     players = demo.players.filter(pl.col("steamid") > 0).select(
         _steamid("steamid").alias("steamid"),
         "name",
@@ -560,7 +639,7 @@ def parse_demo(path: Path | str) -> DemoTables:
     )
 
     return DemoTables(
-        map_name=demo.header.get("map_name", ""),
+        map_name=map_name,
         tick_rate=tick_rate,
         players=players,
         rounds=build_rounds(demo.rounds, demo.round_economy, demo.bomb, windows),
@@ -568,4 +647,5 @@ def parse_demo(path: Path | str) -> DemoTables:
         utility=build_utility(demo, proj, windows, ref_points, ref_places, tick_rate),
         positions=positions,
         player_stats=build_player_stats(demo.stats),
+        damages=build_damages(demo.damages, places, windows, tick_rate, vis),
     )

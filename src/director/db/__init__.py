@@ -11,7 +11,15 @@ from director.config import DB_PATH
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 # Şema sürümü. v2: demo tabloları awpy'nin gerçek kolonlarına göre yeniden kuruldu.
-SCHEMA_VERSION = 2
+# v3: kill'e wallbang (penetrated, noscope), maça parser_version, hasar tablosu.
+SCHEMA_VERSION = 3
+
+# v3'te mevcut tablolara eklenen kolonlar (eski DB'ler için)
+_V3_COLUMNS = (
+    ("kills", "penetrated", "INTEGER"),
+    ("kills", "noscope", "BOOLEAN"),
+    ("matches", "parser_version", "INTEGER"),
+)
 
 # v1'deki demo tabloları; v1'de hiç doldurulmadıkları için yeniden kurmak güvenli
 _V1_DEMO_TABLES = ("rounds", "kills", "utility", "positions_snapshot")
@@ -38,6 +46,9 @@ def init_db(con: duckdb.DuckDBPyConnection) -> list[str]:
         for table in _V1_DEMO_TABLES:
             con.execute(f"DROP TABLE IF EXISTS {table}")
     con.execute(SCHEMA_FILE.read_text(encoding="utf-8"))
+    if version < 3:
+        for table, column, typ in _V3_COLUMNS:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {typ}")
     if version < SCHEMA_VERSION:
         con.execute("INSERT INTO schema_version VALUES (?)", [SCHEMA_VERSION])
     rows = con.execute(

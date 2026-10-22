@@ -47,7 +47,12 @@ class DemoData:
     utility: pl.DataFrame
     positions: pl.DataFrame
     stats: pl.DataFrame       # demo_player_stats
-    match_maps: pl.DataFrame  # match_id, map, date
+    match_maps: pl.DataFrame  # match_id, map, date, parser_version
+    damages: pl.DataFrame | None = None  # parser v2+ maçlar için
+
+    def v2_match_ids(self) -> list[str]:
+        """Wallbang ve hasar verisi olan (parser v2+) maçlar."""
+        return self.match_maps.filter(pl.col("parser_version") >= 2)["match_id"].to_list()
 
     @property
     def match_count(self) -> int:
@@ -64,7 +69,7 @@ def load_demo_data(con: duckdb.DuckDBPyConnection, map_name: str | None = None) 
     maps = _q(
         con,
         """
-        SELECT match_id, map, date FROM matches
+        SELECT match_id, map, date, parser_version FROM matches
         WHERE demo_status = 'processed' AND (? IS NULL OR map = ?)
           AND match_id IN (SELECT DISTINCT match_id FROM rounds)
         ORDER BY date
@@ -93,6 +98,7 @@ def load_demo_data(con: duckdb.DuckDBPyConnection, map_name: str | None = None) 
         ),
         stats=per_match("SELECT * FROM demo_player_stats WHERE list_contains(?, match_id)"),
         match_maps=maps,
+        damages=per_match("SELECT * FROM damages WHERE list_contains(?, match_id)"),
     )
 
 
@@ -436,4 +442,53 @@ def economy_breakdown(d: DemoData, steam_id: str) -> pl.DataFrame:
         .with_columns(pl.col("own_buy").replace_strict(order, default=9).alias("_o"))
         .sort("side", "_o")
         .drop("_o")
+    )
+
+
+def weapon_place_breakdown(d: DemoData, steam_id: str) -> pl.DataFrame:
+    """Oyuncunun bölge × silah performansı: sadece kill değil, hasar ve duvar arkası da.
+
+    Kolonlar:
+    - kills / openings: o bölgeden o silahla (tüm maçlar)
+    - wallbangs: motorun "mermi yüzey deldi" dediği kill'ler (parser v2+ maçlar)
+    - deaths_here: oyuncunun o bölgede ölümü (silahtan bağımsız; bölgedeki bedel)
+    - damage / hits / wall_damage: hasar, isabet ve tahmini duvar arkası hasar (v2+ maçlar)
+    """
+    weapon_cat = _weapon_category()
+    k = (
+        d.kills.filter((pl.col("attacker") == steam_id)
+                       & (pl.col("attacker_side") != pl.col("victim_side")))
+        .with_columns(weapon_cat.alias("wcat"))
+        .group_by(pl.col("attacker_place").alias("place"), "wcat")
+        .agg(
+            pl.len().alias("kills"),
+            pl.col("is_opening").sum().alias("openings"),
+            (pl.col("penetrated").fill_null(0) > 0).sum().alias("wallbangs"),
+        )
+    )
+    deaths = (
+        d.kills.filter(pl.col("victim") == steam_id)
+        .group_by(pl.col("victim_place").alias("place"))
+        .agg(pl.len().alias("deaths_here"))
+    )
+    out = k
+    if d.damages is not None and d.damages.height:
+        dmg = (
+            d.damages.filter((pl.col("attacker") == steam_id)
+                             & (pl.col("attacker_side") != pl.col("victim_side")))
+            .with_columns(weapon_cat.alias("wcat"))
+            .group_by(pl.col("attacker_place").alias("place"), "wcat")
+            .agg(
+                pl.col("dmg_health").sum().alias("damage"),
+                pl.len().alias("hits"),
+                pl.col("dmg_health").filter(pl.col("through_wall")).sum().alias("wall_damage"),
+                pl.col("through_wall").sum().alias("wall_hits"),
+            )
+        )
+        out = out.join(dmg, on=["place", "wcat"], how="full", coalesce=True)
+    return (
+        out.join(deaths, on="place", how="left")
+        .with_columns(pl.col(c).fill_null(0) for c in ("kills", "openings", "wallbangs"))
+        .rename({"wcat": "weapon"})
+        .sort("kills", descending=True)
     )

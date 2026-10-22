@@ -69,6 +69,8 @@ def _kills(ticks: list[int]) -> pl.DataFrame:
             "assist_flash": [False] * n,
             "thrusmoke": [False] * n,
             **{f"{w}_{c}": [0.0] * n for w in ("attacker", "victim") for c in "xyz"},
+            "penetrated": pl.Series([0] * n, dtype=pl.Int32),
+            "noscope": [False] * n,
             "is_trade": [False] * n,
             "victim_traded": [True] * n,
         }
