@@ -46,6 +46,7 @@ class Theme:
     mono_font: str
     wall_width: float = 7.0         # duvar konturu kalınlığı (zeminin dışına taşan yarısı görünür)
     wall_opacity: float = 1.0
+    label_size: float = 12.0        # bölge adı yazı boyutu (px)
 
 
 # Keskin Taktik Masası: HUD hissi, ızgara, büyük harf etiketler
@@ -85,12 +86,12 @@ APPLE = Theme(
 # Hedef site: --map-high üstüne --accent %8 (opak karışım: üçgen izi bırakmaz)
 TAKTIK = Theme(
     bg="#111214", floor_low="#1E2023", floor_mid="#272A2E", floor_high="#33373C",
-    wall="#E9EBEE", target_floor="#423C3A", label="#8B9198", text="#E9EBEE",
+    wall="#FFFFFF", target_floor="#423C3A", label="#8B9198", text="#E9EBEE",
     t="#F37321", support="#3DB5AE", t_ink="#111214", support_ink="#111214",
     enemy="#E5484D", smoke="#E9EBEE", flash="#E9EBEE", molly="#F37321",
     grid=None, route_width=1.5, label_font="Inter, Segoe UI, Helvetica, Arial, sans-serif",
     label_upper=True, mono_font="Inter, Segoe UI, sans-serif",
-    wall_width=3.0, wall_opacity=0.7,
+    wall_width=3.0, wall_opacity=0.7, label_size=9.5,
 )
 
 # Oyuncu rolleri (renk temadan gelir); eski adlar geriye uyumluluk için
@@ -348,7 +349,7 @@ def render_board(board: Board, width: int = 1000, pad: int = 28,
         text = name.upper() if th.label_upper else name
         weight, spacing = (700, 1.5) if th.label_upper else (600, 0.2)
         out.append(f'<text x="{px:.1f}" y="{py:.1f}" fill="{th.label}" font-family="{th.label_font}" '
-                   f'font-size="12" font-weight="{weight}" letter-spacing="{spacing}" '
+                   f'font-size="{th.label_size}" font-weight="{weight}" letter-spacing="{spacing}" '
                    f'text-anchor="middle">{escape(text)}</text>')
 
     # Rakip spotları: halka büyüklüğü sıklıkla
