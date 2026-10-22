@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from director.cli import app
-from director.db import connect, init_db
-from director.ingest.matches import sync_player_matches
+from squadmind.cli import app
+from squadmind.db import connect, init_db
+from squadmind.ingest.matches import sync_player_matches
 
 runner = CliRunner()
 
@@ -41,7 +41,7 @@ def test_summary_without_db_fails_cleanly(tmp_path):
 
 
 def test_local_demo_match_ids_reads_faceit_filenames(tmp_path):
-    from director.cli import local_demo_match_ids
+    from squadmind.cli import local_demo_match_ids
 
     mid = "1-9a8491dc-c098-4a8a-9193-dcc3ffc4831a"
     (tmp_path / f"{mid}-1-1.dem.zst").touch()

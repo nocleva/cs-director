@@ -9,7 +9,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from director.parse.demo_parser import (
+from squadmind.parse.demo_parser import (
     assign_round,
     build_kills,
     nearest_place,
@@ -139,13 +139,13 @@ def test_nearest_place_respects_max_distance():
 
 # --- gerçek demo ile (dosya varsa) -------------------------------------------
 
-REAL_DEMO = os.getenv("DIRECTOR_TEST_DEMO")
+REAL_DEMO = os.getenv("SQUADMIND_TEST_DEMO")
 
 
 @pytest.mark.skipif(not REAL_DEMO or not Path(REAL_DEMO).exists(),
-                    reason="DIRECTOR_TEST_DEMO ile açılmış bir .dem yolu verilmedi")
+                    reason="SQUADMIND_TEST_DEMO ile açılmış bir .dem yolu verilmedi")
 def test_real_demo_matches_awpy_scoreboard():
-    from director.parse.demo_parser import parse_demo
+    from squadmind.parse.demo_parser import parse_demo
 
     t = parse_demo(REAL_DEMO)
 

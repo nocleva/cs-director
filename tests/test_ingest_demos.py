@@ -7,15 +7,15 @@ from pathlib import Path
 import polars as pl
 import zstandard
 
-from director.ingest.demos import (
+from squadmind.ingest.demos import (
     decompress,
     find_demos,
     ingest_demo,
     ingest_inbox,
     match_id_from_filename,
 )
-from director.ingest.matches import sync_player_matches
-from director.parse.demo_parser import DemoTables
+from squadmind.ingest.matches import sync_player_matches
+from squadmind.parse.demo_parser import DemoTables
 
 M1 = "1-9a8491dc-c098-4a8a-9193-dcc3ffc4831a"  # gerçek format; fixture'daki m-1 değil
 
@@ -176,7 +176,7 @@ def test_match_found_by_roster_when_filename_has_no_id(tmp_path, make_client, co
     demo = inbox / "isimsiz.dem"
     demo.write_bytes(b"demo")
 
-    import director.ingest.demos as demos_mod
+    import squadmind.ingest.demos as demos_mod
     old = demos_mod.MIN_ROSTER_OVERLAP
     demos_mod.MIN_ROSTER_OVERLAP = 4  # fixture'da kadro 4 kişi
     try:
@@ -261,7 +261,7 @@ def test_delete_after_keeps_demo_when_faceit_mismatch(tmp_path, make_client, con
 
 
 def test_processed_demos_in_db_only_lists_learned_matches(tmp_path, make_client, con):
-    from director.ingest.demos import processed_demos_in_db
+    from squadmind.ingest.demos import processed_demos_in_db
 
     _sync(make_client, con)
     inbox, processed, tmp = _dirs(tmp_path)

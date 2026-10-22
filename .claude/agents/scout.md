@@ -17,13 +17,13 @@ Komutları proje kökünden (`cs-director/`) çalıştır.
 
 1. **Rakip oyuncuların maç geçmişini çek** (FACEIT Data API, cache'li ve rate-limit'li):
    ```bash
-   uv run director fetch-player <nick>          # profil, ELO, level
-   uv run director sync <nick> --limit 20       # son 20 maç DB'ye
-   uv run director summary <nick> -n 20         # harita, skor, K/D, ADR, HS%, sonuç
-   uv run director report player <nick>         # FACEIT geneli bölümü: harita bazında kazanma
+   uv run squadmind fetch-player <nick>          # profil, ELO, level
+   uv run squadmind sync <nick> --limit 20       # son 20 maç DB'ye
+   uv run squadmind summary <nick> -n 20         # harita, skor, K/D, ADR, HS%, sonuç
+   uv run squadmind report player <nick>         # FACEIT geneli bölümü: harita bazında kazanma
    ```
    `sync` sadece FACEIT verisi ekler (demo indirmez); rakip için yapman serbest. Başka yazma komutu (`ingest-demos`, `clean-demos`) çalıştırma.
-2. **Toplu sorgu** (salt-okunur): `uv run director query "<SELECT ...>"`
+2. **Toplu sorgu** (salt-okunur): `uv run squadmind query "<SELECT ...>"`
    ```sql
    -- Bir oyuncu listesinin harita havuzu ve kazanma oranı (son maçlar)
    SELECT p.nickname, m.map, count(*) mac, round(avg(s.result::INT)*100) kazanma_yuzde,
@@ -33,7 +33,7 @@ Komutları proje kökünden (`cs-director/`) çalıştır.
    ```
 3. Maç odası ID'si verildiyse kadroyu almak için:
    ```bash
-   uv run python -c "from director.faceit.client import FaceitClient; import json; c=FaceitClient(); d=c.get_match_details('<match_id>'); print(json.dumps({f: [p['nickname'] for p in d['teams'][f]['roster']] for f in ('faction1','faction2')}, ensure_ascii=False))"
+   uv run python -c "from squadmind.faceit.client import FaceitClient; import json; c=FaceitClient(); d=c.get_match_details('<match_id>'); print(json.dumps({f: [p['nickname'] for p in d['teams'][f]['roster']] for f in ('faction1','faction2')}, ensure_ascii=False))"
    ```
 
 ## Rol tahmini (demo yoksa)
@@ -41,7 +41,7 @@ Komutları proje kökünden (`cs-director/`) çalıştır.
 Rakibin demosu yoksa rol FACEIT istatistiğinden **tahmin** edilir ve öyle söylenir:
 - Yüksek ADR + yüksek K/D + düşük HS% → muhtemel AWPer (AWP vuruşları gövdeye).
 - Yüksek HS% + yüksek K/R → muhtemel rifler / entry.
-Bu tahminler zayıftır; "muhtemel" diye işaretle. Rakip demosu varsa (`director ingest-demos` ile kullanıcı ekler) `director report player <rakip>` gerçek rol puanlarını verir.
+Bu tahminler zayıftır; "muhtemel" diye işaretle. Rakip demosu varsa (`squadmind ingest-demos` ile kullanıcı ekler) `squadmind report player <rakip>` gerçek rol puanlarını verir.
 
 ## Dürüstlük kuralları
 

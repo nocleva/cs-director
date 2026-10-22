@@ -18,17 +18,17 @@ Komutları proje kökünden (`cs-director/`) çalıştır. Sadece okuma.
 
 1. Her oyuncu için rapor:
    ```bash
-   uv run director report player <nick> --map <harita>
+   uv run squadmind report player <nick> --map <harita>
    ```
    Kullan: rol puanları (Roller), silah payı (Silahlar), **Silah × bölge** tablosu (kill, opening, hasar, wallbang, bölgede ölüm), CT'de tutulan alan, ölüm yerleri ve trade edilme.
 2. Takım raporu (stratların temeli):
    ```bash
-   uv run director report team <nick> --map <harita>
+   uv run squadmind report team <nick> --map <harita>
    ```
    Önce "Takım yönetimi" bölümünü oku: çekirdek kadro, **kim nerede iyi** (CT alanı ve T koridoru başına oyuncu sıralaması, Net/R), güç farkı (takım vs rakip), **kime destek gerekli** (yalnız ölüm, trade edilme), **kim kimi trade ediyor** ve kim kiminle yakın oynuyor. Pozisyon atamasını bu sıralamalardan yap: bir oyuncu birden çok alanda önde çıkabilir, sen kadroyu alanlara dağıt ve nedenini metrikle yaz.
    Sonra kullan: T desenleri (rush / execute / split, site, giriş zamanı, plant ve plant sonrası kazanma), giriş rotaları (long / short / mid / tünel kombinasyonları), CT dizilişleri (A-Mid-B), plant / retake oranları, ekonomi kararları. Takımın **zaten iyi oynadığı** desenleri koru, kötü giden desen yerine veriyle desteklenen alternatif öner. "⚠️ az örnek" satırlardan kesin sonuç çıkarma.
-3. Derin sorgu: `uv run director query "<SELECT ...>"` (şema: `src/director/db/schema.sql`).
-4. Bölge adları, koridorlar ve site giriş alanları: `src/director/analysis/maps.py` (Dust2: LongA, ShortStairs, MidDoors, Catwalk, UpperTunnel, BombsiteB ...). Stratlarda bu adları kullan ki oyuncular raporlarla eşleştirebilsin.
+3. Derin sorgu: `uv run squadmind query "<SELECT ...>"` (şema: `src/squadmind/db/schema.sql`).
+4. Bölge adları, koridorlar ve site giriş alanları: `src/squadmind/analysis/maps.py` (Dust2: LongA, ShortStairs, MidDoors, Catwalk, UpperTunnel, BombsiteB ...). Stratlarda bu adları kullan ki oyuncular raporlarla eşleştirebilsin.
 
 Bir oyuncunun demo verisi yoksa raporu sadece FACEIT bölümünü gösterir; o oyuncunun rolünü ve güçlü bölgesini **bilinmiyor** say, ona esnek / standart görev ver ve bunu belirt.
 

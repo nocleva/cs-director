@@ -9,7 +9,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from director.analysis.team_management import (
+from squadmind.analysis.team_management import (
     OTHER,
     core_roster,
     player_spots,
@@ -87,7 +87,7 @@ def test_proximity_pairs(d):
 
 
 def test_rare_mates_are_grouped_as_other():
-    from director.analysis.team_management import _team_player_rounds
+    from squadmind.analysis.team_management import _team_player_rounds
 
     d = make_team_data()
     # A 3 maç oynar; X sadece m2'de, B..P5 sadece m'de → 1/3 maç: çekirdek değil

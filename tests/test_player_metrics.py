@@ -10,7 +10,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from director.analysis.player_metrics import (
+from squadmind.analysis.player_metrics import (
     DemoData,
     Rate,
     aggregate,
@@ -21,8 +21,8 @@ from director.analysis.player_metrics import (
     player_rounds,
     weapon_breakdown,
 )
-from director.analysis.roles import primary_roles, role_scores, side_roles, team_signals
-from director.reports.player_report import highlights
+from squadmind.analysis.roles import primary_roles, role_scores, side_roles, team_signals
+from squadmind.reports.player_report import highlights
 
 A, B, C, D = "1", "2", "3", "4"
 M = "m"
@@ -204,7 +204,7 @@ def test_highlights_respect_sample_and_point_thresholds():
 
 
 def _all_keys() -> list[str]:
-    from director.reports.player_report import SECTIONS
+    from squadmind.reports.player_report import SECTIONS
 
     return [m.key for ms in SECTIONS.values() for m in ms]
 
@@ -212,8 +212,8 @@ def _all_keys() -> list[str]:
 # --- rapor (DB üzerinden) ----------------------------------------------------
 
 def test_player_report_end_to_end(make_client, con):
-    from director.ingest.matches import sync_player_matches
-    from director.reports.player_report import build_player_report
+    from squadmind.ingest.matches import sync_player_matches
+    from squadmind.reports.player_report import build_player_report
 
     sync_player_matches(make_client(), con, "TestNick")
     data = make_data()
@@ -251,14 +251,14 @@ def test_player_report_end_to_end(make_client, con):
 
 
 def test_player_report_unknown_player(con):
-    from director.reports.player_report import build_player_report
+    from squadmind.reports.player_report import build_player_report
 
     with pytest.raises(LookupError):
         build_player_report(con, "kimse")
 
 
 def test_weapon_place_breakdown_with_damage_and_wallbang(d):
-    from director.analysis.player_metrics import weapon_place_breakdown
+    from squadmind.analysis.player_metrics import weapon_place_breakdown
 
     d.kills = d.kills.with_columns(
         pl.Series("penetrated", [1, 0, 0, 0, 0, 0, 0], dtype=pl.Int32)
@@ -280,7 +280,7 @@ def test_weapon_place_breakdown_with_damage_and_wallbang(d):
 
 
 def test_cap_damage_clips_to_remaining_health():
-    from director.parse.damage import cap_damage
+    from squadmind.parse.damage import cap_damage
 
     dm = pl.DataFrame({
         "match_id": [M] * 5, "round_no": [1, 1, 1, 1, 2], "tick": [10, 20, 30, 40, 10],
@@ -299,7 +299,7 @@ def _with_weapons(d: DemoData, weapons: list[str]) -> DemoData:
 
 
 def test_round_main_weapon_prefers_most_held_primary(d):
-    from director.analysis.player_metrics import round_main_weapon
+    from squadmind.analysis.player_metrics import round_main_weapon
 
     # A'nın kayıtları: R3 (1 kayıt), R1 (3 kayıt), R2 (1 kayıt)
     d = _with_weapons(d, ["knife", "ak47", "ak47", "awp", "awp", "knife", "ssg08",
@@ -311,13 +311,13 @@ def test_round_main_weapon_prefers_most_held_primary(d):
 
 
 def test_round_main_weapon_without_weapon_column(d):
-    from director.analysis.player_metrics import round_main_weapon
+    from squadmind.analysis.player_metrics import round_main_weapon
 
     assert round_main_weapon(d, A).height == 0
 
 
 def test_weapon_exposure_per_round_and_place(d):
-    from director.analysis.player_metrics import weapon_exposure
+    from squadmind.analysis.player_metrics import weapon_exposure
 
     d = _with_weapons(d, ["knife", "ak47", "ak47", "awp", "awp", "knife", "ssg08",
                           "m4a1", "m4a1", "ak47"])
@@ -373,7 +373,7 @@ def _iso_data() -> DemoData:
 
 
 def test_death_isolation_distance_and_alive_mates():
-    from director.analysis.player_metrics import death_isolation
+    from squadmind.analysis.player_metrics import death_isolation
 
     iso = death_isolation(_iso_data()).sort("round_no", "tick")
     rows = iso.select("round_no", "victim", "mates_alive", "isolated").rows()
@@ -385,7 +385,7 @@ def test_death_isolation_distance_and_alive_mates():
 
 
 def test_isolation_counts_and_rates():
-    from director.analysis.player_metrics import isolation_counts
+    from squadmind.analysis.player_metrics import isolation_counts
 
     ic = isolation_counts(_iso_data())
     b = ic.filter(pl.col("steam_id") == B).row(0, named=True)

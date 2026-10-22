@@ -9,15 +9,15 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from director.analysis.economy import (
+from squadmind.analysis.economy import (
     _half,
     after_loss_decisions,
     equipment_edge,
     pistol_conversion,
     with_context,
 )
-from director.analysis.player_metrics import DemoData
-from director.analysis.team_tactics import (
+from squadmind.analysis.player_metrics import DemoData
+from squadmind.analysis.team_tactics import (
     ct_setups,
     lane_summary,
     pattern_summary,
@@ -120,7 +120,7 @@ def test_ct_setup_needs_all_five(d):
 
 
 def test_site_summary(d):
-    from director.analysis.team_tactics import team_rounds
+    from squadmind.analysis.team_tactics import team_rounds
 
     ss = site_summary(team_rounds(d, A))
     a = ss.filter((pl.col("side") == "T") & (pl.col("bomb_site") == "A")).row(0, named=True)

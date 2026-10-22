@@ -8,7 +8,7 @@ import time
 import httpx
 import pytest
 
-from director.faceit.client import FaceitAPIError, FaceitNotFound
+from squadmind.faceit.client import FaceitAPIError, FaceitNotFound
 
 
 def test_player_by_nickname_sends_auth_and_params(make_client, recorder):
@@ -125,7 +125,7 @@ def test_404_raises_not_found_and_is_not_cached(make_client, recorder):
 
 
 def test_missing_api_key_raises(monkeypatch, tmp_path):
-    from director.faceit.client import FaceitClient
+    from squadmind.faceit.client import FaceitClient
 
     monkeypatch.delenv("FACEIT_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="FACEIT_API_KEY"):

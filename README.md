@@ -1,2 +1,7 @@
-# cs-director
-AI-powered coaching and analytics tool for FACEIT CS2 matches: player roles, team tactics, economy and opponent scouting from match demos.
+# SquadMind
+
+FACEIT CS2 takım yönetimi: takımın kendi maç verisinden (FACEIT istatistikleri + demo dosyaları) kim nerede iyi, hangi taktik kazandırıyor, kime destek gerekli ve round round hazırlık planı. Ayrıntılar: [CLAUDE.md](CLAUDE.md).
+
+```powershell
+uv run squadmind --help
+```

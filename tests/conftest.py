@@ -10,8 +10,8 @@ from typing import Any
 import httpx
 import pytest
 
-from director.db import connect, init_db
-from director.faceit.client import FaceitClient
+from squadmind.db import connect, init_db
+from squadmind.faceit.client import FaceitClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -95,6 +95,6 @@ def tiny_demos_allowed(monkeypatch):
 
     Boyut kuralının kendisi test_demo_guard.py'de gerçek sınırla test edilir.
     """
-    import director.ingest.demos as demos
+    import squadmind.ingest.demos as demos
 
     monkeypatch.setattr(demos, "MIN_DEMO_BYTES", 1)

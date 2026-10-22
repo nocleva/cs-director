@@ -8,8 +8,8 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from director.analysis.player_metrics import Rate
-from director.analysis.tracking import TrackItem, _status, load_plan, measure, track
+from squadmind.analysis.player_metrics import Rate
+from squadmind.analysis.tracking import TrackItem, _status, load_plan, measure, track
 from tests.test_team import A, B, E, make_team_data
 from tests.test_team_management import _kill
 

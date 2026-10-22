@@ -1,4 +1,4 @@
-"""`director watch` testleri: indirme bekleme, olay filtresi, indirilen demonun işlenmesi."""
+"""`squadmind watch` testleri: indirme bekleme, olay filtresi, indirilen demonun işlenmesi."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 
 from watchdog.events import FileCreatedEvent, FileMovedEvent
 
-from director.db import connect, init_db
-from director.ingest.watch import (
+from squadmind.db import connect, init_db
+from squadmind.ingest.watch import (
     _DemoEventHandler,
     is_demo_file,
     process_download,
@@ -127,7 +127,7 @@ def test_process_download_skips_unfinished_or_non_demo(tmp_path):
 
 def test_roster_match_rejects_matches_after_download_time(tmp_path, make_client):
     """Dosya adında ID yoksa: demo, dosya tarihinden sonra başlayan maça eşlenmez."""
-    import director.ingest.demos as demos_mod
+    import squadmind.ingest.demos as demos_mod
 
     db = _db(tmp_path, make_client)
     old = demos_mod.MIN_ROSTER_OVERLAP

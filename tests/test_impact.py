@@ -9,7 +9,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from director.analysis.impact import (
+from squadmind.analysis.impact import (
     damage_outcomes,
     impact_counts,
     impact_rates,

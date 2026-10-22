@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import director.ingest.demos as demos
-from director.ingest.demos import ingest_demo
+import squadmind.ingest.demos as demos
+from squadmind.ingest.demos import ingest_demo
 from tests.test_ingest_demos import M1, SELF, _dirs, _sync, make_tables
 
 

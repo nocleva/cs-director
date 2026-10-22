@@ -97,64 +97,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cs2-director"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "awpy" },
-    { name = "duckdb" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "itsdangerous" },
-    { name = "jinja2" },
-    { name = "markdown" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "polars" },
-    { name = "pyarrow" },
-    { name = "python-dotenv" },
-    { name = "python-multipart" },
-    { name = "rich" },
-    { name = "typer" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "watchdog" },
-    { name = "zstandard" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "awpy", specifier = ">=2.0" },
-    { name = "duckdb", specifier = ">=1.1" },
-    { name = "fastapi", specifier = ">=0.159.1" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "itsdangerous", specifier = ">=2.2.0" },
-    { name = "jinja2", specifier = ">=3.1.6" },
-    { name = "markdown", specifier = ">=3.11.2" },
-    { name = "numpy", specifier = ">=2.4.6" },
-    { name = "polars", specifier = ">=1.0" },
-    { name = "pyarrow", specifier = ">=26.0.0" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "python-multipart", specifier = ">=0.0.32" },
-    { name = "rich", specifier = ">=13.7" },
-    { name = "typer", specifier = ">=0.12" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
-    { name = "watchdog", specifier = ">=6.0.0" },
-    { name = "zstandard", specifier = ">=0.25.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pytest", specifier = ">=8.0" },
-]
-
-[[package]]
 name = "duckdb"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -772,6 +714,64 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310, upload-time = "2023-10-24T04:13:40.426Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
+]
+
+[[package]]
+name = "squadmind"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "awpy" },
+    { name = "duckdb" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "itsdangerous" },
+    { name = "jinja2" },
+    { name = "markdown" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "polars" },
+    { name = "pyarrow" },
+    { name = "python-dotenv" },
+    { name = "python-multipart" },
+    { name = "rich" },
+    { name = "typer" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "watchdog" },
+    { name = "zstandard" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "awpy", specifier = ">=2.0" },
+    { name = "duckdb", specifier = ">=1.1" },
+    { name = "fastapi", specifier = ">=0.159.1" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "itsdangerous", specifier = ">=2.2.0" },
+    { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "markdown", specifier = ">=3.11.2" },
+    { name = "numpy", specifier = ">=2.4.6" },
+    { name = "polars", specifier = ">=1.0" },
+    { name = "pyarrow", specifier = ">=26.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
+    { name = "rich", specifier = ">=13.7" },
+    { name = "typer", specifier = ">=0.12" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
+    { name = "watchdog", specifier = ">=6.0.0" },
+    { name = "zstandard", specifier = ">=0.25.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pytest", specifier = ">=8.0" },
 ]
 
 [[package]]

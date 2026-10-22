@@ -1,4 +1,4 @@
-# CS2 FACEIT Gaming Director — Proje Rehberi
+# SquadMind — Proje Rehberi
 
 > Bu dosya Claude Code'un her oturumda okuduğu proje hafızasıdır. Proje kök dizinine `CLAUDE.md` adıyla koy.
 
@@ -11,7 +11,7 @@ FACEIT CS2 maçlarının geçmiş verilerini (istatistik + demo dosyaları) topl
 - bu rollere, silah tercihlerine ve seviyelerine göre **taktik yazan**,
 - **rakip takımı** maç öncesi scout eden
 
-bir "Gaming Director" ajanı kurmak.
+SquadMind'ı kurmak.
 
 **Asıl amaç: takımı yönetmek.** Her özellik şu sorulardan birine hizmet etmeli: kim nerede iyi, nasıl bir taktik kurabiliriz, nereleri tutmak mantıklı, gücümüz / farkımız nerede, kime destek gerekli, takımın birbiriyle uyumlu olduğu noktalar. Uymayan fikir "sonra" listesine gider.
 
@@ -41,7 +41,7 @@ bir "Gaming Director" ajanı kurmak.
 | Paket yönetimi | `uv` | Hızlı, lock dosyalı |
 | Demo parser | `awpy` (ana), `demoparser2` (ham tick sorguları için yedek) | awpy hazır KAST/ADR/opening/trade + Polars DataFrame verir |
 | FACEIT API | `httpx` ile ince istemci (veya `faceit` paketi) | Rate limit ve cache kontrolü bizde olsun |
-| Veritabanı | DuckDB (tek dosya: `data/director.duckdb`) | Analitik sorgular, Polars ile doğal uyum, sunucu gerektirmez |
+| Veritabanı | DuckDB (tek dosya: `data/squadmind.duckdb`) | Analitik sorgular, Polars ile doğal uyum, sunucu gerektirmez |
 | Ajan | Faz 1: Claude Code subagent'ları; Faz 2: Claude API (tool use) | Önce maliyetsiz prototip, sonra bağımsız uygulama |
 | Arayüz | Faz 1: CLI (`typer`) + Markdown raporlar; Faz 2: Streamlit | Önce doğru analiz, sonra güzel ekran |
 | Görselleştirme | `awpy[plot]` / matplotlib (heatmap, ölüm noktaları) | Harita üstü görsel |
@@ -50,7 +50,7 @@ bir "Gaming Director" ajanı kurmak.
 ## 4. Dizin Yapısı
 
 ```
-cs2-director/
+cs-director/                  # proje klasörü (paket: src/squadmind)
 ├── CLAUDE.md
 ├── .env                      # FACEIT_API_KEY=... (git'e girmez)
 ├── pyproject.toml
@@ -59,7 +59,7 @@ cs2-director/
 │       ├── director.md       # Ana gaming director ajanı
 │       ├── scout.md          # Rakip analizi ajanı
 │       └── tactician.md      # Taktik yazan ajan
-├── src/director/
+├── src/squadmind/
 │   ├── faceit/client.py      # Data API istemcisi (rate limit + disk cache)
 │   ├── ingest/
 │   │   ├── matches.py        # Maç geçmişi + istatistik çekme
@@ -78,7 +78,7 @@ cs2-director/
 │   ├── demos/inbox/          # Manuel demolar buraya
 │   ├── demos/processed/
 │   ├── cache/                # API yanıt cache'i
-│   └── director.duckdb
+│   └── squadmind.duckdb
 ├── reports/                  # Üretilen raporlar
 └── tests/
 ```
@@ -149,12 +149,12 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 
 | Faz | Hedef | Bitti sayılır |
 |---|---|---|
-| 0 | Proje iskeleti, `.env`, FACEIT istemcisi | `director fetch-player <nick>` çalışıyor |
+| 0 | Proje iskeleti, `.env`, FACEIT istemcisi | `squadmind fetch-player <nick>` çalışıyor |
 | 1a | Maç geçmişi + istatistikleri DuckDB'ye | Son 30 maç DB'de |
 | 1b | Manuel demo inbox → parse → DB | Bir demo tüm tablolara yazılıyor |
-| 1c | Oyuncu metrikleri + rol sınıflandırma | `director report player <nick>` Markdown rapor |
+| 1c | Oyuncu metrikleri + rol sınıflandırma | `squadmind report player <nick>` Markdown rapor |
 | 1d | Claude Code subagent'ları | `director` ajanı rapordan yorum ve öneri üretiyor |
-| 2a | Takım taktik desenleri + ekonomi | `director report team` |
+| 2a | Takım taktik desenleri + ekonomi | `squadmind report team` |
 | 2b | Kendi oyununu doğrula: desen / rol etiketlerini demodan kontrol, öneri takibi (öneri → metrik → sonraki 5-10 maç), zayıf haritalar (Mirage, Inferno) | Etiket doğruluğu sayıyla biliniyor; öneriler önce / sonra raporlanıyor |
 | 2c | Takım yönetimi analizi: kim nerede iyi, nereleri tutmalı, güç farkımız, kime destek, oyuncu uyumu; tactician stratları | Takım raporu kadroya pozisyon / görev öneriyor |
 | 3a | **Web'de takım demo ekibi:** link ile katılım, FACEIT nickname, demo yükleme, hesabın analizi. Aynı demo bir kez: maç ID + boyut + içerik özeti; demo yükleyenin maçında olmalı | Premade kadro (4 kişi) web'den yükleyip raporunu görüyor ve yorumluyor |
@@ -179,34 +179,34 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 |---|---|
 | 0, 1a | ✅ FACEIT istemcisi, `sync` / `summary`. Kullanıcı: **Nocleva** (büyük N; FACEIT nickname büyük/küçük harfe duyarlı), level 9, 99 maç DB'de |
 | 1b | ✅ Demo inbox → awpy parse → DB. Parser v3 (wallbang + hasar; utility hasarı kırpılmış). 18 Dust2 maçı işlendi, hepsi FACEIT ile doğrulandı |
-| 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, silah maruziyeti (round başına), kill / hasar değeri (`analysis/impact.py`), `director report player <nick> [--map dust2]` |
+| 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, silah maruziyeti (round başına), kill / hasar değeri (`analysis/impact.py`), `squadmind report player <nick> [--map dust2]` |
 | 1d | ✅ `director` ajanı 22.10'da ilk gerçek analizi üretti (Nocleva, Dust2). `scout` ve `tactician` henüz denenmedi |
-| 2a | ✅ `director report team <nick> [--map]`: T desenleri (rush / execute / split / girilmedi + default işareti), giriş rotaları, CT dizilişleri, plant / retake, ekonomi (`analysis/team_tactics.py`, `analysis/economy.py`) |
+| 2a | ✅ `squadmind report team <nick> [--map]`: T desenleri (rush / execute / split / girilmedi + default işareti), giriş rotaları, CT dizilişleri, plant / retake, ekonomi (`analysis/team_tactics.py`, `analysis/economy.py`) |
 | 3a | 🟡 Web arayüzü çalışıyor (yerel + tünel); takım arkadaşlarıyla deneme bekleniyor |
-| 2c | ✅ Takım raporunda "Takım yönetimi" (`analysis/team_management.py`, sadece Dust2): çekirdek kadro, kim nerede iyi (CT alanı / T koridoru sıralaması), güç farkı (takım vs rakip), kime destek, trade matrisi, yakın oynama. tactician çekirdek kadro planını yazdı (pozisyon, CT 2 setup, T 3 strat, kurallar); takip `director track` ile |
+| 2c | ✅ Takım raporunda "Takım yönetimi" (`analysis/team_management.py`, sadece Dust2): çekirdek kadro, kim nerede iyi (CT alanı / T koridoru sıralaması), güç farkı (takım vs rakip), kime destek, trade matrisi, yakın oynama. tactician çekirdek kadro planını yazdı (pozisyon, CT 2 setup, T 3 strat, kurallar); takip `squadmind track` ile |
 
 ### Veri ve ortam
-- Veri OneDrive DIŞINDA: `C:\Users\furka\cs-director-data` (`.env` → `DIRECTOR_DATA_DIR`). İçinde `director.duckdb`, `cache/`, `demos/{inbox,processed,tmp}`.
-- `.env`: `FACEIT_API_KEY`, `DIRECTOR_DATA_DIR`, `DIRECTOR_AUTO_DELETE=0`.
+- Veri OneDrive DIŞINDA: `C:\Users\furka\squadmind-data` (`.env` → `SQUADMIND_DATA_DIR`). İçinde `squadmind.duckdb`, `cache/`, `demos/{inbox,processed,tmp}`.
+- `.env`: `FACEIT_API_KEY`, `SQUADMIND_DATA_DIR`, `SQUADMIND_AUTO_DELETE=0`.
 - `uv` yolu: `C:\Users\furka\.local\bin` (PATH'te değilse ekle). Python 3.12 (`.python-version`), awpy 3.x, DuckDB 2.x, Polars 2.x.
 - Windows konsolunda Türkçe çıktı için `PYTHONUTF8=1` ve `PYTHONIOENCODING=utf-8`.
-- Downloads API başvurusu **beklemeye alındı**; demolar elle indiriliyor (`demo-links` → tarayıcı → `director watch`). `FaceitClient.get_demo_download_url` arayüzü hazır ama `NotImplementedError`; onay gelince sadece o doldurulacak.
+- Downloads API başvurusu **beklemeye alındı**; demolar elle indiriliyor (`demo-links` → tarayıcı → `squadmind watch`). `FaceitClient.get_demo_download_url` arayüzü hazır ama `NotImplementedError`; onay gelince sadece o doldurulacak.
 - `.env`: `DOWNLOADS_DIR` (`watch` için; varsayılan kullanıcı Downloads klasörü).
 
 ### Komutlar
 | Komut | Ne yapar |
 |---|---|
-| `director sync <nick> -n 100` | FACEIT maç geçmişi + skor tablosu (upsert) |
-| `director demo-links <nick> [--map dust2] [--outdated]` | İndirilecek demoların maç sayfası linkleri → `reports/demo_links.md` |
-| `director ingest-demos [--delete/--keep] [--details]` | Inbox'taki demoları işler, FACEIT ile doğrular, processed/'a taşır |
-| `director watch [--dir] [--existing] [--delete/--keep]` | İndirme klasörünü izler; yeni demo (boyutu 3 sn sabit kalınca) inbox'a taşınıp işlenir, tek satır sonuç |
-| `director reprocess-demos` | processed/'daki demoları güncel parser ile yeniden işler (parser'a alan eklenince) |
-| `director clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
-| `director report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
-| `director report team <nick> [--map]` | Takım raporu → `reports/team_<nick>.md` |
-| `director web [--port 8000]` | Web arayüzü (Faz 3a): davet linkiyle katılım, demo yükleme, oyuncu / takım raporu. Dışarı açmak: `cloudflared tunnel --url http://127.0.0.1:8000` (adres her başlatmada değişir) |
-| `director track <plans/*.json>` | Öneri takibi: planın kurallarına bağlı metrikler, plan tarihinden önce / sonra → `reports/track_<plan>.md` |
-| `director query "<SELECT>"` | Salt-okunur SQL (ajanlar için) |
+| `squadmind sync <nick> -n 100` | FACEIT maç geçmişi + skor tablosu (upsert) |
+| `squadmind demo-links <nick> [--map dust2] [--outdated]` | İndirilecek demoların maç sayfası linkleri → `reports/demo_links.md` |
+| `squadmind ingest-demos [--delete/--keep] [--details]` | Inbox'taki demoları işler, FACEIT ile doğrular, processed/'a taşır |
+| `squadmind watch [--dir] [--existing] [--delete/--keep]` | İndirme klasörünü izler; yeni demo (boyutu 3 sn sabit kalınca) inbox'a taşınıp işlenir, tek satır sonuç |
+| `squadmind reprocess-demos` | processed/'daki demoları güncel parser ile yeniden işler (parser'a alan eklenince) |
+| `squadmind clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
+| `squadmind report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
+| `squadmind report team <nick> [--map]` | Takım raporu → `reports/team_<nick>.md` |
+| `squadmind web [--port 8000]` | Web arayüzü (Faz 3a): davet linkiyle katılım, demo yükleme, oyuncu / takım raporu. Dışarı açmak: `cloudflared tunnel --url http://127.0.0.1:8000` (adres her başlatmada değişir) |
+| `squadmind track <plans/*.json>` | Öneri takibi: planın kurallarına bağlı metrikler, plan tarihinden önce / sonra → `reports/track_<plan>.md` |
+| `squadmind query "<SELECT>"` | Salt-okunur SQL (ajanlar için) |
 
 ### Alınan kararlar ve nedenleri
 - **Otomatik silme kapalı:** Parser'a yeni alan eklenince (wallbang, hasar) silinmiş 13 demo yeniden indirilmek zorunda kalındı. Parser oturana kadar demolar `processed/`'da kalır; güncelleme `reprocess-demos` ile.
@@ -218,14 +218,14 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - **Wallbang:** `kills.penetrated > 0` kesin (motor bilgisi). `damages.through_wall` tahmini: çoklu çizgi görüş kontrolü, wallbang'lerin ~%73'ünü yakalar, direkt vuruşların ~%3'ünü yanlış işaretler. Raporlarda "tahmini" diye geçer.
 - **Lobi karşılaştırması:** "iyi/kötü" yargısı aynı maçlardaki diğer oyunculara göre. Belirgin fark: yüzdelerde ≥5 puan, diğerlerinde ≥%15; ≥20 örnek ve ≥10 olay.
 - **Pozisyon değerlendirmesi** (kullanıcının isteği): sadece kill değil; opening, hasar, wallbang / duvar arkası vuruş, bölgede ölüm ve trade edilme birlikte.
-- **Hasar = kırpılmış hasar:** `damages.dmg_health` ham (20 canlıya AWP 115 yazar). Analiz `director.parse.damage.cap_damage` ile kalan cana göre kırpar (`dmg` kolonu, `load_demo_data` içinde); 180/180 oyuncu-maç ADR'ı FACEIT ile ≤2,3 farkla tutuyor. Parser v3 utility (HE / molotof) hasarını da kırpar.
+- **Hasar = kırpılmış hasar:** `damages.dmg_health` ham (20 canlıya AWP 115 yazar). Analiz `squadmind.parse.damage.cap_damage` ile kalan cana göre kırpar (`dmg` kolonu, `load_demo_data` içinde); 180/180 oyuncu-maç ADR'ı FACEIT ile ≤2,3 farkla tutuyor. Parser v3 utility (HE / molotof) hasarını da kırpar.
 - **Kill değeri** (kullanıcının isteği: "low bırakmak da kritik, eco kill'in değeri farklı"): `impact.py`. Kill türü (katilin hasar payı ≥90 tek başına, <40 bitirme), kazanma olasılığı katkısı (WPA: sağ kalan sayısına göre, bu maçların verisinden, WP_PRIOR=10 ile yumuşatılmış, ekonomi hariç), ekonomi bağlamı (eco'ya kill, fakirken kill, rakip ekipmanı), öldürmeyen hasar (low ≤40, asist ≥41, hasar desteği). Sağ kalan sayısı 5 kişilik takım varsayar.
 - **Yalnız ölüm** (`death_isolation`): ölüm anında en yakın hayattaki takım arkadaşı >900 birim (3B; arkadaşın ölüm anına en yakın konum kaydı, ≤128 tick). Eşik veriden: ≤700 birimde ölümlerin ~%26'sı, 900 ötesinde ~%7'si trade ediliyor. Son kalan oyuncunun ölümü sayılmaz. Raporda Trade metrikleri + ölüm yerlerinde yalnız / arkadaş yakında ayrımı.
 - **T desen kuralları** (`team_tactics.py`; Dust2 koridor / giriş alanı tanımları `maps.py` LANES / HIT_AREAS, 184 plant round'undan): hedef site = plant edilen ya da giriş alanında en çok bulunulan; giriş = ≥3 T aynı anda giriş alanında (yoksa plant anı); rush ≤25 sn, sonra ≥2 koridor = split, tek = execute. Default = 15-20. sn'de ≥3 koridora yayılma. CT dizilişi 15-35. sn'de A-Mid-B sayıları, sadece 5 CT'nin yeri bilinen round'lar (~%60).
 - **Takım = oyuncunun her maçtaki takımı.** Nocleva'nın 18 Dust2 maçının 11'inde aynı çekirdek kadro (DeloneCS, _squ1rtle_, nicorett3).
 - **Takım yönetimi** (Dust2'de, şimdilik eldeki veriyle; ayrıntılı çalışma herkes web'den kendi demolarını yükleyince): çekirdek = oyuncu + maçların ≥ yarısında birlikte oynayanlar, diğerleri "diğer". "Kim nerede iyi" tek isim seçmez, alan başına sıralar (Net/R = (kill − ölüm)/round); atama tactician'ın işi. Trade eşleştirme: takım arkadaşını öldüren rakibi 5 sn içinde öldürmek (awpy'nin trade sayısıyla tutarlı: 244 / 230).
-- **Web (Faz 3a, `src/director/web/`):** FastAPI + Jinja2, kendi bilgisayarında + Cloudflare quick tunnel (kullanıcı kararı: önce risksiz test, sonra VPS). Katılım: `?davet=<WEB_INVITE_CODE>` + FACEIT nickname (FACEIT'ten doğrulanır, son 100 maç çekilir). Yükleme tarayıcıdan 32 MB parçalar (tünel tek istekte ~100 MB sınırı); birleşen dosya bildirilen boyuta eşit değilse işlenmez; `ingest_demo(uploader=steam_id)` → aynı demo bir kez + yükleyen maçta olmalı. İşçi tek iş parçacığı. Rapor HTML'i kaçışlanır (XSS). **DuckDB tek süreç:** `director web` açıkken CLI komutları DB'yi açamaz; ya web'i durdur ya da demoları web'den yükle. `.env`: WEB_INVITE_CODE, WEB_SECRET, WEB_TEAM_OWNER, WEB_MAP, WEB_REQUIRED_DEMOS.
-- **Öneri takibi** (`analysis/tracking.py`): plan bir JSON (`plans/`): sahibi, harita, tarih, maddeler (metrik türü + parametre + hedef yönü). Kod oyuncu adı bilmez. Durum ancak plan sonrası ≥3 maçla yazılır; küçük fark (3 puan / %10) "değişim yok". İlk plan: `plans/dust2_cekirdek_2026-10-22.json` (tactician'ın çekirdek kadro planı; ajan çıktıları claude.ai dokümanında: "CS2 Director — Ajan Çıktıları").
+- **Web (Faz 3a, `src/squadmind/web/`):** FastAPI + Jinja2, kendi bilgisayarında + Cloudflare quick tunnel (kullanıcı kararı: önce risksiz test, sonra VPS). Katılım: `?davet=<WEB_INVITE_CODE>` + FACEIT nickname (FACEIT'ten doğrulanır, son 100 maç çekilir). Yükleme tarayıcıdan 32 MB parçalar (tünel tek istekte ~100 MB sınırı); birleşen dosya bildirilen boyuta eşit değilse işlenmez; `ingest_demo(uploader=steam_id)` → aynı demo bir kez + yükleyen maçta olmalı. İşçi tek iş parçacığı. Rapor HTML'i kaçışlanır (XSS). **DuckDB tek süreç:** `squadmind web` açıkken CLI komutları DB'yi açamaz; ya web'i durdur ya da demoları web'den yükle. `.env`: WEB_INVITE_CODE, WEB_SECRET, WEB_TEAM_OWNER, WEB_MAP, WEB_REQUIRED_DEMOS.
+- **Öneri takibi** (`analysis/tracking.py`): plan bir JSON (`plans/`): sahibi, harita, tarih, maddeler (metrik türü + parametre + hedef yönü). Kod oyuncu adı bilmez. Durum ancak plan sonrası ≥3 maçla yazılır; küçük fark (3 puan / %10) "değişim yok". İlk plan: `plans/dust2_cekirdek_2026-10-22.json` (tactician'ın çekirdek kadro planı; ajan çıktıları claude.ai dokümanında: "SquadMind — Ajan Çıktıları").
 - **Ekonomi:** awpy alım tipi; pistol kazanılınca 2. round alımı da "force" sayılıyor. Kayıp sonrası karar o round + sonraki round ile değerlendirilir.
 - **Silah karşılaştırması round başına:** her round'a oyuncunun ana silahı atanır (`round_main_weapon`: konum kayıtlarında en çok tutulan birincil silah, yoksa pistol); `weapon_exposure` taraf × ana silah, opsiyonel bölge ve alım tipi filtresiyle. Toplam kill/hasar ile silah kıyası yapılmaz.
 
@@ -244,7 +244,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 ### Açık işler (öncelik sırasıyla; bkz. bölüm 8)
 0. **Yol:** 2b kendi oyununu doğrula → 2c takım yönetimi analizi → 3a web'de takım demo ekibi. Asıl amaç takımı yönetmek; maç içi yorum iptal.
 1. `inbox/` içindeki `1-806933ec-...dem.zst` awpy ile okunamıyor (protobuf UTF-8 hatası); kullanıcı silecek ya da başka bir parser (demoparser2) denenecek.
-2. Faz 2b: desen / rol etiketlerini demodan doğrulama + öneri takibi (önce / sonra); Mirage ve Inferno demoları + bölge tanımları. Faz 3c: `director scout <match_id>` (rakip scout). Takım raporu fonksiyonları (`team_rounds`, `t_round_patterns`, `ct_setups`) rakip için de kullanılabilir: rakip oyuncunun steam_id'si verilince onun takımını analiz eder.
+2. Faz 2b: desen / rol etiketlerini demodan doğrulama + öneri takibi (önce / sonra); Mirage ve Inferno demoları + bölge tanımları. Faz 3c: `squadmind scout <match_id>` (rakip scout). Takım raporu fonksiyonları (`team_rounds`, `t_round_patterns`, `ct_setups`) rakip için de kullanılabilir: rakip oyuncunun steam_id'si verilince onun takımını analiz eder.
 3. T desen sınıflandırmasını birkaç round'da demodan izleyerek doğrula (özellikle "girilmedi" ve default eşiği).
 4. Diğer haritalar için `analysis/maps.py` alan tanımı (şimdilik sadece Dust2).
 

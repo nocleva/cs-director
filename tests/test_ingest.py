@@ -6,7 +6,7 @@ from datetime import datetime
 
 from conftest import load_fixture
 
-from director.ingest.matches import parse_match, sync_player_matches
+from squadmind.ingest.matches import parse_match, sync_player_matches
 
 
 def test_parse_match_basic_fields():
