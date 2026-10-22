@@ -12,7 +12,8 @@ SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 # Şema sürümü. v2: demo tabloları awpy'nin gerçek kolonlarına göre yeniden kuruldu.
 # v3: kill'e wallbang (penetrated, noscope), maça parser_version, hasar tablosu.
-SCHEMA_VERSION = 3
+# v4: demo_files (aynı demo bir kez: içerik özeti, boyut, yükleyen).
+SCHEMA_VERSION = 4
 
 # v3'te mevcut tablolara eklenen kolonlar (eski DB'ler için)
 _V3_COLUMNS = (

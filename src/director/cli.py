@@ -301,6 +301,10 @@ def ingest_demos(
     for col in ("Maç", "Harita", "Round", "Kill", "Utility", "FACEIT ile", "Demo dosyası"):
         table.add_column(col)
     for r in results:
+        if r.rejected:
+            table.add_row(r.match_id or r.file[:24], "", "", "", "",
+                          f"[yellow]reddedildi: {r.error}[/yellow]", "inbox'ta (silebilirsin)")
+            continue
         if r.error:
             table.add_row(r.match_id or r.file[:24], r.map_name or "?", "", "", "",
                           f"[red]{r.error}[/red]", "inbox'ta kaldı")
@@ -384,6 +388,8 @@ def watch(
 def _watch_line(r: DemoIngestResult, db: Path) -> str:
     """Tek satır sonuç: maç, harita, skor, durum."""
     map_name = (r.map_name or "?").removeprefix("de_")
+    if r.rejected:
+        return f"[yellow]⊘[/yellow] {r.file} · [yellow]reddedildi: {r.error}[/yellow]"
     if r.error:
         return f"[red]✗[/red] {r.file} · {map_name} · [red]{r.error}[/red] (inbox'ta kaldı)"
     with connect(db, read_only=True) as con:
@@ -417,6 +423,7 @@ def reprocess_demos(db: Path = DbOption) -> None:
                 con, DEMOS_PROCESSED, DEMOS_PROCESSED, DEMOS_TMP,
                 on_start=lambda f: status.update(f"İşleniyor: {f.name}"),
                 delete_after=False,
+                allow_known=True,  # bilinen demolar bilerek yeniden işleniyor
             )
     ok = [r for r in results if not r.error and r.validated is not False]
     console.print(f"[green]{len(ok)}/{len(results)} demo güncellendi.[/green]")

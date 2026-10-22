@@ -158,10 +158,13 @@ def test_validation_flags_mismatch(tmp_path, make_client, con):
 def test_reingest_replaces_rows(tmp_path, make_client, con):
     _sync(make_client, con)
     inbox, processed, tmp = _dirs(tmp_path)
-    for _ in range(2):
+    # İkinci işleme reprocess yolu (allow_known): satırlar kopyalanmaz, yenilenir
+    for allow_known in (False, True):
         demo = inbox / f"{M1}-1-1.dem"
         demo.write_bytes(b"demo")
-        ingest_demo(con, demo, tmp, processed, parser=lambda p: make_tables())
+        r = ingest_demo(con, demo, tmp, processed, parser=lambda p: make_tables(),
+                        allow_known=allow_known)
+        assert r.error is None
 
     assert con.execute("SELECT count(*) FROM kills").fetchone()[0] == 2
     assert con.execute("SELECT count(*) FROM rounds").fetchone()[0] == 2

@@ -13,6 +13,8 @@ FACEIT CS2 maçlarının geçmiş verilerini (istatistik + demo dosyaları) topl
 
 bir "Gaming Director" ajanı kurmak.
 
+**Asıl amaç: takımı yönetmek.** Her özellik şu sorulardan birine hizmet etmeli: kim nerede iyi, nasıl bir taktik kurabiliriz, nereleri tutmak mantıklı, gücümüz / farkımız nerede, kime destek gerekli, takımın birbiriyle uyumlu olduğu noktalar. Uymayan fikir "sonra" listesine gider.
+
 **Dürüstlük kuralı:** Analizler veriye dayanır. Veri yetersizse ajan bunu söyler, tahmin uydurmaz. Her öneri hangi metrikten geldiğini gösterir (ör. "B site retake başarın %18, 11 denemede").
 
 ## 2. Veri Kaynakları
@@ -22,14 +24,14 @@ bir "Gaming Director" ajanı kurmak.
 | FACEIT Data API | Oyuncu profili, ELO/level, maç geçmişi, maç başı skor tablosu (K/D, ADR, HS%, MVP, multi-kill), harita, takımlar, demo **resource URL** | Ücretsiz API key (developers.faceit.com) | 1 |
 | FACEIT Downloads API | Demo dosyası için imzalı indirme linki | Ayrı başvuru gerekir, onay ~30 gün | 2 |
 | Manuel demo yükleme | `.dem` / `.dem.gz` dosyaları (FACEIT maç sayfasından "Watch demo" ile indirilir) | Kullanıcı `data/demos/inbox/` klasörüne atar | 1 |
-| CS2 Game State Integration (GSI) | Kendi oyuncunun canlı durumu (can, para, silah, round fazı, skor) | Valve'in resmi özelliği, config dosyası ile | 3 |
+| ~~CS2 Game State Integration (GSI)~~ | Kendi oyuncunun canlı durumu | Valve'in resmi özelliği | iptal (maç içi yorum yok) |
 
 **Önemli:** Downloads API başvurusunu hemen yap; onay gelene kadar manuel demo yükleme ile ilerle. Sistem iki yolu da aynı pipeline'a sokmalı.
 
 ### Canlı analiz hakkında
 - GSI resmi ve güvenli, ama **oynarken sadece kendi oyuncunun verisini** verir; rakip pozisyonu vermez.
 - Ekran okuma, bellek okuma, minimap'ten rakip tespiti gibi yöntemler FACEIT Anti-Cheat tarafından yakalanabilir ve ban riski taşır. **Bu projede kullanılmayacak.**
-- Faz 3'te güvenli canlı özellik: GSI ile ekonomi takibi ("bu round force buy yerine eco önerilir"), round arası hatırlatmalar, maç sonrası anında rapor.
+- **Maç sırasında / round başına yorum ve canlı sesli destek iptal edildi** (22.10.2026, kullanıcı kararı: kafa karıştırıyor, amaç takımı yönetmek). Kapsamda kalan: maç öncesi brifing (önce yazılı) ve maç sonrası analiz.
 
 ## 3. Teknoloji Yığını
 
@@ -153,10 +155,12 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | 1c | Oyuncu metrikleri + rol sınıflandırma | `director report player <nick>` Markdown rapor |
 | 1d | Claude Code subagent'ları | `director` ajanı rapordan yorum ve öneri üretiyor |
 | 2a | Takım taktik desenleri + ekonomi | `director report team` |
-| 2b | Rakip scout | `director scout <match_id>` |
-| 2c | Tactician + harita heatmap görselleri | Strat dokümanı oyuncu isimleriyle |
-| 2d | Downloads API entegrasyonu + Streamlit arayüz | Demolar otomatik iniyor |
-| 3 | GSI ile güvenli canlı ekonomi asistanı | Round arası öneri gösteriliyor |
+| 2b | Kendi oyununu doğrula: desen / rol etiketlerini demodan kontrol, öneri takibi (öneri → metrik → sonraki 5-10 maç), zayıf haritalar (Mirage, Inferno) | Etiket doğruluğu sayıyla biliniyor; öneriler önce / sonra raporlanıyor |
+| 2c | Takım yönetimi analizi: kim nerede iyi, nereleri tutmalı, güç farkımız, kime destek, oyuncu uyumu; tactician stratları | Takım raporu kadroya pozisyon / görev öneriyor |
+| 3a | **Web'de takım demo ekibi:** link ile katılım, FACEIT nickname, demo yükleme, hesabın analizi. Aynı demo bir kez: maç ID + boyut + içerik özeti; demo yükleyenin maçında olmalı | Premade kadro (4 kişi) web'den yükleyip raporunu görüyor ve yorumluyor |
+| 3b | İzinli veri paylaşımı (kim kimin verisini görür), takım kurma kriterleri | Paylaşım izinle açılıyor |
+| 3c | Rakip scout + maç öncesi yazılı brifing | `scout <match_id>` → brifing |
+| 4 | Downloads API ile otomatik demo (watch gereksiz), FACEIT ile giriş | Demolar elle yüklenmeden geliyor |
 
 ## 9. Kod Kuralları
 - Tüm kod tam, çalışır halde ve **satır içi yorumlu** (Türkçe yorum).
@@ -203,6 +207,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 
 ### Alınan kararlar ve nedenleri
 - **Otomatik silme kapalı:** Parser'a yeni alan eklenince (wallbang, hasar) silinmiş 13 demo yeniden indirilmek zorunda kalındı. Parser oturana kadar demolar `processed/`'da kalır; güncelleme `reprocess-demos` ile.
+- **Aynı demo bir kez** (kullanıcının ana iş kuralı, web yüklemesi için de): `precheck_demo` parse'tan önce boyut (20 MB – 2 GB), içerik özeti (sha256, `demo_files` tablosu, şema v4) ve dosya adındaki maçı kontrol eder; kadrodan bulunan maç da işlenmişse red; `uploader` verilirse demodaki oyunculardan biri olmalı. FACEIT ile tutmayan demo da kaydedilir (tekrar denenemez). Başka maçın ID'siyle adlandırılmış demo FACEIT doğrulamasına takılır. `reprocess-demos` kontrolü atlar (`allow_known`).
 - **`watch` durum değeri `processed`** (istekte `parsed` geçiyordu): analiz `demo_status = 'processed'` okuyor; ayrı bir değer demoyu analiz dışında bırakırdı. Klasörde zaten duran demolar varsayılan olarak alınmaz (`--existing`). DB bağlantısı yalnızca demo işlenirken açık (watch çalışırken diğer komutlar DB'yi kullanabilsin).
 - **Dosya adında maç ID'si yoksa eşleştirme:** harita + kadro örtüşmesi (≥8 oyuncu) + tarih: dosya tarihinden (+1 saat pay) sonra başlayan maç aday değil, en yakın tarihli seçilir.
 - **FACEIT ile tutmayan demo** (kill/death ±1, ADR ±5) DB'ye alınmaz, maç `demo_status='mismatch'` olur, dosya inceleme için saklanır. Doğrulama: 17 sağlam maçta 180/180 oyuncu-maç kill sayısı FACEIT ile birebir.
@@ -230,9 +235,10 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - Takım (Dust2, 188 T / 210 CT round): A rush %74 (31 round, plant sonrası %88) ve A split %100 (10, az örnek) vs A execute %53 (53; long'dan %48, short'tan %44). B execute %77 (22). Plant sonrası kazanma T %80+; rakip plant edince retake A %20 (50), B %32 (47). CT 2-2-1 %72 (40), 3-1-1 %59 (27). Kayıptan sonra çoğunlukla force (100 round, %43; sonraki round %52); eco nadir (14; o round %7, sonraki %79). Pistol kazanılınca 2. round 20/20.
 - FACEIT geneli: Dust2 %71 kazanma; Mirage %31 (13 maç), Inferno K/D 0.80 (9 maç) zayıf.
 
-### Açık işler (öncelik sırasıyla)
+### Açık işler (öncelik sırasıyla; bkz. bölüm 8)
+0. **Yol:** 2b kendi oyununu doğrula → 2c takım yönetimi analizi → 3a web'de takım demo ekibi. Asıl amaç takımı yönetmek; maç içi yorum iptal.
 1. `inbox/` içindeki `1-806933ec-...dem.zst` awpy ile okunamıyor (protobuf UTF-8 hatası); kullanıcı silecek ya da başka bir parser (demoparser2) denenecek.
-2. Faz 2b: `director scout <match_id>` (rakip scout). Takım raporu fonksiyonları (`team_rounds`, `t_round_patterns`, `ct_setups`) rakip için de kullanılabilir: rakip oyuncunun steam_id'si verilince onun takımını analiz eder.
+2. Faz 2b: desen / rol etiketlerini demodan doğrulama + öneri takibi (önce / sonra); Mirage ve Inferno demoları + bölge tanımları. Faz 3c: `director scout <match_id>` (rakip scout). Takım raporu fonksiyonları (`team_rounds`, `t_round_patterns`, `ct_setups`) rakip için de kullanılabilir: rakip oyuncunun steam_id'si verilince onun takımını analiz eder.
 3. T desen sınıflandırmasını birkaç round'da demodan izleyerek doğrula (özellikle "girilmedi" ve default eşiği).
 4. Diğer haritalar için `analysis/maps.py` alan tanımı (şimdilik sadece Dust2).
 

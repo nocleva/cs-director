@@ -87,3 +87,14 @@ def con():
     init_db(connection)
     yield connection
     connection.close()
+
+
+@pytest.fixture(autouse=True)
+def tiny_demos_allowed(monkeypatch):
+    """Testlerdeki sahte demolar birkaç bayt: boyut alt sınırını kaldır.
+
+    Boyut kuralının kendisi test_demo_guard.py'de gerçek sınırla test edilir.
+    """
+    import director.ingest.demos as demos
+
+    monkeypatch.setattr(demos, "MIN_DEMO_BYTES", 1)

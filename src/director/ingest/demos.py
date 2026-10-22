@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import hashlib
+
 import duckdb
 import polars as pl
 import zstandard
@@ -30,6 +32,11 @@ DEMO_SUFFIXES = (".dem", ".dem.zst", ".dem.gz")
 MIN_ROSTER_OVERLAP = 8
 # Demo dosyasının tarihi ile maç başlangıcı arasında saat farkı payı (saniye)
 DEMO_CLOCK_SLACK = 3600
+
+# Demo boyut aralığı (bayt). 18 FACEIT Dust2 demosu sıkıştırılmış 114-222 MB; 13-0 biten
+# kısa maç yarısı kadar olabilir, açılmış .dem birkaç katı. Dışındaki dosya demo sayılmaz.
+MIN_DEMO_BYTES = 20 * 1024 * 1024
+MAX_DEMO_BYTES = 2 * 1024 * 1024 * 1024
 
 # FACEIT skor tablosu ile demo arasında kabul edilen fark
 KILL_TOLERANCE = 1
@@ -105,6 +112,60 @@ def resolve_match_id(con: duckdb.DuckDBPyConnection, demo_file: Path,
     if row and row[1] >= MIN_ROSTER_OVERLAP:
         return row[0]
     return None
+
+
+# --- aynı demo bir kez (kopya / sahte yükleme kontrolü) ----------------------------
+
+def file_sha256(path: Path, chunk: int = 4 * 1024 * 1024) -> str:
+    """Dosyanın içerik özeti: adı değiştirilmiş kopya da aynı özeti verir."""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while block := f.read(chunk):
+            h.update(block)
+    return h.hexdigest()
+
+
+def precheck_demo(con: duckdb.DuckDBPyConnection, demo_file: Path) -> tuple[str | None, str]:
+    """Parse'tan önceki ucuz kontroller: (red nedeni ya da None, içerik özeti).
+
+    1. Boyut demo aralığında olmalı.
+    2. Aynı içerik daha önce eklenmemiş olmalı.
+    3. Dosya adındaki maçın demosu daha önce işlenmemiş olmalı.
+    """
+    size = demo_file.stat().st_size
+    if not MIN_DEMO_BYTES <= size <= MAX_DEMO_BYTES:
+        return f"dosya boyutu demo için şüpheli ({size / 1024 / 1024:.1f} MB)", ""
+    digest = file_sha256(demo_file)
+    row = con.execute("SELECT match_id, file_name FROM demo_files WHERE sha256 = ?",
+                      [digest]).fetchone()
+    if row:
+        return f"bu dosya daha önce eklendi (maç {row[0]}, {row[1]})", digest
+    mid = match_id_from_filename(demo_file.name)
+    if mid and match_already_processed(con, mid):
+        return f"bu maçın demosu zaten işlendi ({mid})", digest
+    return None, digest
+
+
+def match_already_processed(con: duckdb.DuckDBPyConnection, match_id: str) -> bool:
+    """Maçın demosu daha önce işlendi mi (doğrulanmış ya da FACEIT ile tutmayan)."""
+    row = con.execute(
+        "SELECT demo_status FROM matches WHERE match_id = ?", [match_id]).fetchone()
+    known = con.execute("SELECT count(*) FROM demo_files WHERE match_id = ?",
+                        [match_id]).fetchone()[0]
+    return known > 0 or (row is not None and row[0] in ("processed", "mismatch"))
+
+
+def register_demo_file(con: duckdb.DuckDBPyConnection, digest: str, match_id: str,
+                       demo_file: Path, size: int, uploader: str | None, status: str) -> None:
+    """İşlenen demonun özetini kaydeder; aynı dosya ikinci kez eklenemez."""
+    con.execute(
+        """
+        INSERT INTO demo_files (sha256, match_id, file_name, size_bytes, uploaded_by, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (sha256) DO UPDATE SET status = excluded.status
+        """,
+        [digest, match_id, demo_file.name, size, uploader, status],
+    )
 
 
 # --- DB yazma ----------------------------------------------------------------
@@ -261,6 +322,7 @@ class DemoIngestResult:
     deleted: bool = False  # demo silindi (verileri DB'de)
     freed_bytes: int = 0
     kept_reason: str | None = None  # silme istendi ama dosya saklandıysa nedeni
+    rejected: bool = False  # kopya / şüpheli dosya: hiç işlenmedi
 
     @property
     def validated(self) -> bool | None:
@@ -277,15 +339,29 @@ def ingest_demo(
     processed_dir: Path,
     parser: Callable[[Path], DemoTables] = parse_demo,
     delete_after: bool = False,
+    uploader: str | None = None,
+    allow_known: bool = False,
 ) -> DemoIngestResult:
     """Tek bir demoyu işler. Hata olursa dosya inbox'ta kalır, sonuçta hata yazar.
 
     delete_after=True ise, veriler DB'ye yazılıp FACEIT ile tutarlı çıktıktan sonra
     orijinal demo silinir. Tutarsızlık varsa incelenebilsin diye processed/'a taşınır.
+
+    Aynı demo bir kez: boyut, içerik özeti ve maç kontrol edilir (`precheck_demo`);
+    `uploader` (steam id) verilirse yükleyen demodaki oyunculardan biri olmalı.
+    allow_known=True (reprocess) bilinen demoları yeniden işlemeye izin verir.
     """
     result = DemoIngestResult(file=demo_file.name)
     unpacked: Path | None = None
     try:
+        if allow_known:
+            digest = file_sha256(demo_file)
+        else:
+            reason, digest = precheck_demo(con, demo_file)
+            if reason:
+                result.error = reason
+                result.rejected = True
+                return result
         unpacked = decompress(demo_file, tmp_dir)
         tables = parser(unpacked)
         result.map_name = tables.map_name
@@ -295,6 +371,15 @@ def ingest_demo(
             result.error = "maç bulunamadı (önce `director sync` çalıştır)"
             return result
         result.match_id = match_id
+        # Dosya adında ID yoktu, kadrodan bulundu: o maç da daha önce işlenmemiş olmalı
+        if not allow_known and match_already_processed(con, match_id):
+            result.error = f"bu maçın demosu zaten işlendi ({match_id})"
+            result.rejected = True
+            return result
+        if uploader and uploader not in set(tables.players["steamid"].to_list()):
+            result.error = "yükleyen bu maçta oynamamış"
+            result.rejected = True
+            return result
 
         save_demo_tables(con, match_id, tables)
         result.rounds = tables.rounds.height
@@ -306,6 +391,9 @@ def ingest_demo(
         # FACEIT ile tutmuyorsa veriye güvenme: analizleri kirletmesin diye DB'den çıkar
         if result.validated is False:
             discard_demo_data(con, match_id)
+        # Sonuç ne olursa olsun bu dosya artık bilinir: aynısı tekrar eklenemez
+        register_demo_file(con, digest, match_id, demo_file, demo_file.stat().st_size,
+                           uploader, "mismatch" if result.validated is False else "processed")
 
         if delete_after:
             reason = keep_reason(result)
@@ -365,13 +453,15 @@ def ingest_inbox(
     parser: Callable[[Path], DemoTables] = parse_demo,
     on_start: Callable[[Path], None] | None = None,
     delete_after: bool = False,
+    allow_known: bool = False,
 ) -> list[DemoIngestResult]:
-    """Inbox'taki tüm demoları sırayla işler."""
+    """Inbox'taki tüm demoları sırayla işler (allow_known: reprocess için)."""
     results = []
     for demo_file in find_demos(inbox):
         if on_start:
             on_start(demo_file)
         results.append(
-            ingest_demo(con, demo_file, tmp_dir, processed_dir, parser, delete_after)
+            ingest_demo(con, demo_file, tmp_dir, processed_dir, parser, delete_after,
+                        allow_known=allow_known)
         )
     return results

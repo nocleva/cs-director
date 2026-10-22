@@ -192,3 +192,15 @@ CREATE TABLE IF NOT EXISTS damages (
     victim_place    VARCHAR,
     through_wall    BOOLEAN              -- göz → gövde çizgisi harita geometrisiyle kesiliyor
 );
+
+-- Yüklenen demo dosyaları (şema v4): aynı demo bir kez eklenebilir. İçerik özeti (sha256)
+-- adı değiştirilmiş kopyayı da yakalar; yükleyen (web) demodaki oyunculardan biri olmalı.
+CREATE TABLE IF NOT EXISTS demo_files (
+    sha256       VARCHAR PRIMARY KEY,
+    match_id     VARCHAR,
+    file_name    VARCHAR,
+    size_bytes   BIGINT,
+    uploaded_by  VARCHAR,                -- yükleyenin steam id'si (yerel inbox'ta boş)
+    status       VARCHAR,                -- processed / mismatch
+    added_at     TIMESTAMP DEFAULT current_timestamp
+);
