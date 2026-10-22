@@ -99,7 +99,7 @@ def load_demo_data(con: duckdb.DuckDBPyConnection, map_name: str | None = None) 
         utility=per_match("SELECT * FROM utility WHERE list_contains(?, match_id)"),
         positions=per_match(
             "SELECT match_id, round_no, tick, time_in_round, player, side, x, y, place_name, "
-            "active_weapon "
+            "active_weapon, equipment_value "
             "FROM positions_snapshot WHERE list_contains(?, match_id)"
         ),
         stats=per_match("SELECT * FROM demo_player_stats WHERE list_contains(?, match_id)"),

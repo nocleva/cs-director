@@ -13,6 +13,16 @@ from datetime import date
 import duckdb
 import polars as pl
 
+from director.analysis.impact import (
+    ASSIST_DMG,
+    COMFORT_LEAD,
+    FINISH_DMG,
+    LOW_HP,
+    SOLO_DMG,
+    impact_counts,
+    impact_rates,
+    kill_value_by_weapon,
+)
 from director.analysis.player_metrics import (
     DemoData,
     Rate,
@@ -22,6 +32,7 @@ from director.analysis.player_metrics import (
     place_breakdown,
     player_match_metrics,
     weapon_breakdown,
+    round_main_weapon,
     weapon_exposure,
     weapon_place_breakdown,
 )
@@ -53,7 +64,7 @@ SNIPERS = ("awp", "scout")
 class Metric:
     key: str
     label: str
-    kind: str            # pct / num / sec / dist / ratio
+    kind: str            # pct / num / sec / dist / ratio / pp (yüzde puan) / usd
     better: str | None   # high / low / None (yönsüz)
 
 
@@ -100,6 +111,25 @@ SECTIONS: dict[str, list[Metric]] = {
         Metric("ct_anchor", "CT: aynı site'ı tutma", "pct", None),
         Metric("ct_rotation", "CT: round içinde site değiştirme", "pct", None),
     ],
+    "Kill ve hasar değeri": [
+        Metric("wpa_per_round", "Kazanma olasılığı katkısı / round", "pp", "high"),
+        Metric("wpa_per_kill", "Kazanma olasılığı katkısı / kill", "pp", "high"),
+        Metric("solo_kill_share", "Tek başına kill (rakibin ≥90 canını sen aldın)", "pct", "high"),
+        Metric("finish_kill_share", "Bitirme kill'i (rakibin <40 canını sen aldın)", "pct", None),
+        Metric("behind_kill_share", "Sayıca gerideyken alınan kill payı", "pct", "high"),
+        Metric("comfort_kill_share", "Rahat durumda (≥2 kişi öndeyken) kill payı", "pct", None),
+        Metric("eco_kill_share", "Eco'daki rakibe kill payı", "pct", None),
+        Metric("disadv_kpr", "Fakirken (eco/force, rakip full) kill / round", "ratio", "high"),
+        Metric("equip_per_kill", "Kill başına rakibe kaybettirilen ekipman", "usd", "high"),
+        Metric("assists_per_round", "Asist / round (≥41 hasar, takım arkadaşı bitirdi)",
+               "ratio", "high"),
+        Metric("support_dmg_per_round", "Hasar desteği / round (takımın öldürdüğü rakibe)",
+               "num", "high"),
+        Metric("low_left_per_round", "Low bırakılan rakip / round (≤40 can, sen öldürmedin)",
+               "ratio", None),
+        Metric("low_converted", "Low bırakılanı takımın bitirme oranı", "pct", "high"),
+        Metric("dmg_conversion", "Hasarın ölüme dönüşme oranı", "pct", "high"),
+    ],
 }
 
 SIDE_TR = {"T": "T", "CT": "CT"}
@@ -118,6 +148,10 @@ def _fmt(r: Rate, kind: str, with_sample: bool = False) -> str:
         return f"{v:.0f}"
     if kind == "num":
         return f"{v:.1f}"
+    if kind == "pp":
+        return f"{100 * v:+.1f} puan"
+    if kind == "usd":
+        return f"{v:,.0f}$"
     return f"{v:.2f}"
 
 
@@ -233,6 +267,11 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
         return PlayerReport(nick, "\n".join(lines), 0, None, None)
 
     me, lb = aggregate(mine), aggregate(lobby)
+    # Kill / hasar değeri metrikleri aynı oyuncu-maç kümesi üzerinden
+    ic = impact_counts(d)
+    lobby_keys = lobby.select("match_id", "steam_id")
+    me |= impact_rates(ic.filter(pl.col("steam_id") == steam_id))
+    lb |= impact_rates(ic.join(lobby_keys, on=["match_id", "steam_id"], how="semi"))
     scores = role_scores(pm, steam_id)
     t_role, ct_role = primary_roles(scores)
     maps = d.match_maps.filter(pl.col("match_id").is_in(mine["match_id"].implode()))
@@ -370,6 +409,9 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
     # --- silah maruziyeti: toplam yerine "o silahla oynanan round" başına
     lines += _exposure_section(d, steam_id, wp_all)
 
+    # --- kill / hasar değeri silaha göre
+    lines += _kill_value_section(d, steam_id)
+
     # --- bölgeler
     lines += ["## Bölgeler", ""]
     for kind, title in (("death", "Ölüm yerleri"), ("kill", "Kill yerleri")):
@@ -466,6 +508,51 @@ def _exposure_section(d: DemoData, steam_id: str, wp: pl.DataFrame) -> list[str]
         "- Ana silah round boyunca en çok tutulan silahtır: AWP ile başlayıp düşürülen ya da "
         "sonradan alınan silah round'u o silaha saymayabilir.",
         "- (*) Duvar arkası hasar **tahmini** (bkz. Silah × bölge).",
+        "",
+    ]
+    return lines
+
+
+def _kill_value_section(d: DemoData, steam_id: str) -> list[str]:
+    """Silaha göre kill değeri + öldürmeyen hasarın (low bırakma, asist) katkısı."""
+    kv = kill_value_by_weapon(d, steam_id).filter(
+        (pl.col("kills") > 0) | (pl.col("support_dmg") >= 300))
+    if kv.height == 0:
+        return []
+    # Silahın ana silah olduğu round sayısı (hasar desteğini round başına vermek için)
+    mw = round_main_weapon(d, steam_id).group_by("main_weapon").len()
+    kv = kv.join(mw.rename({"main_weapon": "weapon", "len": "rounds"}), on="weapon", how="left")
+    lines = ["## Kill ve hasar değeri (silaha göre)", "",
+             "Kill sayısı kill'in değerini söylemez. Bu tablo kill'in türünü, round'un kazanma "
+             "olasılığına katkısını ve ekonomik bağlamını; ayrıca **öldürmeyen hasarın** "
+             "takıma katkısını (low bırakılan rakibi takım arkadaşının bitirmesi, asist) "
+             "gösterir.", "",
+             "| Silah | Round (ana silah) | Kill | Tek başına | Bitirme | Katkı / kill | "
+             "Eco'ya kill | Rakip ekipmanı / kill | Low bırakılan | → takım bitirdi | Asist "
+             "| Hasar desteği / R |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for r in kv.iter_rows(named=True):
+        n, k = r["rounds"], r["kills"]
+        pct = (lambda x: f"%{100 * x / k:.0f}") if k else (lambda x: "-")
+        equip = "-" if r["equip_per_kill"] is None else f"{r['equip_per_kill']:,.0f}$"
+        per_round = "-" if not n else f"{r['support_dmg'] / n:.1f}"
+        lines.append(
+            f"| {r['weapon']} | {n or '-'} | {k} | {pct(r['solo'])} | {pct(r['finish'])} | "
+            f"{(f'{100 * r['wpa'] / k:+.1f} puan') if k else '-'} | {r['eco_kills']} | {equip} | "
+            f"{r['low_left']} | {r['low_converted']} | {r['assists']} | {per_round} |"
+        )
+    lines += [
+        "",
+        f"- **Tek başına:** rakibin kaybettiği 100 canın en az {SOLO_DMG}'ını katil verdi. "
+        f"**Bitirme:** {FINISH_DMG}'tan azını verdi (takım arkadaşının yaraladığını bitirdi).",
+        "- **Katkı (kazanma olasılığı):** kill öncesi ve sonrası sağ kalan sayısına göre "
+        "round kazanma olasılığındaki artış. Olasılıklar bu maçların kendi round'larından "
+        "çıkarıldı; ekonomi hesaba katılmaz. 5v5 opening ≈ +20 puan, 5v1'de kill ≈ +1 puan.",
+        f"- **Low bırakılan:** son isabetinden sonra rakibin canı ≤{LOW_HP} ve onu sen "
+        f"öldürmedin. **Asist:** takım arkadaşının öldürdüğü rakibe en az {ASSIST_DMG} hasar. "
+        "Hasar kolonları rakibe son isabeti yapan silaha göredir.",
+        f"- **Rahat durum:** kill öncesi en az {COMFORT_LEAD} kişi öndesin (ör. 4v2). "
+        "**Rakip ekipmanı:** ölen rakibin son konum kaydındaki ekipman değeri (yaklaşık).",
         "",
     ]
     return lines

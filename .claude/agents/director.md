@@ -41,11 +41,21 @@ FROM kills k JOIN players p ON p.steam_id = k.attacker
 WHERE p.nickname = '<nick>' AND k.attacker_place = 'MidDoors' AND k.attacker_side = 'CT'
 GROUP BY 1 ORDER BY 2 DESC;
 
--- Kill olmayan vuruşlar dahil hasar ve tahmini duvar arkası hasar (parser v2+ maçlar)
-SELECT d.attacker_place, d.weapon, sum(d.dmg_health) hasar, count(*) isabet,
-       sum(CASE WHEN d.through_wall THEN d.dmg_health ELSE 0 END) duvar_arkasi_hasar
-FROM damages d JOIN players p ON p.steam_id = d.attacker
-WHERE p.nickname = '<nick>' AND d.attacker_side <> d.victim_side
+-- Kill olmayan vuruşlar dahil hasar ve tahmini duvar arkası hasar (parser v2+ maçlar).
+-- damages.dmg_health HAM değerdir (20 canlıya AWP 115 yazar); asla doğrudan toplama.
+-- Bu sorgu kalan cana göre kırpar; rapordaki hasar değerleriyle birebir aynıdır.
+WITH c AS (
+  SELECT d.*, least(100, sum(dmg_health) OVER (PARTITION BY match_id, round_no, victim
+         ORDER BY tick ROWS UNBOUNDED PRECEDING)) AS cum
+  FROM damages d),
+x AS (
+  SELECT c.*, cum - coalesce(lag(cum) OVER (PARTITION BY match_id, round_no, victim
+         ORDER BY tick, cum), 0) AS dmg
+  FROM c)
+SELECT x.attacker_place, x.weapon, sum(x.dmg) hasar, count(*) isabet,
+       sum(CASE WHEN x.through_wall THEN x.dmg ELSE 0 END) duvar_arkasi_hasar
+FROM x JOIN players p ON p.steam_id = x.attacker
+WHERE p.nickname = '<nick>' AND x.attacker_side <> x.victim_side
 GROUP BY 1,2 ORDER BY hasar DESC;
 
 -- Takımın alım tipine göre round sonucu (rounds.ct_faction ile oyuncunun tarafı)
@@ -65,6 +75,16 @@ Bir bölge / silah / oyun tarzını **sadece kill sayısıyla** değerlendirme. 
 - **Duvar / kapı arkası:** `kills.penetrated > 0` kesin wallbang kill'dir. `damages.through_wall` **tahminidir** (gerçek duvar arkası vuruşların ~%73'ünü yakalar, direkt vuruşların ~%3'ünü yanlışlıkla işaretler); bunu söyleyerek kullan.
 - **Bedel:** aynı bölgede kaç kez ölünüyor, bu ölümler trade ediliyor mu (`is_traded`), round'un kaçıncı saniyesinde.
 - **Silah alternatifi:** aynı bölgede farklı silahların sonucu. Örnek: Mid Doors'ta Scout, AWP'ye göre daha ucuz ve kapı arkası vuruşta daha etkiliyse bu bir güçlü yöndür, göz ardı etme; ekonomi önerisine çevir.
+
+### Kill'in ve hasarın değeri
+
+Raporun "Kill ve hasar değeri" bölümleri (`src/director/analysis/impact.py`) aynı sayıdaki kill'lerin farklı değerde olduğunu gösterir. Kullan:
+
+- **Kazanma olasılığı katkısı:** kill öncesi/sonrası sağ kalan sayısına göre round kazanma olasılığındaki artış (bu maçların kendi verisinden; ekonomi hariç). Çok kill ama düşük katkı = sonucu belli round'larda kill. "Rahat durumda kill payı" ile birlikte oku.
+- **Kill türü:** tek başına (rakibin ≥90 canını oyuncu aldı) / bitirme (<40). Bitirme kötü değildir, ama oyuncunun açtığı fark değildir.
+- **Öldürmeyen hasar:** low bırakma (≤40 can), bunların takım arkadaşınca bitirilmesi, asist (≥41 hasar), hasar desteği. Bir silahın / pozisyonun değerini kill'e ek olarak bunlarla değerlendir (ör. Scout kapı arkasından low bırakıp takıma kill hazırlıyor olabilir).
+- **Ekonomi:** eco'daki rakibe kill payı (ucuz kill), fakirken (eco/force, rakip full) kill / round (pahalı kill), kill başına rakibe kaybettirilen ekipman.
+- **Silah karşılaştırması:** toplam kill/hasarla değil, "Silah maruziyeti (round başına)" tablosuyla; alım tipini (force / full) hesaba kat.
 
 Kötü bir sayı tek başına "bu pozisyonu bırak" demek değildir. Önce bedelin neden yüksek olduğunu bul (tek başına mı, trade edilmiyor mu, hep aynı saniyede mi), sonra pozisyonu korurken bedeli düşüren öneri ver.
 
