@@ -165,3 +165,62 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - FACEIT API çağrıları disk cache'li ve rate-limit'e saygılı (429 gelirse exponential backoff).
 - Her metrik hesaplaması bilinen bir demo üzerinde manuel doğrulanır (ör. scoreboard'daki ADR ile karşılaştır).
 - Terimler: kod içinde İngilizce isimler, raporlarda Türkçe metin (oyun terimleri İngilizce kalabilir: entry, trade, retake, eco).
+
+## 10. Mevcut Durum (22.10.2026 itibarıyla)
+
+> Yeni oturum buradan devam eder. İş ilerledikçe bu bölümü güncelle.
+
+### Biten fazlar
+| Faz | Durum |
+|---|---|
+| 0, 1a | ✅ FACEIT istemcisi, `sync` / `summary`. Kullanıcı: **Nocleva** (büyük N; FACEIT nickname büyük/küçük harfe duyarlı), level 9, 99 maç DB'de |
+| 1b | ✅ Demo inbox → awpy parse → DB. Parser v2 (wallbang + hasar). 18 Dust2 maçı işlendi, hepsi FACEIT ile doğrulandı |
+| 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, `director report player <nick> [--map dust2]` |
+| 1d | 🟡 `.claude/agents/` altında `director`, `scout`, `tactician` yazıldı; **henüz gerçek bir analizle denenmedi** (bitti kriteri: director rapordan yorum + öneri üretiyor) |
+| 2a+ | ⏳ Başlamadı |
+
+### Veri ve ortam
+- Veri OneDrive DIŞINDA: `C:\Users\furka\cs-director-data` (`.env` → `DIRECTOR_DATA_DIR`). İçinde `director.duckdb`, `cache/`, `demos/{inbox,processed,tmp}`.
+- `.env`: `FACEIT_API_KEY`, `DIRECTOR_DATA_DIR`, `DIRECTOR_AUTO_DELETE=0`.
+- `uv` yolu: `C:\Users\furka\.local\bin` (PATH'te değilse ekle). Python 3.12 (`.python-version`), awpy 3.x, DuckDB 2.x, Polars 2.x.
+- Windows konsolunda Türkçe çıktı için `PYTHONUTF8=1` ve `PYTHONIOENCODING=utf-8`.
+- Downloads API başvurusu: yapıldı mı bilinmiyor; demolar şimdilik manuel indiriliyor (`demo-links`).
+
+### Komutlar
+| Komut | Ne yapar |
+|---|---|
+| `director sync <nick> -n 100` | FACEIT maç geçmişi + skor tablosu (upsert) |
+| `director demo-links <nick> [--map dust2] [--outdated]` | İndirilecek demoların maç sayfası linkleri → `reports/demo_links.md` |
+| `director ingest-demos [--delete/--keep] [--details]` | Inbox'taki demoları işler, FACEIT ile doğrular, processed/'a taşır |
+| `director reprocess-demos` | processed/'daki demoları güncel parser ile yeniden işler (parser'a alan eklenince) |
+| `director clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
+| `director report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
+| `director query "<SELECT>"` | Salt-okunur SQL (ajanlar için) |
+
+### Alınan kararlar ve nedenleri
+- **Otomatik silme kapalı:** Parser'a yeni alan eklenince (wallbang, hasar) silinmiş 13 demo yeniden indirilmek zorunda kalındı. Parser oturana kadar demolar `processed/`'da kalır; güncelleme `reprocess-demos` ile.
+- **FACEIT ile tutmayan demo** (kill/death ±1, ADR ±5) DB'ye alınmaz, maç `demo_status='mismatch'` olur, dosya inceleme için saklanır. Doğrulama: 17 sağlam maçta 180/180 oyuncu-maç kill sayısı FACEIT ile birebir.
+- **AWPer rolü = AWP + Scout payı** (eşik %35): rolü belirleyen silah değil, pozisyon/açı.
+- **Wallbang:** `kills.penetrated > 0` kesin (motor bilgisi). `damages.through_wall` tahmini: çoklu çizgi görüş kontrolü, wallbang'lerin ~%73'ünü yakalar, direkt vuruşların ~%3'ünü yanlış işaretler. Raporlarda "tahmini" diye geçer.
+- **Lobi karşılaştırması:** "iyi/kötü" yargısı aynı maçlardaki diğer oyunculara göre. Belirgin fark: yüzdelerde ≥5 puan, diğerlerinde ≥%15; ≥20 örnek ve ≥10 olay.
+- **Pozisyon değerlendirmesi** (kullanıcının isteği): sadece kill değil; opening, hasar, wallbang / duvar arkası vuruş, bölgede ölüm ve trade edilme birlikte.
+
+### Şimdiye kadarki bulgular (Nocleva, 18 Dust2 maçı)
+- Rol: iki tarafta AWPer (güven yüksek; keskin nişancı payı %50 = AWP %30 + Scout %20, lobi %11). İkincil: T'de entry, CT'de Mid'den rotasyon (CT'de 15/18 maç Mid).
+- Lobiden iyi: K/D 1.19 (lobi 0.98), ADR 92 (78), T opening kazanma %58 (45 deneme; lobi %45), utility hasarı.
+- Lobiden zayıf: flash başına kör edilen takım arkadaşı 0.70 (lobi 0.56).
+- CT ölümlerinin %34'ü Mid Doors'ta (47 ölüm), sadece 2'si trade edildi.
+- Mid Doors (CT) Scout vs AWP: ikisi de 30 kill / 10 opening; Scout 14 wallbang kill (AWP 3), hasar 7.227 vs 5.741. **Dikkat:** her silahın kaç round elde tutulduğu (maruziyet) henüz hesaba katılmadı.
+- FACEIT geneli: Dust2 %71 kazanma; Mirage %31 (13 maç), Inferno K/D 0.80 (9 maç) zayıf.
+
+### Açık işler (öncelik sırasıyla)
+1. **Silah maruziyeti:** `positions_snapshot.active_weapon` ile her silahın elde tutulduğu round sayısını hesapla; Scout/AWP karşılaştırmasını round başına yap, rapora ekle.
+2. **director ajanını dene:** "director ajanını kullanarak Nocleva'yı analiz et" → çıktıyı kullanıcıyla değerlendir, ajan talimatlarını iyileştir (Faz 1d bitti kriteri).
+3. `inbox/` içindeki `1-806933ec-...dem.zst` awpy ile okunamıyor (protobuf UTF-8 hatası); kullanıcı silecek ya da başka bir parser (demoparser2) denenecek.
+4. Faz 2a: T tarafı ilk 20 sn pozisyonlarından taktik desenleri (default / rush / split / execute) + ekonomi kararları → `director report team`.
+5. Diğer haritalar için `analysis/maps.py` alan tanımı (şimdilik sadece Dust2).
+
+### Bilinen teknik tuzaklar
+- DuckDB 2.x: `.pl()` yok → `pl.from_arrow(con.cursor().sql(sql, params=...).to_arrow_table())`. Açık sonuç varken aynı bağlantıda yeni sorgu hata verir (ayrı `cursor()` kullan). `ON CONFLICT DO UPDATE` içinde `current_timestamp` yerine `now()`.
+- Polars DataFrame'i DuckDB'ye yazmak için `pyarrow` gerekir.
+- awpy: `kills`/`smokes` ısınma round'unu da içerir (`round_windows` ile elenir); smoke atanı çoğunlukla boş gelir (`resolve_projectiles` ile `shots`'tan eşlenir); bölge adı ham alan `m_szLastPlaceName`.
