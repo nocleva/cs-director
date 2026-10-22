@@ -27,6 +27,7 @@ from squadmind.ingest import demos as demo_rules
 from squadmind.ingest.matches import profile_to_player_row, upsert_players
 from squadmind.reports.player_report import build_player_report
 from squadmind.reports.team_report import build_team_report
+from squadmind.viz import tactic as tactic_view
 from squadmind.web.store import OPEN_STATES, QUEUED, UPLOADING, Store, WebUser
 from squadmind.web.worker import Job, Worker
 
@@ -51,6 +52,7 @@ class WebSettings:
     team_owner: str | None
     map_name: str | None
     uploads_dir: Path
+    strats_dir: Path = tactic_view.STRATS_DIR  # taktik tahtasının strat dosyaları
 
 
 def safe_file_name(name: str) -> str:
@@ -236,6 +238,31 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         except LookupError as exc:
             return render_report(request, "Takım raporu", f"_{exc}_")
         return render_report(request, "Takım raporu", rep.markdown)
+
+    # --- taktik tahtası -------------------------------------------------------------------
+
+    @app.get("/taktik", response_class=HTMLResponse)
+    def tactic(request: Request, r: str = ""):
+        user = current_user(request)
+        if user is None:
+            return RedirectResponse("/", status_code=303)
+        strats = tactic_view.load_strats(settings.strats_dir, settings.map_name)
+        found = tactic_view.find_tab(strats, r)
+        if found is None:
+            return render_report(request, "Taktik tahtası", "_Bu harita için henüz strat yok._")
+        strat, tab = found
+        owner = settings.team_owner or user.nickname
+        try:
+            ctx = store.run(lambda con: tactic_view.tactic_page(con, owner, strat), lock=False)
+        except LookupError as exc:
+            return render_report(request, "Taktik tahtası", f"_{exc}_")
+        entry = int(strat.raw.get("entry", 0))
+        return page(request, "tactic.html", user=user, strat=strat, tab=tab,
+                    tabs=[(s, t) for s in strats for t in s.tabs],
+                    map_label=strat.map_name.removeprefix("de_").capitalize(),
+                    stat=tactic_view.stat_line(tab, ctx["stats"], strat.side),
+                    entry_label=f"{entry // 60}:{entry % 60:02d}",
+                    spot_window=tactic_view.SPOT_WINDOW, **ctx)
 
     return app
 

@@ -22,6 +22,19 @@ ZONES: dict[str, dict[str, str]] = {
 }
 
 
+# Taktik tahtasında yazılan bölge adları: (x, y) dünya koordinatı, etiketin ortası
+BOARD_PLACES: dict[str, dict[str, tuple[float, float]]] = {
+    "de_dust2": {
+        "T Spawn": (-640, -830), "Outside Long": (350, -61), "Long Doors": (815, 758),
+        "Pit": (1450, 520), "Long A": (1560, 1380), "A Site": (1097, 2760), "Short": (300, 1560),
+        "Catwalk": (-120, 1180), "Mid": (-420, 900), "Xbox": (-300, 1520), "Top Mid": (-313, 260),
+        "Mid Doors": (-515, 2050), "CT Spawn": (154, 2400), "Upper Tunnel": (-1900, 1150),
+        "Lower": (-900, 1500), "B Site": (-1750, 2400), "B Doors": (-1102, 2200),
+        "Tunnels": (-1700, 420),
+    },
+}
+
+
 def zone_of(map_name: str | None, place: str | None) -> str | None:
     """Bölge adının alanı ('A' / 'B' / 'Mid'); bilinmiyorsa None."""
     if not map_name or not place:
