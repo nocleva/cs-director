@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import secrets
 from dataclasses import dataclass
 from typing import Any
@@ -23,6 +24,8 @@ AUTHORIZE_URL = "https://accounts.faceit.com/accounts"
 TOKEN_URL = "https://api.faceit.com/auth/v1/oauth/token"
 USERINFO_URL = "https://api.faceit.com/auth/v1/resources/userinfo"
 CALLBACK_PATH = "/giris/faceit/donus"
+
+log = logging.getLogger("squadmind.web.faceit")
 
 
 class FaceitAuthError(Exception):
@@ -40,13 +43,13 @@ def pkce_pair() -> tuple[str, str]:
 @dataclass
 class FaceitOAuth:
     client_id: str
-    client_secret: str
+    client_secret: str          # "Authorization Code with PKCE" istemcisinde boş olabilir
     base_url: str               # ör. https://app.squadmind.info (dönüş adresi bundan)
     timeout: float = 15.0
 
     @property
     def configured(self) -> bool:
-        return bool(self.client_id and self.client_secret and self.base_url)
+        return bool(self.client_id and self.base_url)
 
     @property
     def redirect_uri(self) -> str:
@@ -70,10 +73,15 @@ class FaceitOAuth:
         """Yetki kodu → erişim anahtarı → kullanıcı bilgisi (en az `guid`)."""
         try:
             with httpx.Client(timeout=self.timeout) as http:
-                tok = http.post(TOKEN_URL, auth=(self.client_id, self.client_secret), data={
-                    "grant_type": "authorization_code", "code": code,
-                    "code_verifier": verifier, "redirect_uri": self.redirect_uri})
+                form = {"grant_type": "authorization_code", "code": code,
+                        "code_verifier": verifier, "redirect_uri": self.redirect_uri}
+                if self.client_secret:  # gizli anahtarlı istemci: client_secret_basic
+                    tok = http.post(TOKEN_URL, auth=(self.client_id, self.client_secret), data=form)
+                else:                   # açık (PKCE) istemci: kimlik formda, kanıt doğrulayıcıda
+                    tok = http.post(TOKEN_URL, data={**form, "client_id": self.client_id})
                 if tok.status_code != 200:
+                    # Sebep günlükte görünsün (gizli bilgi içermez: kod tek kullanımlık, süresi dolmuş)
+                    log.warning("FACEIT token yanıtı %s: %s", tok.status_code, tok.text[:300])
                     raise FaceitAuthError(f"FACEIT giriş anahtarı verilmedi ({tok.status_code}).")
                 access = tok.json().get("access_token")
                 info = http.get(USERINFO_URL, headers={"Authorization": f"Bearer {access}"})

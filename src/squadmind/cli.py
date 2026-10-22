@@ -384,7 +384,7 @@ def web(
                            map_name=WEB_MAP, uploads_dir=WEB_UPLOADS,
                            oauth=FaceitOAuth(FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL))
     if not settings.oauth.configured:
-        console.print("[yellow]FACEIT ile giriş ayarlı değil (FACEIT_CLIENT_ID / SECRET): "
+        console.print("[yellow]FACEIT ile giriş ayarlı değil (FACEIT_CLIENT_ID): "
                       "nickname ile katılım açık.[/yellow]")
     worker.start()
     console.print(f"[green]Web arayüzü:[/green] http://{host}:{port}/?davet=<WEB_INVITE_CODE>")
