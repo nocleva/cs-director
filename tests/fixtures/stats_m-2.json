@@ -1,0 +1,28 @@
+{
+  "rounds": [
+    {
+      "match_id": "m-2",
+      "round_stats": {"Map": "de_inferno", "Score": "13 / 11", "Rounds": "24"},
+      "teams": [
+        {
+          "team_id": "unknown-a",
+          "team_stats": {"Team": "team_TestNick", "Final Score": "11"},
+          "players": [
+            {"player_id": "p-self", "nickname": "TestNick", "player_stats": {
+              "Kills": "18", "Deaths": "20", "Assists": "4", "K/D Ratio": "0.9", "ADR": "77.7",
+              "Headshots %": "61", "MVPs": "2", "Result": "0"}}
+          ]
+        },
+        {
+          "team_id": "unknown-b",
+          "team_stats": {"Team": "team_Other", "Final Score": "13"},
+          "players": [
+            {"player_id": "p-other1", "nickname": "Other1", "player_stats": {
+              "Kills": "22", "Deaths": "17", "Assists": "6", "K/D Ratio": "1.29", "ADR": "90.1",
+              "Headshots %": "50", "MVPs": "5", "Result": "1"}}
+          ]
+        }
+      ]
+    }
+  ]
+}

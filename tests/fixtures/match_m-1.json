@@ -1,0 +1,26 @@
+{
+  "match_id": "m-1",
+  "status": "FINISHED",
+  "competition_name": "Europe 5v5 Queue",
+  "started_at": 1760800000,
+  "finished_at": 1760802400,
+  "demo_url": ["https://demos-europe.backblaze.faceit-cdn.net/cs2/m-1.dem.gz"],
+  "voting": {"map": {"pick": ["de_mirage"]}},
+  "results": {"winner": "faction1", "score": {"faction1": 13, "faction2": 9}},
+  "teams": {
+    "faction1": {
+      "faction_id": "f1-id", "name": "team_TestNick",
+      "roster": [
+        {"player_id": "p-self", "nickname": "TestNick", "game_player_id": "76561198000000001", "game_skill_level": 8},
+        {"player_id": "p-mate", "nickname": "Mate", "game_player_id": "76561198000000002", "game_skill_level": 7}
+      ]
+    },
+    "faction2": {
+      "faction_id": "f2-id", "name": "team_Enemy",
+      "roster": [
+        {"player_id": "p-enemy1", "nickname": "Enemy1", "game_player_id": "76561198000000003", "game_skill_level": 9},
+        {"player_id": "p-enemy2", "nickname": "Enemy2", "game_player_id": "76561198000000004", "game_skill_level": 6}
+      ]
+    }
+  }
+}

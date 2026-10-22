@@ -1,0 +1,15 @@
+{
+  "player_id": "p-self",
+  "nickname": "TestNick",
+  "country": "tr",
+  "steam_id_64": "76561198000000001",
+  "games": {
+    "cs2": {
+      "region": "EU",
+      "game_player_id": "76561198000000001",
+      "skill_level": 8,
+      "faceit_elo": 1789,
+      "game_player_name": "TestNick"
+    }
+  }
+}

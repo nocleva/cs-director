@@ -218,3 +218,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- CS2 Director ---
+# Demolar, API cache ve veritabanı yerelde kalır (büyük ve kişisel veri)
+data/demos/inbox/*
+data/demos/processed/*
+data/cache/*
+!data/**/.gitkeep
+data/*.duckdb
+data/*.duckdb.wal
+*.dem
+*.dem.gz
+
+# Üretilen raporlar
+reports/*
+!reports/.gitkeep

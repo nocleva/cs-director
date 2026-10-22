@@ -1,0 +1,24 @@
+{
+  "match_id": "m-2",
+  "status": "FINISHED",
+  "competition_name": "Europe 5v5 Queue",
+  "started_at": 1760900000,
+  "finished_at": 1760902400,
+  "demo_url": [],
+  "voting": {"map": {"pick": ["de_inferno"]}},
+  "results": {"winner": "faction1", "score": {"faction1": 13, "faction2": 11}},
+  "teams": {
+    "faction1": {
+      "faction_id": "g1-id", "name": "team_Other",
+      "roster": [
+        {"player_id": "p-other1", "nickname": "Other1", "game_player_id": "76561198000000005", "game_skill_level": 8}
+      ]
+    },
+    "faction2": {
+      "faction_id": "g2-id", "name": "team_TestNick",
+      "roster": [
+        {"player_id": "p-self", "nickname": "TestNick", "game_player_id": "76561198000000001", "game_skill_level": 8}
+      ]
+    }
+  }
+}
