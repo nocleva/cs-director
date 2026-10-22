@@ -211,10 +211,12 @@ def test_faceit_login_known_user_needs_no_invite(oauth_web):
     assert r.status_code == 303 and r.headers["location"] == "/ben"
 
 
-def test_nickname_join_closed_when_faceit_login_on(oauth_web):
+def test_nickname_join_with_invite_is_fallback_when_faceit_login_on(oauth_web):
     client, store, _ = oauth_web
-    r = client.post("/katil", data={"nickname": "TestNick", "davet": INVITE})
-    assert "FACEIT ile giriş yap" in r.text and store.users() == []
+    assert "Davet kodu geçersiz" in client.post("/katil", data={"nickname": "TestNick", "davet": ""}).text
+    assert "Davet koduyla katıl" in client.get(f"/?davet={INVITE}").text
+    r = client.post("/katil", data={"nickname": "TestNick", "davet": INVITE}, follow_redirects=False)
+    assert r.headers["location"] == "/ben" and store.users()[0].team_access is True
 
 
 def test_pkce_challenge_is_s256():
@@ -352,7 +354,8 @@ def test_map_art_is_served_and_cached(web):
 
 def test_faceit_authorize_url_pkce_toggle():
     from squadmind.web.faceit_auth import FaceitOAuth
-    off = FaceitOAuth("id", "sec", "https://app.squadmind.info").authorize_url("st", "ch")
+    off = FaceitOAuth("id", "sec", "https://app.squadmind.info", pkce=False).authorize_url("st", "ch")
     assert "code_challenge" not in off and "redirect_popup=true" in off and "state=st" in off
-    on = FaceitOAuth("id", "sec", "https://app.squadmind.info", pkce=True).authorize_url("st", "ch")
+    on = FaceitOAuth("id", "sec", "https://app.squadmind.info").authorize_url("st", "ch")
+    assert on.startswith("https://accounts.faceit.com?")
     assert "code_challenge=ch" in on and "code_challenge_method=S256" in on

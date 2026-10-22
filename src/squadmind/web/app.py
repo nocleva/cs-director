@@ -183,9 +183,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.post("/katil", response_class=HTMLResponse)
     def join(request: Request, nickname: str = Form(...), davet: str = Form("")):
-        # FACEIT girişi açıksa nickname ile katılım kapalı: başkasının adıyla girilemesin
-        if oauth is not None:
-            return join_page(request, davet, "FACEIT ile giriş yap.")
+        # Nickname ile katılım her zaman davet kodu ister (kimlik doğrulanmaz); FACEIT girişi
+        # açıkken de davet linkiyle gelen için yedek yol olarak durur
         if not invite_ok(davet):
             return join_page(request, davet, "Davet kodu geçersiz. Linki takım arkadaşından tekrar iste.")
         nickname = nickname.strip()

@@ -62,6 +62,10 @@ input[type=text] { width: 100%; height: 44px; padding: 0 12px; border: 1px solid
 @media (max-width: 900px) { .art { padding: 16px; } .art .cap, .art .tag { display: none; } }
 
 footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.alt { margin-top: 16px; border-top: 1px solid var(--bg-3); padding-top: 12px; }
+.alt summary { cursor: pointer; font-size: 12px; color: var(--text-2); }
+.alt form { margin-top: 12px; }
+.btn.ghost { background: transparent; color: var(--line); border: 1px solid var(--bg-3); }
 @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
 </style>
 </head>
@@ -92,6 +96,17 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7h8M8 4l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"></path></svg></a>
           <p class="note"><b>Güvenli giriş.</b> Kimlik doğrulama FACEIT üzerinden yapılır; şifren SquadMind ile paylaşılmaz. Profil, seviye ve maç geçmişi hesabından otomatik olarak alınır.</p>
           <p class="note">Giriş yaptıktan sonra kendi takımını kurabilirsin. Verilerin yalnızca katılmayı kabul ettiğin takımlarla paylaşılır.</p>
+          {% if invited %}
+          <details class="alt">
+            <summary>FACEIT girişi çalışmıyor mu? Davet koduyla katıl</summary>
+            <form method="post" action="/katil">
+              <input type="hidden" name="davet" value="{{ davet }}">
+              <label for="nickname">FACEIT nickname</label>
+              <input type="text" id="nickname" name="nickname" required autocomplete="off" placeholder="ör. _squ1rtle_">
+              <button class="btn ghost" type="submit">Nickname ile katıl</button>
+            </form>
+          </details>
+          {% endif %}
         {% else %}
           <form method="post" action="/katil">
             <input type="hidden" name="davet" value="{{ davet }}">

@@ -20,7 +20,9 @@ from urllib.parse import urlencode
 
 import httpx
 
-AUTHORIZE_URL = "https://accounts.faceit.com/accounts"
+# Keşif belgesindeki yetki adresi. Eski "FACEIT Connect" sayfası (/accounts) kodu veriyor ama
+# PKCE bilgisini kayda geçirmiyor gibi: token adımı 401 (23.10.2026). FACEIT_AUTHORIZE_URL ile değişir.
+AUTHORIZE_URL = "https://accounts.faceit.com"
 TOKEN_URL = "https://api.faceit.com/auth/v1/oauth/token"
 USERINFO_URL = "https://api.faceit.com/auth/v1/resources/userinfo"
 CALLBACK_PATH = "/giris/faceit/donus"
@@ -46,9 +48,10 @@ class FaceitOAuth:
     client_secret: str          # "Authorization Code with PKCE" istemcisinde boş olabilir
     base_url: str               # ör. https://app.squadmind.info (dönüş adresi bundan)
     timeout: float = 15.0
-    # PKCE: gizli anahtarlı istemcide zorunlu değil. FACEIT gerçek kodla doğrulayıcıyı
-    # 401 ile reddetti (23.10.2026), bu yüzden varsayılan kapalı; FACEIT_PKCE=1 ile açılır
-    pkce: bool = False
+    # PKCE: FACEIT'in "Authorization Code with PKCE" istemcisi token adımında doğrulayıcı istiyor
+    # (doğrulayıcısız istek doğru gizli anahtarla da 401); FACEIT_PKCE=0 ile kapatılır
+    pkce: bool = True
+    authorize_base: str = AUTHORIZE_URL
 
     @property
     def configured(self) -> bool:
@@ -71,7 +74,7 @@ class FaceitOAuth:
         }
         if self.pkce:
             params |= {"code_challenge": challenge, "code_challenge_method": "S256"}
-        return f"{AUTHORIZE_URL}?{urlencode(params)}"
+        return f"{self.authorize_base}?{urlencode(params)}"
 
     def _token(self, http: httpx.Client, form: dict[str, str]) -> httpx.Response:
         """Token isteği: gizli anahtar varsa client_secret_basic, yoksa kimlik formda."""
