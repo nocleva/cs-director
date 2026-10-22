@@ -182,7 +182,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, silah maruziyeti (round başına), kill / hasar değeri (`analysis/impact.py`), `director report player <nick> [--map dust2]` |
 | 1d | ✅ `director` ajanı 22.10'da ilk gerçek analizi üretti (Nocleva, Dust2). `scout` ve `tactician` henüz denenmedi |
 | 2a | ✅ `director report team <nick> [--map]`: T desenleri (rush / execute / split / girilmedi + default işareti), giriş rotaları, CT dizilişleri, plant / retake, ekonomi (`analysis/team_tactics.py`, `analysis/economy.py`) |
-| 2c | 🟡 Takım raporunda "Takım yönetimi" (`analysis/team_management.py`, sadece Dust2): çekirdek kadro, kim nerede iyi (CT alanı / T koridoru sıralaması), güç farkı (takım vs rakip), kime destek, trade matrisi, yakın oynama. Kalan: tactician ile kadroya pozisyon / görev ataması |
+| 2c | ✅ Takım raporunda "Takım yönetimi" (`analysis/team_management.py`, sadece Dust2): çekirdek kadro, kim nerede iyi (CT alanı / T koridoru sıralaması), güç farkı (takım vs rakip), kime destek, trade matrisi, yakın oynama. tactician çekirdek kadro planını yazdı (pozisyon, CT 2 setup, T 3 strat, kurallar); takip `director track` ile |
 
 ### Veri ve ortam
 - Veri OneDrive DIŞINDA: `C:\Users\furka\cs-director-data` (`.env` → `DIRECTOR_DATA_DIR`). İçinde `director.duckdb`, `cache/`, `demos/{inbox,processed,tmp}`.
@@ -203,6 +203,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | `director clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
 | `director report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
 | `director report team <nick> [--map]` | Takım raporu → `reports/team_<nick>.md` |
+| `director track <plans/*.json>` | Öneri takibi: planın kurallarına bağlı metrikler, plan tarihinden önce / sonra → `reports/track_<plan>.md` |
 | `director query "<SELECT>"` | Salt-okunur SQL (ajanlar için) |
 
 ### Alınan kararlar ve nedenleri
@@ -221,6 +222,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - **T desen kuralları** (`team_tactics.py`; Dust2 koridor / giriş alanı tanımları `maps.py` LANES / HIT_AREAS, 184 plant round'undan): hedef site = plant edilen ya da giriş alanında en çok bulunulan; giriş = ≥3 T aynı anda giriş alanında (yoksa plant anı); rush ≤25 sn, sonra ≥2 koridor = split, tek = execute. Default = 15-20. sn'de ≥3 koridora yayılma. CT dizilişi 15-35. sn'de A-Mid-B sayıları, sadece 5 CT'nin yeri bilinen round'lar (~%60).
 - **Takım = oyuncunun her maçtaki takımı.** Nocleva'nın 18 Dust2 maçının 11'inde aynı çekirdek kadro (DeloneCS, _squ1rtle_, nicorett3).
 - **Takım yönetimi** (Dust2'de, şimdilik eldeki veriyle; ayrıntılı çalışma herkes web'den kendi demolarını yükleyince): çekirdek = oyuncu + maçların ≥ yarısında birlikte oynayanlar, diğerleri "diğer". "Kim nerede iyi" tek isim seçmez, alan başına sıralar (Net/R = (kill − ölüm)/round); atama tactician'ın işi. Trade eşleştirme: takım arkadaşını öldüren rakibi 5 sn içinde öldürmek (awpy'nin trade sayısıyla tutarlı: 244 / 230).
+- **Öneri takibi** (`analysis/tracking.py`): plan bir JSON (`plans/`): sahibi, harita, tarih, maddeler (metrik türü + parametre + hedef yönü). Kod oyuncu adı bilmez. Durum ancak plan sonrası ≥3 maçla yazılır; küçük fark (3 puan / %10) "değişim yok". İlk plan: `plans/dust2_cekirdek_2026-10-22.json` (tactician'ın çekirdek kadro planı; ajan çıktıları claude.ai dokümanında: "CS2 Director — Ajan Çıktıları").
 - **Ekonomi:** awpy alım tipi; pistol kazanılınca 2. round alımı da "force" sayılıyor. Kayıp sonrası karar o round + sonraki round ile değerlendirilir.
 - **Silah karşılaştırması round başına:** her round'a oyuncunun ana silahı atanır (`round_main_weapon`: konum kayıtlarında en çok tutulan birincil silah, yoksa pistol); `weapon_exposure` taraf × ana silah, opsiyonel bölge ve alım tipi filtresiyle. Toplam kill/hasar ile silah kıyası yapılmaz.
 

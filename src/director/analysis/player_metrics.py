@@ -64,6 +64,15 @@ class DemoData:
     match_maps: pl.DataFrame  # match_id, map, date, parser_version
     damages: pl.DataFrame | None = None  # parser v2+ maçlar için; `dmg` = kırpılmış hasar
 
+    def subset(self, match_ids: list[str]) -> DemoData:
+        """Sadece verilen maçların verisi (ör. plan öncesi / sonrası karşılaştırması)."""
+        def f(df: pl.DataFrame | None) -> pl.DataFrame | None:
+            if df is None or "match_id" not in df.columns:
+                return df
+            return df.filter(pl.col("match_id").is_in(match_ids))
+        return DemoData(f(self.rounds), f(self.roster), f(self.kills), f(self.utility),
+                        f(self.positions), f(self.stats), f(self.match_maps), f(self.damages))
+
     def v2_match_ids(self) -> list[str]:
         """Wallbang ve hasar verisi olan (parser v2+) maçlar."""
         return self.match_maps.filter(pl.col("parser_version") >= 2)["match_id"].to_list()

@@ -31,6 +31,8 @@ from director.ingest.watch import DemoWatcher, process_download
 from director.parse.demo_parser import PARSER_VERSION
 from director.reports.player_report import build_player_report
 from director.reports.team_report import build_team_report
+from director.analysis.tracking import load_plan
+from director.reports.track_report import build_track_report
 
 app = typer.Typer(help="CS2 FACEIT Gaming Director", no_args_is_help=True)
 report_app = typer.Typer(help="Markdown raporlar", no_args_is_help=True)
@@ -345,6 +347,28 @@ def ingest_demos(
                           f"{v.faceit_deaths} / {v.demo_deaths}", adr,
                           "[green]✓[/green]" if v.ok else "[yellow]![/yellow]")
             console.print(t)
+
+
+@app.command()
+def track(
+    plan_file: Path = typer.Argument(..., help="Plan dosyası (ör. plans/dust2_cekirdek_2026-10-22.json)"),
+    db: Path = DbOption,
+) -> None:
+    """Öneri takibi: planın kurallarına bağlı metrikler, plan öncesi / sonrası."""
+    if not plan_file.exists():
+        console.print(f"[red]Plan dosyası yok:[/red] {plan_file}")
+        raise typer.Exit(1)
+    plan = load_plan(plan_file)
+    with connect(db, read_only=True) as con:
+        try:
+            md = build_track_report(con, plan)
+        except LookupError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = REPORTS_DIR / f"track_{plan_file.stem}.md"
+    out.write_text(md, encoding="utf-8")
+    console.print(f"[green]Takip raporu hazır[/green]: {out}")
 
 
 @app.command()
