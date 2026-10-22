@@ -184,7 +184,8 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - `.env`: `FACEIT_API_KEY`, `DIRECTOR_DATA_DIR`, `DIRECTOR_AUTO_DELETE=0`.
 - `uv` yolu: `C:\Users\furka\.local\bin` (PATH'te değilse ekle). Python 3.12 (`.python-version`), awpy 3.x, DuckDB 2.x, Polars 2.x.
 - Windows konsolunda Türkçe çıktı için `PYTHONUTF8=1` ve `PYTHONIOENCODING=utf-8`.
-- Downloads API başvurusu: yapıldı mı bilinmiyor; demolar şimdilik manuel indiriliyor (`demo-links`).
+- Downloads API başvurusu **beklemeye alındı**; demolar elle indiriliyor (`demo-links` → tarayıcı → `director watch`). `FaceitClient.get_demo_download_url` arayüzü hazır ama `NotImplementedError`; onay gelince sadece o doldurulacak.
+- `.env`: `DOWNLOADS_DIR` (`watch` için; varsayılan kullanıcı Downloads klasörü).
 
 ### Komutlar
 | Komut | Ne yapar |
@@ -192,6 +193,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | `director sync <nick> -n 100` | FACEIT maç geçmişi + skor tablosu (upsert) |
 | `director demo-links <nick> [--map dust2] [--outdated]` | İndirilecek demoların maç sayfası linkleri → `reports/demo_links.md` |
 | `director ingest-demos [--delete/--keep] [--details]` | Inbox'taki demoları işler, FACEIT ile doğrular, processed/'a taşır |
+| `director watch [--dir] [--existing] [--delete/--keep]` | İndirme klasörünü izler; yeni demo (boyutu 3 sn sabit kalınca) inbox'a taşınıp işlenir, tek satır sonuç |
 | `director reprocess-demos` | processed/'daki demoları güncel parser ile yeniden işler (parser'a alan eklenince) |
 | `director clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
 | `director report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
@@ -199,6 +201,8 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 
 ### Alınan kararlar ve nedenleri
 - **Otomatik silme kapalı:** Parser'a yeni alan eklenince (wallbang, hasar) silinmiş 13 demo yeniden indirilmek zorunda kalındı. Parser oturana kadar demolar `processed/`'da kalır; güncelleme `reprocess-demos` ile.
+- **`watch` durum değeri `processed`** (istekte `parsed` geçiyordu): analiz `demo_status = 'processed'` okuyor; ayrı bir değer demoyu analiz dışında bırakırdı. Klasörde zaten duran demolar varsayılan olarak alınmaz (`--existing`). DB bağlantısı yalnızca demo işlenirken açık (watch çalışırken diğer komutlar DB'yi kullanabilsin).
+- **Dosya adında maç ID'si yoksa eşleştirme:** harita + kadro örtüşmesi (≥8 oyuncu) + tarih: dosya tarihinden (+1 saat pay) sonra başlayan maç aday değil, en yakın tarihli seçilir.
 - **FACEIT ile tutmayan demo** (kill/death ±1, ADR ±5) DB'ye alınmaz, maç `demo_status='mismatch'` olur, dosya inceleme için saklanır. Doğrulama: 17 sağlam maçta 180/180 oyuncu-maç kill sayısı FACEIT ile birebir.
 - **AWPer rolü = AWP + Scout payı** (eşik %35): rolü belirleyen silah değil, pozisyon/açı.
 - **Wallbang:** `kills.penetrated > 0` kesin (motor bilgisi). `damages.through_wall` tahmini: çoklu çizgi görüş kontrolü, wallbang'lerin ~%73'ünü yakalar, direkt vuruşların ~%3'ünü yanlış işaretler. Raporlarda "tahmini" diye geçer.

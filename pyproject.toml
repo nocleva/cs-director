@@ -16,6 +16,7 @@ dependencies = [
     "zstandard>=0.25.0",
     "numpy>=2.4.6",
     "pyarrow>=26.0.0",
+    "watchdog>=6.0.0",
 ]
 
 [project.scripts]

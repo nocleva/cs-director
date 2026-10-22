@@ -227,3 +227,22 @@ class FaceitClient:
     def get_match_stats(self, match_id: str) -> dict[str, Any]:
         """Maç istatistikleri (oyuncu başı K/D, ADR, HS% ...). Kalıcı cache."""
         return self._get(f"/matches/{match_id}/stats", ttl=PERMANENT)
+
+    # --- Downloads API (onay bekleniyor) -----------------------------------------
+    # Demo dosyaları için ayrı başvuru gerekiyor (fce.gg/downloads-api-application);
+    # başvuru beklemede. Onay gelince sadece bu metodun içi doldurulacak; çağıran taraf
+    # (otomatik demo indirme) indirdiği dosyayı mevcut pipeline'a, `director watch` ile
+    # aynı yoldan (inbox → ingest_demo) verecek.
+
+    def get_demo_download_url(self, resource_url: str) -> str:
+        """Maç detayındaki demo resource URL'si için imzalı, süreli indirme linki döner.
+
+        Beklenen akış (FACEIT dokümanına göre, onay gelince doğrulanacak):
+        POST https://open.faceit.com/download/v2/demos/download-url
+        gövde: {"resource_url": resource_url} → yanıt: payload.download_url
+        İmzalı link kısa süre geçerli olduğu için cache'lenmemeli.
+        """
+        raise NotImplementedError(
+            "FACEIT Downloads API henüz onaylanmadı; demoları elle indirip "
+            "`director watch` ile işle."
+        )

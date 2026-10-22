@@ -14,17 +14,20 @@ from director.config import (
     DEMOS_INBOX,
     DEMOS_PROCESSED,
     DEMOS_TMP,
+    DOWNLOADS_DIR,
     REPORTS_DIR,
 )
 from director.db import connect, init_db
 from director.faceit.client import FaceitAPIError, FaceitClient, FaceitNotFound
 from director.ingest.demos import (
+    DemoIngestResult,
     find_demos,
     ingest_inbox,
     match_id_from_filename,
     processed_demos_in_db,
 )
 from director.ingest.matches import profile_to_player_row, sync_player_matches
+from director.ingest.watch import DemoWatcher, process_download
 from director.parse.demo_parser import PARSER_VERSION
 from director.reports.player_report import build_player_report
 
@@ -337,6 +340,63 @@ def ingest_demos(
                           f"{v.faceit_deaths} / {v.demo_deaths}", adr,
                           "[green]✓[/green]" if v.ok else "[yellow]![/yellow]")
             console.print(t)
+
+
+@app.command()
+def watch(
+    folder: Path = typer.Option(DOWNLOADS_DIR, "--dir",
+                                help="İzlenecek klasör (varsayılan: .env DOWNLOADS_DIR)"),
+    existing: bool = typer.Option(False, "--existing",
+                                  help="Klasörde zaten duran demoları da işle"),
+    delete: bool = typer.Option(
+        AUTO_DELETE_DEMOS, "--delete/--keep",
+        help="İşlenip doğrulanan demoyu sil / sakla (varsayılan: .env DIRECTOR_AUTO_DELETE)",
+    ),
+    db: Path = DbOption,
+) -> None:
+    """İndirme klasörünü izler; yeni demoyu inbox'a taşıyıp işler (Ctrl+C ile durur)."""
+    if not folder.is_dir():
+        console.print(f"[red]Klasör yok:[/red] {folder}. .env içinde DOWNLOADS_DIR ayarla.")
+        raise typer.Exit(1)
+    with connect(db) as con:
+        init_db(con)
+
+    def handle(path: Path) -> None:
+        with console.status(f"İndirme bekleniyor / işleniyor: {path.name}"):
+            r = process_download(path, lambda: connect(db), DEMOS_INBOX, DEMOS_PROCESSED,
+                                 DEMOS_TMP, delete_after=delete)
+        if r is None:
+            console.print(f"[dim]{path.name}: indirme tamamlanmadı, atlandı[/dim]")
+            return
+        console.print(_watch_line(r, db))
+
+    watcher = DemoWatcher(folder)
+    console.print(f"[bold]İzleniyor:[/bold] {folder} (durdurmak için Ctrl+C)")
+    if existing:
+        console.print(f"Klasördeki {watcher.enqueue_existing()} demo kuyruğa eklendi.")
+    try:
+        watcher.run(handle)
+    except KeyboardInterrupt:
+        console.print("İzleme durduruldu.")
+
+
+def _watch_line(r: DemoIngestResult, db: Path) -> str:
+    """Tek satır sonuç: maç, harita, skor, durum."""
+    map_name = (r.map_name or "?").removeprefix("de_")
+    if r.error:
+        return f"[red]✗[/red] {r.file} · {map_name} · [red]{r.error}[/red] (inbox'ta kaldı)"
+    with connect(db, read_only=True) as con:
+        row = con.execute("SELECT score, demo_status FROM matches WHERE match_id = ?",
+                          [r.match_id]).fetchone()
+    score, status = row if row else (None, "?")
+    if r.validated is False:
+        mark, state = "[yellow]![/yellow]", "[yellow]FACEIT ile fark var, veriler DB dışı[/yellow]"
+    else:
+        mark, state = "[green]✓[/green]", f"[green]{status}[/green]"
+        if r.validated is None:
+            state += " [dim](FACEIT verisi yok)[/dim]"
+    fate = " · demo silindi" if r.deleted else ""
+    return f"{mark} {r.match_id} · {map_name} · {score or '?'} · {state} · {r.rounds} round{fate}"
 
 
 @app.command("reprocess-demos")

@@ -12,6 +12,7 @@ import re
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -27,6 +28,8 @@ DEMO_SUFFIXES = (".dem", ".dem.zst", ".dem.gz")
 
 # Dosya adında maç ID'si yoksa: demodaki oyunculardan en az bu kadarı maçın kadrosunda olmalı
 MIN_ROSTER_OVERLAP = 8
+# Demo dosyasının tarihi ile maç başlangıcı arasında saat farkı payı (saniye)
+DEMO_CLOCK_SLACK = 3600
 
 # FACEIT skor tablosu ile demo arasında kabul edilen fark
 KILL_TOLERANCE = 1
@@ -70,13 +73,20 @@ def decompress(src: Path, tmp_dir: Path) -> Path:
 
 def resolve_match_id(con: duckdb.DuckDBPyConnection, demo_file: Path,
                      tables: DemoTables) -> str | None:
-    """Önce dosya adından, olmazsa harita + kadro örtüşmesinden maç ID'si bulur."""
+    """Önce dosya adından, olmazsa harita + kadro örtüşmesi + tarihten maç ID'si bulur.
+
+    Tarih: demo maçtan SONRA indirilir. Dosyanın değişme zamanından sonra başlayan maç
+    aday değildir (saat farkı için DEMO_CLOCK_SLACK payı); aynı kadroyla birden fazla
+    maç varsa dosya tarihine en yakın olan seçilir.
+    """
     mid = match_id_from_filename(demo_file.name)
     if mid:
         return mid
     steam_ids = [s for s in tables.players["steamid"].to_list() if s]
     if not steam_ids:
         return None
+    # İndirme zamanı (UTC, saat dilimi bilgisiz; matches.date ile aynı biçim)
+    file_time = datetime.fromtimestamp(demo_file.stat().st_mtime, tz=UTC).replace(tzinfo=None)
     row = con.execute(
         """
         SELECT m.match_id, count(*) AS overlap
@@ -84,11 +94,13 @@ def resolve_match_id(con: duckdb.DuckDBPyConnection, demo_file: Path,
         JOIN match_player_stats s USING (match_id)
         JOIN players p ON p.faceit_id = s.player_id
         WHERE m.map = ? AND list_contains(?, p.steam_id)
+          AND (m.date IS NULL OR m.date <= ? + to_seconds(?))
         GROUP BY m.match_id
-        ORDER BY overlap DESC, max(m.date) DESC
+        ORDER BY overlap DESC,
+                 abs(epoch(?) - epoch(max(m.date))) ASC NULLS LAST
         LIMIT 1
         """,
-        [tables.map_name, steam_ids],
+        [tables.map_name, steam_ids, file_time, DEMO_CLOCK_SLACK, file_time],
     ).fetchone()
     if row and row[1] >= MIN_ROSTER_OVERLAP:
         return row[0]

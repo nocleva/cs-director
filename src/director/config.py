@@ -20,6 +20,10 @@ DEMOS_INBOX = DATA_DIR / "demos" / "inbox"
 DEMOS_PROCESSED = DATA_DIR / "demos" / "processed"
 DEMOS_TMP = DATA_DIR / "demos" / "tmp"  # açılmış .dem dosyaları (işlem sonrası silinir)
 
+# `director watch` için izlenen tarayıcı indirme klasörü (Windows'ta "İndirilenler"
+# klasörünün gerçek yolu Downloads'tur)
+DOWNLOADS_DIR = Path(os.getenv("DOWNLOADS_DIR", Path.home() / "Downloads"))
+
 # Demo işlendikten (ve FACEIT ile doğrulandıktan) sonra orijinal dosya silinsin mi
 AUTO_DELETE_DEMOS = os.getenv("DIRECTOR_AUTO_DELETE", "0").strip().lower() in ("1", "true", "evet")
 DB_PATH = Path(os.getenv("DIRECTOR_DB", DATA_DIR / "director.duckdb"))
