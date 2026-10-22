@@ -61,7 +61,8 @@ class FaceitOAuth:
             "response_type": "code",
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
-            "redirect_popup": "false",   # açılır pencere değil, sayfa yönlendirmesi
+            # FACEIT: true = giriş sonrası açılan sayfayı dönüş adresine yönlendir (false hata verir)
+            "redirect_popup": "true",
             "scope": "openid profile",
             "state": state,
             "code_challenge": challenge,
