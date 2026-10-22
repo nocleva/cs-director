@@ -70,19 +70,30 @@ class FaceitOAuth:
         }
         return f"{AUTHORIZE_URL}?{urlencode(params)}"
 
+    def _token(self, http: httpx.Client, form: dict[str, str]) -> httpx.Response:
+        """Token isteği: gizli anahtar varsa client_secret_basic, yoksa kimlik formda."""
+        if self.client_secret:
+            return http.post(TOKEN_URL, auth=(self.client_id, self.client_secret), data=form)
+        return http.post(TOKEN_URL, data={**form, "client_id": self.client_id})
+
     def fetch_user(self, code: str, verifier: str) -> dict[str, Any]:
         """Yetki kodu → erişim anahtarı → kullanıcı bilgisi (en az `guid`)."""
         try:
             with httpx.Client(timeout=self.timeout) as http:
                 form = {"grant_type": "authorization_code", "code": code,
                         "code_verifier": verifier, "redirect_uri": self.redirect_uri}
-                if self.client_secret:  # gizli anahtarlı istemci: client_secret_basic
-                    tok = http.post(TOKEN_URL, auth=(self.client_id, self.client_secret), data=form)
-                else:                   # açık (PKCE) istemci: kimlik formda, kanıt doğrulayıcıda
-                    tok = http.post(TOKEN_URL, data={**form, "client_id": self.client_id})
+                tok = self._token(http, form)
+                if tok.status_code == 401 and self.client_secret:
+                    # FACEIT girişte PKCE'yi yok sayıp token adımında doğrulayıcıyı reddedebiliyor:
+                    # aynı kodla doğrulayıcısız bir kez daha dene (hangisinin çalıştığı günlükte)
+                    log.warning("FACEIT token 401 (doğrulayıcıyla): %s %s",
+                                tok.headers.get("www-authenticate"), tok.text[:200])
+                    tok = self._token(http, {k: v for k, v in form.items() if k != "code_verifier"})
+                    log.warning("FACEIT token doğrulayıcısız: %s", tok.status_code)
                 if tok.status_code != 200:
                     # Sebep günlükte görünsün (gizli bilgi içermez: kod tek kullanımlık, süresi dolmuş)
-                    log.warning("FACEIT token yanıtı %s: %s", tok.status_code, tok.text[:300])
+                    log.warning("FACEIT token yanıtı %s: %s %s", tok.status_code,
+                                tok.headers.get("www-authenticate"), tok.text[:300])
                     raise FaceitAuthError(f"FACEIT giriş anahtarı verilmedi ({tok.status_code}).")
                 access = tok.json().get("access_token")
                 info = http.get(USERINFO_URL, headers={"Authorization": f"Bearer {access}"})
