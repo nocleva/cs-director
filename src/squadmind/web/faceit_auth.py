@@ -83,32 +83,20 @@ class FaceitOAuth:
         return http.post(TOKEN_URL, data={**form, "client_id": self.client_id})
 
     def _exchange(self, http: httpx.Client, code: str, verifier: str) -> httpx.Response:
-        """Kod → token. FACEIT'in beklediği biçim belgelenmediği için (23.10.2026: standart
-        istek 401) bilinen biçimler sırayla denenir; başarısız istek kodu tüketmez. Her denemenin
-        sonucu günlüğe yazılır, ilk 200 kullanılır. Hangisi çalışırsa diğerleri sonra silinir."""
-        base = {"grant_type": "authorization_code", "code": code}
-        redirect = {"redirect_uri": self.redirect_uri}
-        pkce = {"code_verifier": verifier} if self.pkce else {}
-        basic = (self.client_id, self.client_secret) if self.client_secret else None
-        in_body = {"client_id": self.client_id}
-        secret_body = {"client_secret": self.client_secret} if self.client_secret else {}
-        variants = [
-            ("basic+pkce+redirect", basic, {**base, **redirect, **pkce}),
-            ("basic+pkce+redirect+id", basic, {**base, **redirect, **pkce, **in_body}),
-            ("basic+pkce", basic, {**base, **pkce}),
-            ("govde id+secret+pkce+redirect", None, {**base, **redirect, **pkce, **in_body, **secret_body}),
-            ("govde id+pkce+redirect", None, {**base, **redirect, **pkce, **in_body}),
-            ("basic+redirect", basic, {**base, **redirect}),
-        ]
-        log.warning("FACEIT kod: uzunluk %d, boşluk %s, '+' %s", len(code), " " in code, "+" in code)
-        tok = None
-        for name, auth, form in variants:
-            tok = http.post(TOKEN_URL, auth=auth, data=form) if auth else http.post(TOKEN_URL, data=form)
-            err = "" if tok.status_code == 200 else tok.text[:120].replace("\n", " ")
-            log.warning("FACEIT token [%s]: %s %s %s", name, tok.status_code,
-                        tok.headers.get("www-authenticate"), err)
-            if tok.status_code == 200:
-                break
+        """Kod → token (standart: client_secret_basic + code_verifier + redirect_uri).
+
+        23.10.2026: FACEIT bu istemciyle gerçek kodu her biçimde 401 ile reddetti (6 biçim
+        denendi: secret Basic / gövdede, PKCE'li / PKCE'siz, redirect'li / redirect'siz).
+        Sahte kodla aynı istek 400 (kimlik tanınıyor). FACEIT desteğine soruldu; cevap gelene
+        kadar giriş davet koduyla da yapılabilir.
+        """
+        form = {"grant_type": "authorization_code", "code": code, "redirect_uri": self.redirect_uri}
+        if self.pkce:
+            form["code_verifier"] = verifier
+        tok = self._token(http, form)
+        if tok.status_code != 200:
+            log.warning("FACEIT token yanıtı %s: %s (kod uzunluğu %d)", tok.status_code,
+                        tok.headers.get("www-authenticate"), len(code))
         return tok
 
     def fetch_user(self, code: str, verifier: str) -> dict[str, Any]:
