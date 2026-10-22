@@ -19,15 +19,56 @@ from html import escape
 
 from awpy import NavMesh
 
-# Keskin Taktik Masası teması (web ile aynı renkler)
-BG = "#07090C"
-FLOOR_LOW, FLOOR_MID, FLOOR_HIGH = "#10161E", "#161E28", "#1D2733"  # yükseklik bantları
-WALL = "#2C3846"            # zeminin dış konturu (duvar hissi)
-LABEL = "#5D6977"
-T_COLOR, SUPPORT_COLOR = "#FF5A1F", "#38D5E0"
-ENEMY = "#FF4D4D"
-SMOKE, FLASH, MOLLY = "#A7B3C0", "#FFD43B", "#FF7A1A"
-TARGET_FLOOR = "#2E1D16"    # hedef site'ın zemini: koyu zemin + turuncu karışımı (opak)
+@dataclass(frozen=True)
+class Theme:
+    """Tahtanın renkleri ve yazı ayarları (web temasıyla aynı)."""
+
+    bg: str
+    floor_low: str            # yükseklik bantları: alt geçitler, zemin, siteler
+    floor_mid: str
+    floor_high: str
+    wall: str                 # zeminin dış konturu (duvar hissi)
+    target_floor: str         # hedef site'ın zemini (opak karışım: üçgen izi bırakmaz)
+    label: str                # bölge adları
+    text: str                 # oyuncu adları, token halkası
+    t: str                    # T rotası / tokenı
+    support: str              # destek kolu
+    t_ink: str                # token içindeki yazı
+    support_ink: str
+    enemy: str
+    smoke: str
+    flash: str
+    molly: str
+    grid: str | None          # None: ızgara yok
+    route_width: float
+    label_font: str
+    label_upper: bool         # bölge adları büyük harf mi
+    mono_font: str
+
+
+# Keskin Taktik Masası: HUD hissi, ızgara, büyük harf etiketler
+KESKIN = Theme(
+    bg="#07090C", floor_low="#10161E", floor_mid="#161E28", floor_high="#1D2733",
+    wall="#2C3846", target_floor="#2E1D16", label="#5D6977", text="#EEF1F4",
+    t="#FF5A1F", support="#38D5E0", t_ink="#0A0402", support_ink="#02191B",
+    enemy="#FF4D4D", smoke="#A7B3C0", flash="#FFD43B", molly="#FF7A1A",
+    grid="#0E1319", route_width=2.6, label_font="Arial Narrow, Arial, sans-serif",
+    label_upper=True, mono_font="Consolas, monospace",
+)
+
+# Sade (İskandinav + FACEIT): nötr griler, ızgara yok, ince çizgiler, sessiz etiketler
+SADE = Theme(
+    bg="#121316", floor_low="#1A1B1F", floor_mid="#202126", floor_high="#27282E",
+    wall="#3A3C43", target_floor="#33251F", label="#7C7F88", text="#ECECEE",
+    t="#FF6A2B", support="#6CC4BE", t_ink="#1A0C05", support_ink="#0B1F1D",
+    enemy="#E5484D", smoke="#B9BCC4", flash="#F5C542", molly="#FF8A3D",
+    grid=None, route_width=2.2, label_font="Segoe UI, Helvetica, Arial, sans-serif",
+    label_upper=False, mono_font="Consolas, monospace",
+)
+
+# Oyuncu rolleri (renk temadan gelir); eski adlar geriye uyumluluk için
+T, SUPPORT = "t", "support"
+T_COLOR, SUPPORT_COLOR = T, SUPPORT
 
 # Yükseklik bantlarının sınırları (Dust2: tüneller / mid alt kat ~-120, siteler ~+100)
 Z_LOW, Z_HIGH = -60.0, 60.0
@@ -40,7 +81,7 @@ class Player:
     name: str                       # oyuncu adı (tokenın yanında)
     start: tuple[float, float, float]
     waypoints: list[tuple[float, float, float]]   # sırayla gidilecek noktalar
-    color: str = T_COLOR
+    color: str = T                  # rol: "t" ya da "support" (renk temadan gelir)
     lane: float = 0.0               # aynı yoldan giden oyuncular için yanal kaydırma (px)
 
 
@@ -227,25 +268,27 @@ def _smooth_path(px: list[tuple[float, float]]) -> str:
     return " ".join(d)
 
 
-def render_board(board: Board, width: int = 1000, pad: int = 28) -> str:
+def render_board(board: Board, width: int = 1000, pad: int = 28,
+                 theme: Theme = KESKIN) -> str:
     """Taktik tahtasını SVG metni olarak üretir."""
+    th = theme
     polys = map_polygons(board.map_name)
     P = _Projection(polys, width, pad)
     s = P.s
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{P.height}" '
            f'viewBox="0 0 {width} {P.height}" role="img" aria-label="Taktik tahtası">',
            '<defs>'
-           f'<marker id="arrT" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{T_COLOR}"/></marker>'
-           f'<marker id="arrS" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{SUPPORT_COLOR}"/></marker>'
+           f'<marker id="arrT" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{th.t}"/></marker>'
+           f'<marker id="arrS" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{th.support}"/></marker>'
            '</defs>',
-           f'<rect width="{width}" height="{P.height}" fill="{BG}"/>']
+           f'<rect width="{width}" height="{P.height}" fill="{th.bg}"/>']
 
-    # Izgara: taktik tahtası hissi
-    step = 40
-    grid = [f'<path d="' + " ".join(f"M{x},0 V{P.height}" for x in range(0, width, step))
-            + " " + " ".join(f"M0,{y} H{width}" for y in range(0, P.height, step))
-            + '" stroke="#0E1319" stroke-width="1"/>']
-    out += grid
+    # Izgara: taktik tahtası hissi (sade temada yok)
+    if th.grid:
+        step = 40
+        out.append('<path d="' + " ".join(f"M{x},0 V{P.height}" for x in range(0, width, step))
+                   + " " + " ".join(f"M0,{y} H{width}" for y in range(0, P.height, step))
+                   + f'" stroke="{th.grid}" stroke-width="1"/>')
 
     def poly_d(poly) -> str:
         pts = [P(x, y) for x, y in poly]
@@ -253,10 +296,10 @@ def render_board(board: Board, width: int = 1000, pad: int = 28) -> str:
 
     # 1) Kontur: tüm alanlar kalın duvar rengiyle (dış kenar duvar gibi görünür)
     walls = " ".join(poly_d(poly) for poly, _ in polys)
-    out.append(f'<path d="{walls}" fill="{WALL}" stroke="{WALL}" stroke-width="7" stroke-linejoin="round"/>')
+    out.append(f'<path d="{walls}" fill="{th.wall}" stroke="{th.wall}" stroke-width="7" stroke-linejoin="round"/>')
     # 2) Zemin: yükseklik bandına göre ton; aynı renkte ince çizgi alan aralarını kapatır
-    for color, cond in ((FLOOR_LOW, lambda z: z < Z_LOW), (FLOOR_MID, lambda z: Z_LOW <= z < Z_HIGH),
-                        (FLOOR_HIGH, lambda z: z >= Z_HIGH)):
+    for color, cond in ((th.floor_low, lambda z: z < Z_LOW), (th.floor_mid, lambda z: Z_LOW <= z < Z_HIGH),
+                        (th.floor_high, lambda z: z >= Z_HIGH)):
         d = " ".join(poly_d(poly) for poly, z in polys if cond(z))
         out.append(f'<path d="{d}" fill="{color}" stroke="{color}" stroke-width="1.6" stroke-linejoin="round"/>')
     # 3) Hedef site: zemin turuncuya boyanır. Opak karışık renk: yarı saydam boya üst üste
@@ -268,30 +311,33 @@ def render_board(board: Board, width: int = 1000, pad: int = 28) -> str:
             if any((sum(x for x, _ in poly) / len(poly) - tx) ** 2
                    + (sum(y for _, y in poly) / len(poly) - ty) ** 2 < r2
                    for tx, ty in board.target_places))
-        out.append(f'<path d="{d}" fill="{TARGET_FLOOR}" stroke="{TARGET_FLOOR}" stroke-width="1.6" '
+        out.append(f'<path d="{d}" fill="{th.target_floor}" stroke="{th.target_floor}" stroke-width="1.6" '
                    'stroke-linejoin="round"/>')
 
     # Bölge etiketleri
     for name, (x, y) in board.places.items():
         px, py = P(x, y)
-        out.append(f'<text x="{px:.1f}" y="{py:.1f}" fill="{LABEL}" font-family="Arial Narrow, Arial, sans-serif" '
-                   f'font-size="12" font-weight="700" letter-spacing="1.5" text-anchor="middle">{escape(name.upper())}</text>')
+        text = name.upper() if th.label_upper else name
+        weight, spacing = (700, 1.5) if th.label_upper else (600, 0.2)
+        out.append(f'<text x="{px:.1f}" y="{py:.1f}" fill="{th.label}" font-family="{th.label_font}" '
+                   f'font-size="12" font-weight="{weight}" letter-spacing="{spacing}" '
+                   f'text-anchor="middle">{escape(text)}</text>')
 
     # Rakip spotları: halka büyüklüğü sıklıkla
     for sp in board.spots:
         px, py = P(*sp.pos)
         r = 6 + 22 * math.sqrt(sp.share)
-        out.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{r:.1f}" fill="{ENEMY}" fill-opacity="0.10" '
-                   f'stroke="{ENEMY}" stroke-width="1.5" stroke-dasharray="3 3"/>')
-        out.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="{ENEMY}"/>')
+        out.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{r:.1f}" fill="{th.enemy}" fill-opacity="0.10" '
+                   f'stroke="{th.enemy}" stroke-width="1.5" stroke-dasharray="3 3"/>')
+        out.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="{th.enemy}"/>')
         if sp.label:
-            out.append(f'<text x="{px + r + 4:.1f}" y="{py + 4:.1f}" fill="{ENEMY}" font-family="Consolas, monospace" '
+            out.append(f'<text x="{px + r + 4:.1f}" y="{py + 4:.1f}" fill="{th.enemy}" font-family="{th.mono_font}" '
                        f'font-size="11" font-weight="700">{escape(sp.label)}</text>')
 
     # Utility: atış çizgisi (ince, noktalı yay) + düştüğü yerdeki işaret
     for u in board.utility:
         lx, ly = P(u.land[0], u.land[1])
-        color = {"smoke": SMOKE, "flash": FLASH, "molly": MOLLY, "he": "#E8E8E8"}[u.kind]
+        color = {"smoke": th.smoke, "flash": th.flash, "molly": th.molly, "he": th.text}[u.kind]
         if u.thrower:
             tx, ty = P(u.thrower[0], u.thrower[1])
             mx, my = (tx + lx) / 2, (ty + ly) / 2
@@ -302,45 +348,45 @@ def render_board(board: Board, width: int = 1000, pad: int = 28) -> str:
                        f'stroke="{color}" stroke-width="1.4" stroke-dasharray="1 4" stroke-linecap="round"/>')
         if u.kind == "smoke":
             r = SMOKE_RADIUS * s
-            out.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="{r:.1f}" fill="{SMOKE}" fill-opacity="0.28" '
-                       f'stroke="{SMOKE}" stroke-width="1.5"/>')
+            out.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="{r:.1f}" fill="{th.smoke}" fill-opacity="0.28" '
+                       f'stroke="{th.smoke}" stroke-width="1.5"/>')
         elif u.kind == "flash":
             spikes = []
             for k in range(16):
                 ang = math.pi * k / 8
                 rad = 14 if k % 2 == 0 else 5
                 spikes.append(f"{lx + rad * math.cos(ang):.1f},{ly + rad * math.sin(ang):.1f}")
-            out.append(f'<polygon points="{" ".join(spikes)}" fill="{FLASH}"/>')
+            out.append(f'<polygon points="{" ".join(spikes)}" fill="{th.flash}"/>')
         elif u.kind == "molly":
-            out.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="{90 * s:.1f}" fill="{MOLLY}" fill-opacity="0.30" '
-                       f'stroke="{MOLLY}" stroke-width="1.5" stroke-dasharray="4 2"/>')
+            out.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="{90 * s:.1f}" fill="{th.molly}" fill-opacity="0.30" '
+                       f'stroke="{th.molly}" stroke-width="1.5" stroke-dasharray="4 2"/>')
         else:
             out.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="7" fill="none" stroke="{color}" stroke-width="2"/>')
         bx, by = lx + u.label_dx, ly + u.label_dy
         out.append(f'<rect x="{bx:.1f}" y="{by:.1f}" width="{7.2 * len(u.label) + 10:.1f}" height="17" '
-                   f'fill="{BG}" fill-opacity="0.9" stroke="{color}" stroke-width="1"/>')
-        out.append(f'<text x="{bx + 5:.1f}" y="{by + 12.5:.1f}" fill="{color}" font-family="Consolas, monospace" '
+                   f'fill="{th.bg}" fill-opacity="0.9" stroke="{color}" stroke-width="1"/>')
+        out.append(f'<text x="{bx + 5:.1f}" y="{by + 12.5:.1f}" fill="{color}" font-family="{th.mono_font}" '
                    f'font-size="11" font-weight="700">{escape(u.label)}</text>')
 
     # Oyuncu rotaları: kesik çizgi + ok ucu, navmesh'ten gerçek yürüme yolu
     for pl in board.players:
         route = _route(board.map_name, [pl.start, *pl.waypoints])
         px = _offset([P(x, y) for x, y in route], pl.lane)
-        marker = "arrT" if pl.color == T_COLOR else "arrS"
-        out.append(f'<path d="{_smooth_path(px)}" fill="none" stroke="{pl.color}" stroke-width="2.6" '
+        color, marker = (th.t, "arrT") if pl.color == T else (th.support, "arrS")
+        out.append(f'<path d="{_smooth_path(px)}" fill="none" stroke="{color}" stroke-width="{th.route_width}" '
                    f'stroke-dasharray="9 6" stroke-linecap="round" marker-end="url(#{marker})"/>')
 
     # Oyuncu tokenları: hedef noktada (rotanın sonu), başlangıçta küçük nokta
     for pl in board.players:
         sx, sy = P(pl.start[0], pl.start[1])
-        out.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="4" fill="{pl.color}" fill-opacity="0.6"/>')
+        color, text_color = (th.t, th.t_ink) if pl.color == T else (th.support, th.support_ink)
+        out.append(f'<circle cx="{sx:.1f}" cy="{sy:.1f}" r="4" fill="{color}" fill-opacity="0.6"/>')
         ex, ey = P(pl.waypoints[-1][0], pl.waypoints[-1][1])
-        text_color = "#0A0402" if pl.color == T_COLOR else "#02191B"
         out.append(f'<circle cx="{ex + 1.5:.1f}" cy="{ey + 2:.1f}" r="13" fill="#000" fill-opacity="0.55"/>')
-        out.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="13" fill="{pl.color}" stroke="#EEF1F4" stroke-width="2"/>')
-        out.append(f'<text x="{ex:.1f}" y="{ey + 4.5:.1f}" fill="{text_color}" font-family="Consolas, monospace" '
+        out.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="13" fill="{color}" stroke="{th.text}" stroke-width="2"/>')
+        out.append(f'<text x="{ex:.1f}" y="{ey + 4.5:.1f}" fill="{text_color}" font-family="{th.mono_font}" '
                    f'font-size="13" font-weight="700" text-anchor="middle">{escape(pl.label)}</text>')
-        out.append(f'<text x="{ex + 18:.1f}" y="{ey + 4.5:.1f}" fill="#EEF1F4" font-family="Arial, sans-serif" '
+        out.append(f'<text x="{ex + 18:.1f}" y="{ey + 4.5:.1f}" fill="{th.text}" font-family="{th.label_font}" '
                    f'font-size="12" font-weight="700">{escape(pl.name)}</text>')
 
     out.append("</svg>")
