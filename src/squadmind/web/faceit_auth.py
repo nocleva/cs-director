@@ -46,6 +46,9 @@ class FaceitOAuth:
     client_secret: str          # "Authorization Code with PKCE" istemcisinde boş olabilir
     base_url: str               # ör. https://app.squadmind.info (dönüş adresi bundan)
     timeout: float = 15.0
+    # PKCE: gizli anahtarlı istemcide zorunlu değil. FACEIT gerçek kodla doğrulayıcıyı
+    # 401 ile reddetti (23.10.2026), bu yüzden varsayılan kapalı; FACEIT_PKCE=1 ile açılır
+    pkce: bool = False
 
     @property
     def configured(self) -> bool:
@@ -65,9 +68,9 @@ class FaceitOAuth:
             "redirect_popup": "true",
             "scope": "openid profile",
             "state": state,
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
         }
+        if self.pkce:
+            params |= {"code_challenge": challenge, "code_challenge_method": "S256"}
         return f"{AUTHORIZE_URL}?{urlencode(params)}"
 
     def _token(self, http: httpx.Client, form: dict[str, str]) -> httpx.Response:
@@ -81,15 +84,10 @@ class FaceitOAuth:
         try:
             with httpx.Client(timeout=self.timeout) as http:
                 form = {"grant_type": "authorization_code", "code": code,
-                        "code_verifier": verifier, "redirect_uri": self.redirect_uri}
+                        "redirect_uri": self.redirect_uri}
+                if self.pkce:
+                    form["code_verifier"] = verifier
                 tok = self._token(http, form)
-                if tok.status_code == 401 and self.client_secret:
-                    # FACEIT girişte PKCE'yi yok sayıp token adımında doğrulayıcıyı reddedebiliyor:
-                    # aynı kodla doğrulayıcısız bir kez daha dene (hangisinin çalıştığı günlükte)
-                    log.warning("FACEIT token 401 (doğrulayıcıyla): %s %s",
-                                tok.headers.get("www-authenticate"), tok.text[:200])
-                    tok = self._token(http, {k: v for k, v in form.items() if k != "code_verifier"})
-                    log.warning("FACEIT token doğrulayıcısız: %s", tok.status_code)
                 if tok.status_code != 200:
                     # Sebep günlükte görünsün (gizli bilgi içermez: kod tek kullanımlık, süresi dolmuş)
                     log.warning("FACEIT token yanıtı %s: %s %s", tok.status_code,

@@ -58,5 +58,7 @@ WEB_MAP = os.getenv("WEB_MAP", "de_dust2").strip() or None
 FACEIT_CLIENT_ID = os.getenv("FACEIT_CLIENT_ID", "").strip()
 FACEIT_CLIENT_SECRET = os.getenv("FACEIT_CLIENT_SECRET", "").strip()
 WEB_BASE_URL = os.getenv("WEB_BASE_URL", "https://app.squadmind.info").strip()
+# FACEIT girişinde PKCE (varsayılan kapalı; bkz. web/faceit_auth.py)
+FACEIT_PKCE = os.getenv("FACEIT_PKCE", "0").strip() in ("1", "true", "evet")
 # Web'den gelen dosyaların parça parça birleştirildiği klasör
 WEB_UPLOADS = DATA_DIR / "web_uploads"

@@ -348,3 +348,11 @@ def test_map_art_is_served_and_cached(web):
     if _nav_available():
         r = client.get("/harita/de_dust2.svg")
         assert r.status_code == 200 and r.text.startswith("<svg") and "max-age" in r.headers["cache-control"]
+
+
+def test_faceit_authorize_url_pkce_toggle():
+    from squadmind.web.faceit_auth import FaceitOAuth
+    off = FaceitOAuth("id", "sec", "https://app.squadmind.info").authorize_url("st", "ch")
+    assert "code_challenge" not in off and "redirect_popup=true" in off and "state=st" in off
+    on = FaceitOAuth("id", "sec", "https://app.squadmind.info", pkce=True).authorize_url("st", "ch")
+    assert "code_challenge=ch" in on and "code_challenge_method=S256" in on
