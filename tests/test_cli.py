@@ -47,3 +47,18 @@ def test_local_demo_match_ids_reads_faceit_filenames(tmp_path):
     (tmp_path / f"{mid}-1-1.dem.zst").touch()
     (tmp_path / "rastgele.dem").touch()  # maç ID'si olmayan dosya yok sayılır
     assert local_demo_match_ids(tmp_path, tmp_path / "yok") == {mid}
+
+
+def test_query_is_read_only(tmp_path, make_client):
+    db = tmp_path / "t.duckdb"
+    with connect(db) as con:
+        init_db(con)
+        sync_player_matches(make_client(), con, "TestNick")
+
+    ok = runner.invoke(app, ["query", "SELECT count(*) AS n FROM matches", "--db", str(db)])
+    assert ok.exit_code == 0 and "2" in ok.output
+
+    bad = runner.invoke(app, ["query", "DELETE FROM matches", "--db", str(db)])
+    assert bad.exit_code == 1
+    with connect(db, read_only=True) as con:
+        assert con.execute("SELECT count(*) FROM matches").fetchone()[0] == 2

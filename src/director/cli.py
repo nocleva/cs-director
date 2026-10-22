@@ -401,5 +401,37 @@ def report_player(
     console.print(str(out))
 
 
+@app.command()
+def query(
+    sql: str,
+    max_rows: int = typer.Option(50, "--max-rows", "-n", help="En fazla kaç satır yazdırılsın"),
+    db: Path = DbOption,
+) -> None:
+    """Veritabanında SALT-OKUNUR SQL sorgusu çalıştırır (ajanlar için). Yazma reddedilir."""
+    if not Path(db).exists():
+        console.print("[red]Veritabanı yok.[/red]")
+        raise typer.Exit(1)
+    import duckdb
+
+    with connect(db, read_only=True) as con:
+        try:
+            cur = con.execute(sql)
+            cols = [c[0] for c in cur.description or []]
+            rows = cur.fetchall()
+        except duckdb.Error as exc:
+            console.print(f"[red]{type(exc).__name__}: {exc}[/red]")
+            raise typer.Exit(1) from exc
+
+    table = Table(show_lines=False)
+    for c in cols:
+        table.add_column(c)
+    for r in rows[:max_rows]:
+        table.add_row(*["" if v is None else (f"{v:.3f}" if isinstance(v, float) else str(v))
+                        for v in r])
+    console.print(table)
+    if len(rows) > max_rows:
+        console.print(f"[dim]... {len(rows) - max_rows} satır daha (--max-rows ile artır)[/dim]")
+
+
 if __name__ == "__main__":
     app()
