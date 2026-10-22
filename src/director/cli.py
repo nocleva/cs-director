@@ -8,10 +8,22 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from director.config import DB_PATH, DEMOS_INBOX, DEMOS_PROCESSED, DEMOS_TMP, REPORTS_DIR
+from director.config import (
+    AUTO_DELETE_DEMOS,
+    DB_PATH,
+    DEMOS_INBOX,
+    DEMOS_PROCESSED,
+    DEMOS_TMP,
+    REPORTS_DIR,
+)
 from director.db import connect, init_db
 from director.faceit.client import FaceitAPIError, FaceitClient, FaceitNotFound
-from director.ingest.demos import find_demos, ingest_inbox, match_id_from_filename
+from director.ingest.demos import (
+    find_demos,
+    ingest_inbox,
+    match_id_from_filename,
+    processed_demos_in_db,
+)
 from director.ingest.matches import profile_to_player_row, sync_player_matches
 
 app = typer.Typer(help="CS2 FACEIT Gaming Director", no_args_is_help=True)
@@ -225,12 +237,20 @@ def demo_links(
     console.print(f"[green]{len(todo)} maç listelendi[/green] (elde olan {len(rows) - len(todo)}): {out}")
 
 
+def _mb(n: int) -> str:
+    return f"{n / 1e6:.0f} MB"
+
+
 @app.command("ingest-demos")
 def ingest_demos(
     details: bool = typer.Option(False, "--details", help="Oyuncu bazında FACEIT karşılaştırması"),
+    delete: bool = typer.Option(
+        AUTO_DELETE_DEMOS, "--delete/--keep",
+        help="İşlenip doğrulanan demoyu sil / sakla (varsayılan: .env DIRECTOR_AUTO_DELETE)",
+    ),
     db: Path = DbOption,
 ) -> None:
-    """Inbox'taki demoları açar, ayrıştırır, DB'ye yazar ve processed/'a taşır."""
+    """Inbox'taki demoları açar, ayrıştırır, DB'ye yazar; sonra siler ya da processed/'a taşır."""
     pending = find_demos(DEMOS_INBOX)
     if not pending:
         console.print(f"[yellow]İşlenecek demo yok:[/yellow] {DEMOS_INBOX}")
@@ -242,21 +262,37 @@ def ingest_demos(
             results = ingest_inbox(
                 con, DEMOS_INBOX, DEMOS_PROCESSED, DEMOS_TMP,
                 on_start=lambda f: status.update(f"İşleniyor: {f.name}"),
+                delete_after=delete,
             )
 
     table = Table(title=f"Demo işleme — {len(results)} dosya")
-    for col in ("Maç", "Harita", "Round", "Kill", "Utility", "Konum", "FACEIT ile"):
+    for col in ("Maç", "Harita", "Round", "Kill", "Utility", "FACEIT ile", "Demo dosyası"):
         table.add_column(col)
     for r in results:
         if r.error:
-            table.add_row(r.match_id or r.file[:24], r.map_name or "?", "", "", "", "",
-                          f"[red]{r.error}[/red]")
+            table.add_row(r.match_id or r.file[:24], r.map_name or "?", "", "", "",
+                          f"[red]{r.error}[/red]", "inbox'ta kaldı")
             continue
         check = {True: "[green]tutarlı[/green]", False: "[yellow]fark var[/yellow]",
                  None: "[dim]FACEIT verisi yok[/dim]"}[r.validated]
+        if r.deleted:
+            fate = "[green]silindi[/green] (veriler öğrenildi)"
+        elif r.kept_reason:
+            fate = f"[yellow]saklandı[/yellow]: {r.kept_reason}"
+        else:
+            fate = "processed/'a taşındı"
         table.add_row(r.match_id[:14] + "…", (r.map_name or "").removeprefix("de_"),
-                      str(r.rounds), str(r.kills), str(r.utility), str(r.positions), check)
+                      str(r.rounds), str(r.kills), str(r.utility), check, fate)
     console.print(table)
+
+    deleted = [r for r in results if r.deleted]
+    if deleted:
+        console.print(
+            f"[green]{len(deleted)} demo silindi, {_mb(sum(r.freed_bytes for r in deleted))} "
+            "yer açıldı.[/green] Bu maçların round, kill, utility ve konum verileri "
+            "veritabanına kaydedildi ve FACEIT ile doğrulandı; analiz için demo dosyasına "
+            "artık gerek yok."
+        )
 
     # İstenirse ya da fark varsa oyuncu bazında karşılaştırmayı göster
     for r in results:
@@ -271,6 +307,37 @@ def ingest_demos(
                           f"{v.faceit_deaths} / {v.demo_deaths}", adr,
                           "[green]✓[/green]" if v.ok else "[yellow]![/yellow]")
             console.print(t)
+
+
+@app.command("clean-demos")
+def clean_demos(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Onay sormadan sil"),
+    db: Path = DbOption,
+) -> None:
+    """processed/ içindeki, verileri zaten DB'de olan demo dosyalarını siler."""
+    if not Path(db).exists():
+        console.print("[red]Veritabanı yok.[/red]")
+        raise typer.Exit(1)
+    with connect(db, read_only=True) as con:
+        learned = processed_demos_in_db(con, DEMOS_PROCESSED)
+    if not learned:
+        console.print("[yellow]Silinecek, verisi DB'de olan demo yok.[/yellow]")
+        return
+
+    total = sum(f.stat().st_size for f, _, _ in learned)
+    for f, rounds, kills in learned:
+        console.print(f"  {f.name[:40]}  → DB'de {rounds} round, {kills} kill")
+    if not yes and not typer.confirm(
+        f"{len(learned)} demo ({_mb(total)}) silinsin mi? Verileri veritabanında kalacak."
+    ):
+        raise typer.Exit()
+
+    for f, _, _ in learned:
+        f.unlink()
+    console.print(
+        f"[green]{len(learned)} demo silindi, {_mb(total)} yer açıldı.[/green] "
+        "Maçların verileri öğrenildi ve veritabanında duruyor."
+    )
 
 
 if __name__ == "__main__":

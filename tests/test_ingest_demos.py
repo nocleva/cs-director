@@ -215,3 +215,54 @@ def test_tmp_file_is_deleted_after_ingest(tmp_path, make_client, con):
 
     assert not (tmp / f"{M1}-1-1.dem").exists()
     assert (processed / demo.name).exists()
+
+
+# --- otomatik silme ----------------------------------------------------------
+
+def test_delete_after_removes_validated_demo(tmp_path, make_client, con):
+    _sync(make_client, con)
+    inbox, processed, tmp = _dirs(tmp_path)
+    demo = inbox / f"{M1}-1-1.dem.zst"
+    demo.write_bytes(zstandard.ZstdCompressor().compress(b"demo"))
+
+    r = ingest_demo(con, demo, tmp, processed, parser=lambda p: make_tables(),
+                    delete_after=True)
+
+    assert r.deleted and r.freed_bytes > 0
+    assert not demo.exists() and not (processed / demo.name).exists()
+    # Veriler DB'de kaldı
+    assert con.execute("SELECT count(*) FROM kills WHERE match_id = ?", [M1]).fetchone()[0] == 2
+
+
+def test_delete_after_keeps_demo_when_faceit_mismatch(tmp_path, make_client, con):
+    _sync(make_client, con)
+    inbox, processed, tmp = _dirs(tmp_path)
+    demo = inbox / f"{M1}-1-1.dem"
+    demo.write_bytes(b"demo")
+
+    def wrong(p: Path) -> DemoTables:
+        t = make_tables()
+        t.player_stats = t.player_stats.with_columns(pl.lit(99).alias("kills"))
+        return t
+
+    r = ingest_demo(con, demo, tmp, processed, parser=wrong, delete_after=True)
+
+    assert not r.deleted and "FACEIT" in r.kept_reason
+    assert (processed / demo.name).exists()
+
+
+def test_processed_demos_in_db_only_lists_learned_matches(tmp_path, make_client, con):
+    from director.ingest.demos import processed_demos_in_db
+
+    _sync(make_client, con)
+    inbox, processed, tmp = _dirs(tmp_path)
+    demo = inbox / f"{M1}-1-1.dem"
+    demo.write_bytes(b"demo")
+    ingest_demo(con, demo, tmp, processed, parser=lambda p: make_tables())
+    # Verisi DB'de olmayan bir demo da processed/'da dursun
+    other = processed / "1-00000000-0000-0000-0000-000000000000-1-1.dem.zst"
+    other.write_bytes(b"x")
+
+    learned = processed_demos_in_db(con, processed)
+
+    assert [(f.name, r, k) for f, r, k in learned] == [(demo.name, 2, 2)]

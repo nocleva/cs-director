@@ -221,6 +221,9 @@ class DemoIngestResult:
     positions: int = 0
     validation: list[ValidationRow] = field(default_factory=list)
     error: str | None = None
+    deleted: bool = False  # demo silindi (verileri DB'de)
+    freed_bytes: int = 0
+    kept_reason: str | None = None  # silme istendi ama dosya saklandıysa nedeni
 
     @property
     def validated(self) -> bool | None:
@@ -236,8 +239,13 @@ def ingest_demo(
     tmp_dir: Path,
     processed_dir: Path,
     parser: Callable[[Path], DemoTables] = parse_demo,
+    delete_after: bool = False,
 ) -> DemoIngestResult:
-    """Tek bir demoyu işler. Hata olursa dosya inbox'ta kalır, sonuçta hata yazar."""
+    """Tek bir demoyu işler. Hata olursa dosya inbox'ta kalır, sonuçta hata yazar.
+
+    delete_after=True ise, veriler DB'ye yazılıp FACEIT ile tutarlı çıktıktan sonra
+    orijinal demo silinir. Tutarsızlık varsa incelenebilsin diye processed/'a taşınır.
+    """
     result = DemoIngestResult(file=demo_file.name)
     unpacked: Path | None = None
     try:
@@ -258,7 +266,17 @@ def ingest_demo(
         result.positions = tables.positions.height
         result.validation = validate_against_faceit(con, match_id)
 
-        # Başarılı: orijinal dosyayı processed/'a taşı
+        if delete_after:
+            reason = keep_reason(result)
+            if reason is None:
+                # Veriler DB'de ve doğrulandı: demo dosyasına artık gerek yok
+                result.freed_bytes = demo_file.stat().st_size
+                demo_file.unlink()
+                result.deleted = True
+                return result
+            result.kept_reason = reason
+
+        # Saklanacak: orijinal dosyayı processed/'a taşı
         processed_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(demo_file), str(processed_dir / demo_file.name))
     except Exception as exc:  # demo bozuk / parse hatası: diğer demolar devam etsin
@@ -270,6 +288,33 @@ def ingest_demo(
     return result
 
 
+def keep_reason(result: DemoIngestResult) -> str | None:
+    """Demo silinmemeli mi? Silinmemesi gerekiyorsa nedenini döner."""
+    if result.rounds == 0 or result.kills == 0:
+        return "demodan veri çıkmadı"
+    if result.validated is False:
+        return "FACEIT ile fark var, inceleme için saklandı"
+    return None
+
+
+def processed_demos_in_db(con: duckdb.DuckDBPyConnection,
+                          processed_dir: Path) -> list[tuple[Path, int, int]]:
+    """processed/ içinde olup verileri DB'de bulunan demolar: (dosya, round, kill)."""
+    out = []
+    for f in find_demos(processed_dir):
+        mid = match_id_from_filename(f.name)
+        if not mid:
+            continue
+        rounds, kills = con.execute(
+            "SELECT (SELECT count(*) FROM rounds WHERE match_id = $m), "
+            "(SELECT count(*) FROM kills WHERE match_id = $m)",
+            {"m": mid},
+        ).fetchone()
+        if rounds > 0 and kills > 0:
+            out.append((f, rounds, kills))
+    return out
+
+
 def ingest_inbox(
     con: duckdb.DuckDBPyConnection,
     inbox: Path,
@@ -277,11 +322,14 @@ def ingest_inbox(
     tmp_dir: Path,
     parser: Callable[[Path], DemoTables] = parse_demo,
     on_start: Callable[[Path], None] | None = None,
+    delete_after: bool = False,
 ) -> list[DemoIngestResult]:
     """Inbox'taki tüm demoları sırayla işler."""
     results = []
     for demo_file in find_demos(inbox):
         if on_start:
             on_start(demo_file)
-        results.append(ingest_demo(con, demo_file, tmp_dir, processed_dir, parser))
+        results.append(
+            ingest_demo(con, demo_file, tmp_dir, processed_dir, parser, delete_after)
+        )
     return results
