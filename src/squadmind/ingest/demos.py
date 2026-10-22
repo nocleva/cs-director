@@ -341,6 +341,7 @@ def ingest_demo(
     delete_after: bool = False,
     uploader: str | None = None,
     allow_known: bool = False,
+    expected_map: str | None = None,
 ) -> DemoIngestResult:
     """Tek bir demoyu işler. Hata olursa dosya inbox'ta kalır, sonuçta hata yazar.
 
@@ -350,6 +351,8 @@ def ingest_demo(
     Aynı demo bir kez: boyut, içerik özeti ve maç kontrol edilir (`precheck_demo`);
     `uploader` (steam id) verilirse yükleyen demodaki oyunculardan biri olmalı.
     allow_known=True (reprocess) bilinen demoları yeniden işlemeye izin verir.
+    expected_map verilirse (web'de haritaya göre yükleme) demo o haritadan değilse DB'ye
+    hiçbir şey yazılmadan reddedilir; dosya kayda geçmez, doğru haritaya yeniden yüklenebilir.
     """
     result = DemoIngestResult(file=demo_file.name)
     unpacked: Path | None = None
@@ -365,6 +368,11 @@ def ingest_demo(
         unpacked = decompress(demo_file, tmp_dir)
         tables = parser(unpacked)
         result.map_name = tables.map_name
+        if expected_map and tables.map_name != expected_map:
+            result.error = (f"bu demo {tables.map_name.removeprefix('de_').capitalize()} haritasına "
+                            f"ait; {expected_map.removeprefix('de_').capitalize()} alanına yüklenemez")
+            result.rejected = True
+            return result
 
         match_id = resolve_match_id(con, demo_file, tables)
         if not match_id:

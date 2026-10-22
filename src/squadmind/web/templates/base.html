@@ -36,7 +36,9 @@
   .avatar { width: 28px; height: 28px; border-radius: 4px; background: var(--bg-2); display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--line); }
   @media (max-width: 720px) { nav.nav { order: 3; width: 100%; gap: 18px; padding-bottom: 2px; } nav.nav a { padding: 10px 0; } }
 
-  main { padding-block: 24px 48px; }
+  main { padding-block: 24px 48px; animation: page-in 320ms cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { main { animation: none; } }
   h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.6px; margin: 6px 0 4px; }
   h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
   .muted { color: var(--muted); }
@@ -82,7 +84,8 @@
     {% if me %}
     {% set path = request.url.path %}
     <nav class="nav" aria-label="Bölümler">
-      <a href="/ben"{% if path == "/ben" %} aria-current="page"{% endif %}>Demolarım</a>
+      <a href="/ben"{% if path == "/ben" %} aria-current="page"{% endif %}>Genel bakış</a>
+      <a href="/demolar"{% if path == "/demolar" %} aria-current="page"{% endif %}>Demo yönetimi</a>
       <a href="/takimlar"{% if path.startswith("/takimlar") %} aria-current="page"{% endif %}>Takımlarım</a>
       <a href="/rapor/ben"{% if path == "/rapor/ben" %} aria-current="page"{% endif %}>Raporum</a>
       {% if me.team_access %}

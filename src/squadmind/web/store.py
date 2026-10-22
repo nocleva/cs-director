@@ -253,3 +253,22 @@ class Store:
         with self.cursor() as cur:
             cur.execute("DELETE FROM web_team_members WHERE team_id = ? AND faceit_id = ?",
                         [team_id, faceit_id])
+
+    def totals(self, steam_id: str) -> dict[str, int]:
+        """Genel bakış sayıları: oyuncunun analize giren demo / round'u ve sitenin toplamı."""
+        with self.cursor() as cur:
+            mine = cur.execute(
+                """
+                WITH mm AS (
+                    SELECT DISTINCT m.match_id FROM matches m
+                    JOIN match_player_stats s USING (match_id)
+                    JOIN players p ON p.faceit_id = s.player_id
+                    WHERE p.steam_id = ? AND m.demo_status = 'processed'
+                )
+                SELECT (SELECT count(*) FROM mm),
+                       (SELECT count(*) FROM rounds r WHERE r.match_id IN (SELECT match_id FROM mm))
+                """, [steam_id]).fetchone()
+            site = cur.execute(
+                "SELECT count(*), (SELECT count(*) FROM rounds) FROM matches "
+                "WHERE demo_status = 'processed'").fetchone()
+        return {"demos": mine[0], "rounds": mine[1], "site_demos": site[0], "site_rounds": site[1]}

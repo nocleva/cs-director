@@ -117,7 +117,8 @@ class Worker:
         self.store.set_upload(upload_id, PROCESSING)
         r = self.store.run(lambda con: ingest_demo(
             con, path, self.tmp, self.processed, self.parser,
-            delete_after=self.delete_after, uploader=up["steam_id"]), lock=False)
+            delete_after=self.delete_after, uploader=up["steam_id"],
+            expected_map=up.get("map_hint")), lock=False)
         if r.rejected:
             status, msg = REJECTED, r.error
         elif r.error:
@@ -126,11 +127,6 @@ class Worker:
             status, msg = MISMATCH, "FACEIT skor tablosuyla tutmadı; analize alınmadı"
         else:
             status, msg = DONE, f"{r.rounds} round, {r.kills} kill"
-            # Seçilen harita sadece etiket: demo hangi haritaysa orada sayılır, fark varsa söylenir
-            hint = up.get("map_hint")
-            if hint and r.map_name and hint != r.map_name:
-                msg += (f"; {hint.removeprefix('de_')} seçilmişti, demo "
-                        f"{r.map_name.removeprefix('de_')}: orada sayıldı")
         self.store.set_upload(upload_id, status, msg, r.match_id)
         # Reddedilen / hatalı dosya sunucuda yer kaplamasın (kopya ya da bozuk)
         if status in (REJECTED, FAILED) and path.exists():

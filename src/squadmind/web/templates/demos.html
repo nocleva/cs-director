@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Demo yönetimi · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* Harita kartları: dikey, yuvarlak köşe; görsel her demoyla bir kademe belirginleşir */
+  .rail { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 14px; padding: 8px 2px 18px; }
+  @media (max-width: 1000px) {
+    .rail { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(132px, 40vw); overflow-x: auto; scroll-snap-type: x mandatory; }
+    .mcard { scroll-snap-align: start; }
+  }
+  .mcard { --art: .12; position: relative; display: block; width: 100%; height: auto; aspect-ratio: 3 / 5; border-radius: 22px; overflow: hidden; background: var(--bg-0);
+           border: 1px solid var(--bg-3); cursor: pointer; padding: 0; color: var(--line); font: inherit; text-align: left;
+           transition: transform 240ms cubic-bezier(.2,.7,.2,1), box-shadow 240ms ease-out, border-color 240ms ease-out;
+           animation: rise 460ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i) * 60ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+  .mcard img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: var(--art);
+               transform: scale(1.18); transition: opacity 420ms ease-out, transform 700ms cubic-bezier(.2,.7,.2,1); }
+  .mcard::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(17,18,20,.15) 0%, rgba(17,18,20,0) 35%, rgba(17,18,20,.88) 78%, #111214 100%); }
+  .mcard:hover, .mcard:focus-visible { transform: translateY(-6px); border-color: var(--c); box-shadow: 0 16px 34px -18px var(--c); outline: none; }
+  .mcard:hover img, .mcard:focus-visible img { opacity: calc(var(--art) + .12); transform: scale(1.26); }
+  .mcard[aria-pressed="true"] { transform: translateY(-8px); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 20px 40px -18px var(--accent); }
+  .mcard.lvl-ok { animation: rise 460ms cubic-bezier(.2,.7,.2,1) both, ready 2400ms ease-in-out 700ms 2; animation-delay: calc(var(--i) * 60ms), calc(700ms + var(--i) * 60ms); }
+  @keyframes ready { 50% { box-shadow: 0 0 0 1px var(--ok), 0 0 28px -6px var(--ok); } }
+  .badge { position: absolute; z-index: 1; top: 12px; left: 12px; font-size: 9px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+           padding: 4px 8px; border-radius: 100px; background: rgba(17,18,20,.7); color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); }
+  .info { position: absolute; z-index: 1; left: 14px; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .info .nm { font-size: 16px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+  .info .n { font-size: 12px; color: var(--text-2); }
+  .info .n b { font-size: 20px; color: var(--line); font-weight: 700; }
+  .pips { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+  .pips i { height: 4px; border-radius: 2px; background: rgba(255,255,255,.12); }
+  .pips i.on { background: var(--c); animation: pip 300ms ease-out both; animation-delay: calc(300ms + var(--p) * 45ms); }
+  @keyframes pip { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  /* Seçili haritanın yükleme alanı */
+  .panel { background: var(--bg-2); border-radius: 16px; padding: 22px; animation: panel 280ms cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes panel { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .panel .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .panel h2 { font-size: 20px; margin: 0; letter-spacing: -0.3px; }
+  .rule { font-size: 13px; color: var(--text-2); margin: 0 0 16px; max-width: 75ch; }
+  .rule b { color: var(--line); }
+  .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 140px; border: 1.5px dashed var(--bg-3);
+          border-radius: 14px; background: var(--bg-1); cursor: pointer; text-align: center; padding: 18px; transition: border-color 200ms, background 200ms, transform 200ms; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: rgba(243,115,33,.06); }
+  .drop.over { transform: scale(1.01); }
+  .drop b { font-size: 15px; }
+  .drop span { font-size: 12px; color: var(--muted); }
+  #progress p { margin: 8px 0 0; font-size: 13px; color: var(--text-2); }
+  .empty { text-align: center; padding: 40px 16px; color: var(--muted); border: 1.5px dashed var(--bg-3); border-radius: 16px; }
+  tr[hidden] { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .mcard, .mcard.lvl-ok, .pips i.on, .panel { animation: none; }
+    .mcard, .mcard img { transition: none; }
+  }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <div class="eyebrow">Demo yönetimi</div>
+    <h1>Haritalar</h1>
+    <p class="sub">Her haritanın kendi alanı var: demoyu o haritanın kartına yükle. Kart her demoyla belirginleşir, {{ min_demos }} demoda analiz hazır.</p>
+  </div>
+  <div class="legend">
+    <span class="lvl-low"><span class="dot"></span>0-5 yetersiz</span>
+    <span class="lvl-mid"><span class="dot"></span>6-9 gelişiyor</span>
+    <span class="lvl-ok"><span class="dot"></span>10+ hazır</span>
+  </div>
+</div>
+
+<div class="rail" role="group" aria-label="Haritalar">
+  {% for c in cards if c.pool %}
+  <button type="button" class="mcard lvl-{{ c.level }}" data-map="{{ c.map }}" data-label="{{ c.label }}" data-n="{{ c.n }}"
+          style="--i: {{ loop.index0 }}; --art: {{ '%.2f' | format(0.12 + 0.08 * ([c.n, min_demos] | min)) }}"
+          aria-pressed="{{ 'true' if c.map == selected else 'false' }}" aria-label="{{ c.label }}: {{ c.n }} / {{ min_demos }} demo">
+    <img src="/harita/{{ c.map }}.svg" alt="" loading="lazy">
+    <span class="badge">{% if c.level == "ok" %}Hazır{% elif c.level == "mid" %}Gelişiyor{% else %}Yetersiz{% endif %}</span>
+    <span class="info">
+      <span class="nm" lang="en">{{ c.label }}</span>
+      <span class="n tnum"><b>{{ c.n }}</b> / {{ min_demos }} demo</span>
+      <span class="pips" aria-hidden="true">{% for k in range(min_demos) %}<i class="{{ 'on' if k < c.n else '' }}" style="--p: {{ k }}"></i>{% endfor %}</span>
+    </span>
+  </button>
+  {% endfor %}
+</div>
+
+<div id="panelHost">
+  <div class="empty" id="emptyPanel"{% if selected %} hidden{% endif %}>Bir harita seç: demolarını o haritanın alanına yükle.</div>
+  <section class="panel" id="panel"{% if not selected %} hidden{% endif %} aria-live="polite">
+    <div class="head">
+      <h2 id="panelTitle"></h2>
+      <span class="muted tnum" id="panelCount"></span>
+    </div>
+    <p class="rule"><b>Kural:</b> Bu alana yalnızca <b id="ruleMap"></b> demosu yüklenir; başka haritanın demosu reddedilir. FACEIT maç sayfasındaki "Watch demo" ile indirdiğin dosyayı (.dem.zst) açmadan yükle. Yalnızca oynadığın maçlar kabul edilir; aynı demo bir kez eklenir. En az {{ min_demos }} demo gerekir, daha fazlası daha gerçekçi sonuç verir.</p>
+    <label class="drop" id="drop" for="files">
+      <b>Demoları buraya sürükle</b>
+      <span>ya da tıklayıp seç · .dem, .dem.zst, .dem.gz</span>
+    </label>
+    <input type="file" id="files" multiple accept=".dem,.zst,.gz" hidden>
+    <div id="progress"></div>
+    <div class="table-wrap" style="margin-top:18px">
+      <table id="uploads">
+        <tr><th>Dosya</th><th>Durum</th><th>Not</th></tr>
+        {% for u in uploads %}
+        <tr data-map="{{ u.map or '' }}">
+          <td>{{ u.file_name }}</td>
+          <td class="st-{{ u.status }}">{{ u.status }}</td>
+          <td class="muted">{{ u.message or "" }}</td>
+        </tr>
+        {% endfor %}
+        <tr id="noRows"><td colspan="3" class="muted">Bu haritaya henüz yükleme yok.</td></tr>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+const CHUNK = {{ chunk }}, MIN = {{ sizes[0] }}, MAX = {{ sizes[1] }}, NEED = {{ min_demos }};
+const cards = [...document.querySelectorAll(".mcard")];
+const panel = document.getElementById("panel"), empty = document.getElementById("emptyPanel");
+const box = document.getElementById("progress");
+let current = {{ selected | tojson }}, uploading = false;
+
+// Harita seçimi: kart vurgulanır, panel o haritanın alanına döner, adres güncellenir
+function select(map) {
+  const card = cards.find((c) => c.dataset.map === map);
+  if (!card || uploading) return;
+  current = map;
+  cards.forEach((c) => c.setAttribute("aria-pressed", c === card ? "true" : "false"));
+  const n = Number(card.dataset.n);
+  document.getElementById("panelTitle").textContent = card.dataset.label + " alanı";
+  document.getElementById("ruleMap").textContent = card.dataset.label;
+  document.getElementById("panelCount").textContent = n >= NEED ? `${n} demo · analiz hazır` : `${n} / ${NEED} demo · ${NEED - n} demo daha`;
+  let shown = 0;
+  document.querySelectorAll("#uploads tr[data-map]").forEach((tr) => { tr.hidden = tr.dataset.map !== map; if (!tr.hidden) shown++; });
+  document.getElementById("noRows").hidden = shown > 0;
+  empty.hidden = true; panel.hidden = false;
+  panel.style.animation = "none"; panel.offsetHeight; panel.style.animation = "";  // geçişi yeniden oynat
+  box.innerHTML = "";
+  history.replaceState(null, "", "?harita=" + map);
+}
+cards.forEach((c) => c.addEventListener("click", () => {
+  select(c.dataset.map);
+  panel.scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest"});
+}));
+if (current) select(current);
+
+function line(text) { const p = document.createElement("p"); p.textContent = text; box.appendChild(p); return p; }
+
+async function send(file, map) {
+  const p = line(file.name + ": başlıyor…");
+  if (file.size < MIN || file.size > MAX) { p.textContent = file.name + ": boyut demo için şüpheli, atlandı"; return; }
+  let r = await fetch("/api/yukleme", {method: "POST", headers: {"Content-Type": "application/json"},
+                                        body: JSON.stringify({name: file.name, size: file.size, map})});
+  if (!r.ok) { p.textContent = file.name + ": " + ((await r.json()).detail || "reddedildi"); return; }
+  const {id} = await r.json();
+  const parts = Math.ceil(file.size / CHUNK);
+  for (let i = 0; i < parts; i++) {
+    const body = file.slice(i * CHUNK, Math.min(file.size, (i + 1) * CHUNK));
+    for (let tryNo = 0; ; tryNo++) {          // kopan parça 3 kez denenir
+      r = await fetch(`/api/yukleme/${id}/${i}`, {method: "PUT", body});
+      if (r.ok || tryNo >= 2) break;
+    }
+    if (!r.ok) { p.textContent = file.name + ": yükleme koptu, tekrar dene"; return; }
+    p.textContent = `${file.name}: %${Math.round(100 * (i + 1) / parts)}`;
+  }
+  r = await fetch(`/api/yukleme/${id}/bitti`, {method: "POST"});
+  p.textContent = file.name + (r.ok ? ": yüklendi, sırada" : ": " + (await r.json()).detail);
+}
+
+async function uploadAll(files) {
+  if (!files.length || uploading || !current) return;
+  uploading = true; box.innerHTML = "";
+  for (const f of files) { await send(f, current); }
+  uploading = false; location.href = "/demolar?harita=" + current;
+}
+const drop = document.getElementById("drop"), input = document.getElementById("files");
+input.addEventListener("change", () => uploadAll([...input.files]));
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => uploadAll([...e.dataTransfer.files]));
+
+// İşlenen demo ya da maç geçmişi varsa tazele (yükleme sürerken değil), seçili harita korunur
+{% if pending %}setTimeout(() => { if (!uploading) location.href = "/demolar" + (current ? "?harita=" + current : ""); }, 8000);{% endif %}
+</script>
+{% endblock %}

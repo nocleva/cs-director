@@ -21,7 +21,7 @@ from urllib.parse import quote
 
 import markdown as md
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
@@ -80,6 +80,13 @@ def join_art() -> str:
     except Exception:  # noqa: BLE001 - görsel yoksa sayfa yine açılır
         log.warning("giriş sayfası görseli çizilemedi", exc_info=True)
         return ""
+
+
+@lru_cache(maxsize=16)
+def map_art(map_name: str) -> str:
+    """Harita kartının görseli: navmesh'ten çizim (etiketsiz). Valve görseli kullanılmaz."""
+    from squadmind.viz.board import TAKTIK, Board, render_board
+    return render_board(Board(map_name), width=400, pad=6, theme=TAKTIK)
 
 
 def safe_file_name(name: str) -> str:
@@ -245,23 +252,49 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     # --- oyuncu sayfası ---------------------------------------------------------------
 
+    def map_cards(user: WebUser) -> list[dict]:
+        """Harita kartları: havuz + oyuncunun havuz dışında demosu olan haritalar."""
+        counts = store.demo_counts(user.steam_id)
+        maps = list(tb.MAP_POOL) + sorted(m for m in counts if m not in tb.MAP_POOL)
+        return [{"map": m, "label": tb.map_label(m), "n": counts.get(m, 0),
+                 "level": tb.demo_level(counts.get(m, 0)), "pool": m in tb.MAP_POOL}
+                for m in maps]
+
+    def busy(user: WebUser, uploads: list[dict]) -> bool:
+        return any(u["status"] in OPEN_STATES for u in uploads) or             user.sync_status in ("bekliyor", "alınıyor")
+
     @app.get("/ben", response_class=HTMLResponse)
     def me(request: Request):
+        """Genel bakış: toplam analiz sayıları, harita ilerlemesi, takımlar (yükleme yok)."""
         user = current_user(request)
         if user is None:
             return RedirectResponse("/", status_code=303)
         uploads = store.uploads_of(user.steam_id)
-        counts = store.demo_counts(user.steam_id)
-        # Havuzdaki haritalar + oyuncunun havuz dışında demosu olan haritalar
-        maps = list(tb.MAP_POOL) + sorted(m for m in counts if m not in tb.MAP_POOL)
-        cards = [{"map": m, "label": tb.map_label(m), "n": counts.get(m, 0),
-                  "level": tb.demo_level(counts.get(m, 0))} for m in maps]
-        pending = any(u["status"] in OPEN_STATES for u in uploads) or \
-            user.sync_status in ("bekliyor", "alınıyor")
-        return page(request, "me.html", user=user, uploads=uploads, cards=cards,
-                    min_demos=tb.MIN_DEMOS, pool=[(m, tb.map_label(m)) for m in tb.MAP_POOL],
-                    pending=pending, chunk=CHUNK_BYTES, team_owner=settings.team_owner,
-                    sizes=(demo_rules.MIN_DEMO_BYTES, demo_rules.MAX_DEMO_BYTES))
+        cards = map_cards(user)
+        return page(request, "overview.html", user=user, cards=cards, totals=store.totals(user.steam_id),
+                    ready=sum(c["level"] == "ok" for c in cards if c["pool"]), pool_size=len(tb.MAP_POOL),
+                    min_demos=tb.MIN_DEMOS, teams=store.teams_of(user.faceit_id),
+                    recent=uploads[:5], pending=busy(user, uploads))
+
+    @app.get("/demolar", response_class=HTMLResponse)
+    def demos(request: Request, harita: str = ""):
+        """Demo yönetimi: harita kartları; her haritanın kendi yükleme alanı."""
+        user = current_user(request)
+        if user is None:
+            return RedirectResponse("/", status_code=303)
+        uploads = store.uploads_of(user.steam_id)
+        cards = map_cards(user)
+        selected = harita if harita in tb.MAP_POOL else ""
+        return page(request, "demos.html", user=user, uploads=uploads, cards=cards,
+                    selected=selected, min_demos=tb.MIN_DEMOS, pending=busy(user, uploads),
+                    chunk=CHUNK_BYTES, sizes=(demo_rules.MIN_DEMO_BYTES, demo_rules.MAX_DEMO_BYTES))
+
+    @app.get("/harita/{map_name}.svg")
+    def map_image(map_name: str):
+        if map_name not in tb.MAP_POOL:
+            raise HTTPException(404, "Harita yok.")
+        return Response(map_art(map_name), media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
     # --- parça parça yükleme ------------------------------------------------------------
 
@@ -276,9 +309,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             raise HTTPException(400, f"Dosya boyutu demo için şüpheli ({size / 1048576:.1f} MB).")
         if store.open_uploads(user.steam_id) >= MAX_OPEN_UPLOADS:
             raise HTTPException(429, "Önceki yüklemelerin işlenmesini bekle.")
-        map_hint = str(body.get("map", "")) or None
-        if map_hint is not None and map_hint not in tb.MAP_POOL:
-            raise HTTPException(400, "Bilinmeyen harita.")
+        # Her demo bir haritanın alanına yüklenir; demo o haritadan değilse işçi reddeder
+        map_hint = str(body.get("map", ""))
+        if map_hint not in tb.MAP_POOL:
+            raise HTTPException(400, "Önce haritayı seç.")
         upload_id = store.new_upload(user.steam_id, name, size, map_hint)
         folder = settings.uploads_dir / upload_id
         folder.mkdir(parents=True, exist_ok=True)

@@ -45,8 +45,9 @@ def _join(client):
                        follow_redirects=False)
 
 
-def _upload(client, name: str, data: bytes, declared: int | None = None):
-    r = client.post("/api/yukleme", json={"name": name, "size": declared or len(data)})
+def _upload(client, name: str, data: bytes, declared: int | None = None, map_name="de_mirage"):
+    r = client.post("/api/yukleme", json={"name": name, "size": declared or len(data),
+                                          "map": map_name})
     assert r.status_code == 200, r.text
     uid = r.json()["id"]
     assert client.put(f"/api/yukleme/{uid}/0", content=data).status_code == 200
@@ -79,8 +80,11 @@ def test_join_then_upload_and_ingest(web):
     assert (up["status"], up["match_id"]) == ("tamam", M1)
     assert store.done_count(SELF) == 1
 
-    page = client.get("/ben").text
-    assert "1 <span>/ 10 demo</span>" in page and f"{M1}-1-1.dem" in page
+    page = client.get("/demolar").text
+    assert "<b>1</b> / 10 demo" in page and f"{M1}-1-1.dem" in page
+    # Genel bakış yükleme göstermez, toplam analiz sayısını gösterir
+    overview = client.get("/ben").text
+    assert 'data-count="1"' in overview and 'id="drop"' not in overview
     assert client.get("/rapor/ben").status_code == 200
 
 
@@ -317,3 +321,30 @@ def test_upload_map_hint_and_map_cards(oauth_web):
     r = client.post("/api/yukleme", json={"name": "a.dem", "size": 100, "map": "de_mirage"})
     assert r.status_code == 200
     assert store.upload(r.json()["id"])["map_hint"] == "de_mirage"
+
+
+def test_demo_of_other_map_is_rejected_and_not_registered(web):
+    # Fixture demosu Mirage: Dust2 alanına yüklenemez, sonra doğru alana yüklenebilir
+    client, store = web
+    _join(client)
+    uid, done = _upload(client, f"{M1}-1-1.dem", b"demo-bytes", map_name="de_dust2")
+    up = store.upload(uid)
+    assert up["status"] == "reddedildi" and "Dust2 alanına yüklenemez" in up["message"]
+    uid, done = _upload(client, f"{M1}-1-1.dem", b"demo-bytes", map_name="de_mirage")
+    assert store.upload(uid)["status"] == "tamam"
+
+
+def test_upload_requires_map(web):
+    client, _ = web
+    _join(client)
+    r = client.post("/api/yukleme", json={"name": "a.dem", "size": 10})
+    assert r.status_code == 400 and "haritayı seç" in r.json()["detail"]
+
+
+def test_map_art_is_served_and_cached(web):
+    from tests.test_board import _nav_available
+    client, _ = web
+    assert client.get("/harita/de_hayali.svg").status_code == 404
+    if _nav_available():
+        r = client.get("/harita/de_dust2.svg")
+        assert r.status_code == 200 and r.text.startswith("<svg") and "max-age" in r.headers["cache-control"]

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ user.nickname }} · Genel bakış · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+  @media (max-width: 860px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .stat { position: relative; overflow: hidden; background: var(--bg-2); border-radius: 16px; padding: 18px; animation: rise 420ms cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i) * 70ms); }
+  .stat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c, var(--accent)); }
+  .stat .v { font-size: 34px; font-weight: 700; letter-spacing: -1px; line-height: 1.1; margin-top: 6px; }
+  .stat .v small { font-size: 15px; color: var(--muted); font-weight: 600; letter-spacing: 0; }
+  .stat .d { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  .cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 860px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .maprow { display: grid; grid-template-columns: 90px minmax(0, 1fr) 64px; align-items: center; gap: 14px; padding: 10px 8px; border-radius: 8px; text-decoration: none; color: var(--line); transition: background 160ms ease-out; }
+  .maprow:hover { background: var(--bg-3); }
+  .maprow .nm { font-weight: 600; }
+  .maprow .n { text-align: right; font-size: 12px; color: var(--muted); }
+  .pips { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+  .pips i { height: 6px; border-radius: 3px; background: var(--bg-3); }
+  .pips i.on { background: var(--c); animation: pip 300ms ease-out both; animation-delay: calc(200ms + var(--p) * 40ms); }
+  @keyframes pip { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .team { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 8px; text-decoration: none; color: var(--line); }
+  .team:hover { background: var(--bg-3); }
+  .chip { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 100px; background: var(--bg-3); color: var(--text-2); }
+  .chip.invite { background: rgba(243, 115, 33, .15); color: var(--accent); }
+  .recent td { font-size: 12px; }
+  @media (prefers-reduced-motion: reduce) { .stat, .pips i.on { animation: none; } }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <div class="eyebrow">Genel bakış</div>
+    <h1>{{ user.nickname }}</h1>
+    {% if "uyarı" in user.sync_status %}<p class="error">{{ user.sync_status }}</p>
+    {% else %}<p class="sub">FACEIT maç geçmişi: {{ user.sync_status }}</p>{% endif %}
+  </div>
+  <div class="actions">
+    <a class="btn" href="/demolar">Demo yönetimi</a>
+    <a class="btn ghost" href="/takimlar">Takım kur</a>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat" style="--i:0"><div class="eyebrow">Analiz edilen demo</div><div class="v tnum" data-count="{{ totals.demos }}">{{ totals.demos }}</div><div class="d">Senin oynadığın, doğrulanmış maçlar</div></div>
+  <div class="stat" style="--i:1"><div class="eyebrow">Analiz edilen round</div><div class="v tnum" data-count="{{ totals.rounds }}">{{ totals.rounds }}</div><div class="d">Bu demolardaki round'lar</div></div>
+  <div class="stat" style="--i:2; --c: var(--ok)"><div class="eyebrow">Hazır harita</div><div class="v tnum"><span data-count="{{ ready }}">{{ ready }}</span> <small>/ {{ pool_size }}</small></div><div class="d">En az {{ min_demos }} demolu haritalar</div></div>
+  <div class="stat" style="--i:3; --c: var(--accent-2)"><div class="eyebrow">SquadMind toplamı</div><div class="v tnum" data-count="{{ totals.site_demos }}">{{ totals.site_demos }}</div><div class="d tnum">demo · {{ totals.site_rounds }} round analiz edildi</div></div>
+</div>
+
+<div class="cols">
+  <div class="card">
+    <h2>Harita ilerlemesi</h2>
+    {% for c in cards if c.pool %}
+    <a class="maprow lvl-{{ c.level }}" href="/demolar?harita={{ c.map }}">
+      <span class="nm">{{ c.label }}</span>
+      <span class="pips" aria-hidden="true">{% for k in range(min_demos) %}<i class="{{ 'on' if k < c.n else '' }}" style="--p: {{ k }}"></i>{% endfor %}</span>
+      <span class="n tnum">{{ c.n }} / {{ min_demos }}</span>
+    </a>
+    {% endfor %}
+    <p class="muted" style="font-size:12px;margin:10px 8px 0">Güvenilir analiz için harita başına en az {{ min_demos }} demo; daha fazlası daha gerçekçi sonuç verir.</p>
+  </div>
+  <div>
+    <div class="card">
+      <h2>Takımlarım</h2>
+      {% for t in teams[:4] %}
+      <a class="team" href="/takimlar/{{ t.id }}"><span>{{ t.name }} <span class="muted tnum" style="font-size:12px">· {{ t.members }} oyuncu</span></span>
+        {% if t.status == "davet" %}<span class="chip invite">Davet</span>{% else %}<span class="chip">Üye</span>{% endif %}</a>
+      {% else %}<p class="muted" style="margin:0">Henüz takımın yok. <a href="/takimlar">Takım kur →</a></p>{% endfor %}
+    </div>
+    <div class="card table-wrap recent">
+      <h2>Son yüklemeler</h2>
+      {% if recent %}
+      <table>
+        {% for u in recent %}<tr><td>{{ (u.map or "") | replace("de_", "") | capitalize }}</td><td class="st-{{ u.status }}">{{ u.status }}</td><td class="muted">{{ u.message or "" }}</td></tr>{% endfor %}
+      </table>
+      {% else %}<p class="muted" style="margin:0">Henüz yükleme yok.</p>{% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+// Sayılar sıfırdan sayarak gelir (oyun skoru hissi); hareket azaltılmışsa doğrudan yazılır
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  document.querySelectorAll("[data-count]").forEach((el) => {
+    const end = Number(el.dataset.count), t0 = performance.now(), dur = 900;
+    if (!end) return;
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = Math.round(end * e).toLocaleString("tr-TR");
+      if (k < 1) requestAnimationFrame(step);
+    };
+    el.textContent = "0"; requestAnimationFrame(step);
+  });
+}
+{% if pending %}setTimeout(() => location.reload(), 8000);{% endif %}
+</script>
+{% endblock %}
