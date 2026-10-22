@@ -19,6 +19,18 @@ from director.analysis.economy import (
     pistol_conversion,
 )
 from director.analysis.maps import LANES
+from director.analysis.team_management import (
+    NEAR_DIST,
+    OTHER,
+    TRADE_SECONDS,
+    core_roster,
+    player_spots,
+    proximity_pairs,
+    spot_ranking,
+    support_needs,
+    team_vs_opponents,
+    trade_pairs,
+)
 from director.analysis.player_metrics import load_demo_data
 from director.analysis.team_tactics import (
     COMMIT_PLAYERS,
@@ -117,8 +129,11 @@ def build_team_report(con: duckdb.DuckDBPyConnection, nickname: str,
         "",
     ]
 
-    # --- T tarafı desenleri (koridor bilgisi olan haritalar)
+    # --- takım yönetimi: kim nerede iyi, güç farkı, kime destek, uyum
     tactical_maps = [m for m in maps["map"].to_list() if m in LANES]
+    lines += _management_section(d, steam_id, bool(tactical_maps))
+
+    # --- T tarafı desenleri (koridor bilgisi olan haritalar)
     if tactical_maps:
         tp = t_round_patterns(d, steam_id).filter(pl.col("map").is_in(tactical_maps))
         lines += _t_section(tp)
@@ -256,3 +271,129 @@ def _economy_section(tr: pl.DataFrame) -> list[str]:
     for edge, n, w in equipment_edge(tr).rows():
         lines.append(f"| {edge} | {n}{_few(n)} | {_pct(w, n)} |")
     return lines + [""]
+
+
+# --- takım yönetimi ------------------------------------------------------------------
+
+# Güç farkı tablosunda gösterilen metrikler: (anahtar, etiket, tür, iyi yön)
+VERSUS_METRICS = [
+    ("t_open_win", "T: opening kazanma", "pct", "high"),
+    ("ct_open_win", "CT: opening kazanma", "pct", "high"),
+    ("kpr", "Kill / round", "ratio", "high"),
+    ("adr", "ADR", "num", "high"),
+    ("traded_death", "Ölümün trade edilmesi", "pct", "high"),
+    ("isolated_death", "Yalnız ölüm", "pct", "low"),
+    ("util_dmg_per_round", "Utility hasarı / round", "num", "high"),
+    ("flashes_per_round", "Flash / round", "ratio", "high"),
+    ("enemies_per_flash", "Flash başı kör edilen rakip", "ratio", "high"),
+    ("team_flash_per_flash", "Flash başı kör edilen takım arkadaşı", "ratio", "low"),
+    ("flash_assists_per_round", "Flash assist / round", "ratio", "high"),
+    ("clutch_win", "Clutch kazanma", "pct", "high"),
+]
+
+
+def _rate_text(r, kind: str) -> str:
+    v = r.value
+    if v is None:
+        return "-"
+    if kind == "pct":
+        return _pct(r.num, r.den)
+    return f"{v:.1f}" if kind == "num" else f"{v:.2f}"
+
+
+def _versus_flag(a, b, kind: str, better: str) -> str:
+    """Belirgin fark işareti: yüzdelerde ≥5 puan, diğerlerinde ≥%15 (oyuncu raporuyla aynı)."""
+    if a.value is None or not b.value:
+        return ""
+    diff = a.value - b.value
+    big = abs(diff) >= 0.05 if kind == "pct" else abs(diff) / abs(b.value) >= 0.15
+    if not big:
+        return ""
+    return "güçlü" if (diff > 0) == (better == "high") else "zayıf"
+
+
+def _management_section(d, steam_id: str, has_places: bool) -> list[str]:
+    roster = core_roster(d, steam_id)
+    names = roster["nickname"].to_list()
+    lines = ["## Takım yönetimi", "",
+             f"Çekirdek kadro: **{', '.join(names)}** (maçların en az yarısında birlikte). "
+             f"Diğer takım arkadaşları \"{OTHER}\" olarak gruplandı.", ""]
+
+    if has_places:
+        ranked = spot_ranking(player_spots(d, steam_id))
+        lines += [
+            "### Kim nerede iyi", "",
+            "CT: 15-35. saniyede en çok bulunulan alan; T: 15-20. saniyedeki koridor "
+            "(default kurulumu). O round'lardaki tüm kill / ölümler sayılır. **Net/R** = "
+            "(kill − ölüm) / round; sıra bu değere göre. **Lobi** = aynı maçlardaki herkes "
+            "(referans). Bir oyuncu birden çok alanda önde olabilir; kim nereye atanır, "
+            "tactician'ın işi.", "",
+        ]
+        for side, title in (("CT", "CT alanları (A / Mid / B)"), ("T", "T koridorları")):
+            part = ranked.filter(pl.col("side") == side)
+            lines += [f"#### {title}", "",
+                      "| Alan | Sıra | Oyuncu | Round | Round kazanma | Kill/R | Ölüm/R | Net/R "
+                      "| Opening (K-Ö) |", "|---|---|---|---|---|---|---|---|---|"]
+            for r in part.iter_rows(named=True):
+                n = r["rounds"]
+                rank = "-" if r["rank"] is None else str(r["rank"])
+                lines.append(
+                    f"| {r['spot']} | {rank} | {r['player']} | {n}{_few(n)} | "
+                    f"{_pct(r['wins'], n)} | {r['kills'] / n:.2f} | {r['deaths'] / n:.2f} | "
+                    f"{r['net']:+.2f} | {r['ok']}-{r['od']} |")
+            lines.append("")
+
+    # Güç farkı: takım ve aynı maçlardaki rakipler
+    team, opp = team_vs_opponents(d, steam_id)
+    lines += ["### Güç farkımız (takım vs aynı maçlardaki rakipler)", "",
+              "Belirgin = yüzdelerde en az 5 puan, diğerlerinde en az %15 fark.", "",
+              "| Metrik | Biz | Rakip | |", "|---|---|---|---|"]
+    for key, label, kind, better in VERSUS_METRICS:
+        a, b = team[key], opp[key]
+        lines.append(f"| {label} | {_rate_text(a, kind)} | {_rate_text(b, kind)} | "
+                     f"{_versus_flag(a, b, kind, better)} |")
+    lines.append("")
+
+    # Kime destek gerekli
+    sn = support_needs(d, steam_id)
+    lines += ["### Kime destek gerekli", "",
+              "Oyuncu başına ölümler: yalnız (en yakın hayattaki takım arkadaşı >900 birim), "
+              "trade edilen ve round'un ilk ölümü (opening). Yalnız ölüm oranı yüksek, trade "
+              "oranı düşük oyuncu destek bekliyor demektir.", "",
+              "| Oyuncu | Taraf | Round | Ölüm / round | Yalnız ölüm | Trade edildi | Opening ölümü |",
+              "|---|---|---|---|---|---|---|"]
+    for r in sn.iter_rows(named=True):
+        lines.append(
+            f"| {r['player']} | {r['side']} | {r['rounds']} | {r['deaths'] / r['rounds']:.2f} | "
+            f"{_pct(r['isolated'], r['measured'])} | {_pct(r['traded'], r['deaths'])} | "
+            f"{_pct(r['opening_deaths'], r['rounds'])} |")
+    lines.append("")
+
+    # Uyum: kim kimin ölümünü trade ediyor, kim kiminle yakın oynuyor
+    tp = trade_pairs(d, steam_id)
+    lines += ["### Uyum: kim kimi trade ediyor", "",
+              f"Takım arkadaşını öldüren rakibi {TRADE_SECONDS:.0f} saniye içinde öldürmek. "
+              "Satır = trade eden, sütun = trade edilen (ölen).", ""]
+    people = names + [OTHER]
+    lines += ["| Trade eden \\ ölen | " + " | ".join(people) + " |",
+              "|---|" + "---|" * len(people)]
+    counts = {(a, b): n for a, b, n in tp.rows()}
+    for a in people:
+        cells = ["-" if a == b and a != OTHER else str(counts.get((a, b), 0)) for b in people]
+        lines.append(f"| **{a}** | " + " | ".join(cells) + " |")
+    lines.append("")
+
+    if has_places:
+        pp = proximity_pairs(d, steam_id)
+        lines += ["### Uyum: kim kiminle yakın oynuyor", "",
+                  f"İkisi de hayattayken aralarındaki mesafenin ≤{NEAR_DIST:.0f} birim olduğu "
+                  "konum kayıtlarının payı (CT 15-35. sn, T 15-45. sn).", "",
+                  "| Oyuncular | CT'de yakın | T'de yakın |", "|---|---|---|"]
+        wide = {(r["a"], r["b"], r["side"]): r for r in pp.iter_rows(named=True)}
+        for a, b in sorted({(r["a"], r["b"]) for r in pp.iter_rows(named=True)}):
+            ct, t = wide.get((a, b, "CT")), wide.get((a, b, "T"))
+            lines.append(f"| {a} + {b} | "
+                         f"{_pct(ct['near'], ct['samples']) if ct else '-'} | "
+                         f"{_pct(t['near'], t['samples']) if t else '-'} |")
+        lines.append("")
+    return lines
