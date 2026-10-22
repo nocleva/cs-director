@@ -42,3 +42,16 @@ def get_api_key() -> str:
             "FACEIT_API_KEY=<server-side anahtarın> satırını ekle."
         )
     return key
+
+# --- Web (Faz 3a: takım demo ekibi) ---------------------------------------------
+# Davet kodu: linkte ?davet=<kod>; boşsa web arayüzü katılıma kapalıdır
+WEB_INVITE_CODE = os.getenv("WEB_INVITE_CODE", "").strip()
+# Oturum çerezini imzalayan gizli anahtar (boşsa her başlatmada rastgele: oturumlar düşer)
+WEB_SECRET = os.getenv("WEB_SECRET", "").strip()
+# Her oyuncudan istenen demo sayısı (ilerleme çubuğu)
+WEB_REQUIRED_DEMOS = int(os.getenv("WEB_REQUIRED_DEMOS", "10"))
+# Takım raporu bu oyuncunun takımı için üretilir; analiz bu haritayla sınırlı
+WEB_TEAM_OWNER = os.getenv("WEB_TEAM_OWNER", "").strip()
+WEB_MAP = os.getenv("WEB_MAP", "de_dust2").strip() or None
+# Web'den gelen dosyaların parça parça birleştirildiği klasör
+WEB_UPLOADS = DATA_DIR / "web_uploads"

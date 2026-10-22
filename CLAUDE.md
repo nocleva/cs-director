@@ -182,6 +182,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, silah maruziyeti (round başına), kill / hasar değeri (`analysis/impact.py`), `director report player <nick> [--map dust2]` |
 | 1d | ✅ `director` ajanı 22.10'da ilk gerçek analizi üretti (Nocleva, Dust2). `scout` ve `tactician` henüz denenmedi |
 | 2a | ✅ `director report team <nick> [--map]`: T desenleri (rush / execute / split / girilmedi + default işareti), giriş rotaları, CT dizilişleri, plant / retake, ekonomi (`analysis/team_tactics.py`, `analysis/economy.py`) |
+| 3a | 🟡 Web arayüzü çalışıyor (yerel + tünel); takım arkadaşlarıyla deneme bekleniyor |
 | 2c | ✅ Takım raporunda "Takım yönetimi" (`analysis/team_management.py`, sadece Dust2): çekirdek kadro, kim nerede iyi (CT alanı / T koridoru sıralaması), güç farkı (takım vs rakip), kime destek, trade matrisi, yakın oynama. tactician çekirdek kadro planını yazdı (pozisyon, CT 2 setup, T 3 strat, kurallar); takip `director track` ile |
 
 ### Veri ve ortam
@@ -203,6 +204,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | `director clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
 | `director report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
 | `director report team <nick> [--map]` | Takım raporu → `reports/team_<nick>.md` |
+| `director web [--port 8000]` | Web arayüzü (Faz 3a): davet linkiyle katılım, demo yükleme, oyuncu / takım raporu. Dışarı açmak: `cloudflared tunnel --url http://127.0.0.1:8000` (adres her başlatmada değişir) |
 | `director track <plans/*.json>` | Öneri takibi: planın kurallarına bağlı metrikler, plan tarihinden önce / sonra → `reports/track_<plan>.md` |
 | `director query "<SELECT>"` | Salt-okunur SQL (ajanlar için) |
 
@@ -222,6 +224,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - **T desen kuralları** (`team_tactics.py`; Dust2 koridor / giriş alanı tanımları `maps.py` LANES / HIT_AREAS, 184 plant round'undan): hedef site = plant edilen ya da giriş alanında en çok bulunulan; giriş = ≥3 T aynı anda giriş alanında (yoksa plant anı); rush ≤25 sn, sonra ≥2 koridor = split, tek = execute. Default = 15-20. sn'de ≥3 koridora yayılma. CT dizilişi 15-35. sn'de A-Mid-B sayıları, sadece 5 CT'nin yeri bilinen round'lar (~%60).
 - **Takım = oyuncunun her maçtaki takımı.** Nocleva'nın 18 Dust2 maçının 11'inde aynı çekirdek kadro (DeloneCS, _squ1rtle_, nicorett3).
 - **Takım yönetimi** (Dust2'de, şimdilik eldeki veriyle; ayrıntılı çalışma herkes web'den kendi demolarını yükleyince): çekirdek = oyuncu + maçların ≥ yarısında birlikte oynayanlar, diğerleri "diğer". "Kim nerede iyi" tek isim seçmez, alan başına sıralar (Net/R = (kill − ölüm)/round); atama tactician'ın işi. Trade eşleştirme: takım arkadaşını öldüren rakibi 5 sn içinde öldürmek (awpy'nin trade sayısıyla tutarlı: 244 / 230).
+- **Web (Faz 3a, `src/director/web/`):** FastAPI + Jinja2, kendi bilgisayarında + Cloudflare quick tunnel (kullanıcı kararı: önce risksiz test, sonra VPS). Katılım: `?davet=<WEB_INVITE_CODE>` + FACEIT nickname (FACEIT'ten doğrulanır, son 100 maç çekilir). Yükleme tarayıcıdan 32 MB parçalar (tünel tek istekte ~100 MB sınırı); birleşen dosya bildirilen boyuta eşit değilse işlenmez; `ingest_demo(uploader=steam_id)` → aynı demo bir kez + yükleyen maçta olmalı. İşçi tek iş parçacığı. Rapor HTML'i kaçışlanır (XSS). **DuckDB tek süreç:** `director web` açıkken CLI komutları DB'yi açamaz; ya web'i durdur ya da demoları web'den yükle. `.env`: WEB_INVITE_CODE, WEB_SECRET, WEB_TEAM_OWNER, WEB_MAP, WEB_REQUIRED_DEMOS.
 - **Öneri takibi** (`analysis/tracking.py`): plan bir JSON (`plans/`): sahibi, harita, tarih, maddeler (metrik türü + parametre + hedef yönü). Kod oyuncu adı bilmez. Durum ancak plan sonrası ≥3 maçla yazılır; küçük fark (3 puan / %10) "değişim yok". İlk plan: `plans/dust2_cekirdek_2026-10-22.json` (tactician'ın çekirdek kadro planı; ajan çıktıları claude.ai dokümanında: "CS2 Director — Ajan Çıktıları").
 - **Ekonomi:** awpy alım tipi; pistol kazanılınca 2. round alımı da "force" sayılıyor. Kayıp sonrası karar o round + sonraki round ile değerlendirilir.
 - **Silah karşılaştırması round başına:** her round'a oyuncunun ana silahı atanır (`round_main_weapon`: konum kayıtlarında en çok tutulan birincil silah, yoksa pistol); `weapon_exposure` taraf × ana silah, opsiyonel bölge ve alım tipi filtresiyle. Toplam kill/hasar ile silah kıyası yapılmaz.

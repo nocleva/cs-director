@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Katıl · CS2 Director{% endblock %}
+{% block body %}
+<div class="card" style="max-width:520px;margin:40px auto">
+  <h1>Takım demo ekibine katıl</h1>
+  {% if closed %}
+    <p class="muted">Katılım şu an kapalı.</p>
+  {% else %}
+  <p class="muted">Sadece FACEIT nickname'in gerekiyor. Maç geçmişin FACEIT'ten çekilir,
+    yüklediğin demolar analiz edilir ve kendi raporunu görürsün.</p>
+  <form method="post" action="/katil">
+    <input type="hidden" name="davet" value="{{ davet }}">
+    <label for="nickname">FACEIT nickname</label>
+    <input type="text" id="nickname" name="nickname" required autocomplete="off"
+           placeholder="Profil adresindeki ad, büyük / küçük harfiyle">
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <p style="margin-top:14px"><button type="submit">Katıl</button></p>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

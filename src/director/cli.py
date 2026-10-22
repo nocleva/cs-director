@@ -350,6 +350,44 @@ def ingest_demos(
 
 
 @app.command()
+def web(
+    host: str = typer.Option("127.0.0.1", help="Dinlenecek adres (tünel yerelden bağlanır)"),
+    port: int = typer.Option(8000, help="Port"),
+    db: Path = DbOption,
+) -> None:
+    """Web arayüzü: davet linkiyle katılım, demo yükleme, oyuncu ve takım raporu."""
+    import uvicorn
+
+    from director.config import (
+        WEB_INVITE_CODE,
+        WEB_MAP,
+        WEB_REQUIRED_DEMOS,
+        WEB_SECRET,
+        WEB_TEAM_OWNER,
+        WEB_UPLOADS,
+    )
+    from director.web.app import WebSettings, create_app, default_secret
+    from director.web.store import Store
+    from director.web.worker import Worker
+
+    if not WEB_INVITE_CODE:
+        console.print("[yellow].env içinde WEB_INVITE_CODE yok: katılım kapalı olacak.[/yellow]")
+    store = Store(db)
+    worker = Worker(store, DEMOS_PROCESSED, DEMOS_TMP, delete_after=AUTO_DELETE_DEMOS)
+    settings = WebSettings(invite_code=WEB_INVITE_CODE, secret=default_secret(WEB_SECRET),
+                           required_demos=WEB_REQUIRED_DEMOS, team_owner=WEB_TEAM_OWNER or None,
+                           map_name=WEB_MAP, uploads_dir=WEB_UPLOADS)
+    worker.start()
+    console.print(f"[green]Web arayüzü:[/green] http://{host}:{port}/?davet=<WEB_INVITE_CODE>")
+    try:
+        uvicorn.run(create_app(settings, store, worker), host=host, port=port,
+                    log_level="warning")
+    finally:
+        worker.stop()
+        store.close()
+
+
+@app.command()
 def track(
     plan_file: Path = typer.Argument(..., help="Plan dosyası (ör. plans/dust2_cekirdek_2026-10-22.json)"),
     db: Path = DbOption,

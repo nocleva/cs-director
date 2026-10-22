@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ user.nickname }} · CS2 Director{% endblock %}
+{% block nav %}<a href="/rapor/ben">Raporum</a><a href="/rapor/takim">Takım raporu</a><a href="/cikis">Çıkış</a>{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>{{ user.nickname }}</h1>
+  <p class="muted">FACEIT maç geçmişi: {{ user.sync_status }}</p>
+  <p><strong>{{ done }} / {{ required }}</strong> {{ map_name }} demosu analizde.
+    {% if done < required %}{{ required - done }} demo daha yükle.{% else %}Hedef tamam.{% endif %}</p>
+  <div class="bar"><div style="width: {{ [100 * done / required, 100] | min }}%"></div></div>
+</div>
+
+<div class="card">
+  <h2>Demo yükle</h2>
+  <p class="muted">FACEIT maç sayfasından "Watch demo" ile indirdiğin dosyayı (.dem.zst) seç;
+    açmadan, olduğu gibi. Sadece {{ map_name or "seçili harita" }} maçların ve sadece oynadığın maçlar
+    kabul edilir. Aynı demo bir kez eklenir; takım arkadaşın yüklediyse senin için de sayılır.</p>
+  <input type="file" id="files" multiple accept=".dem,.zst,.gz">
+  <p><button id="go" type="button">Yükle</button></p>
+  <div id="progress"></div>
+</div>
+
+<div class="card table-wrap">
+  <h2>Yüklemelerim</h2>
+  {% if uploads %}
+  <table>
+    <tr><th>Dosya</th><th>Durum</th><th>Maç</th><th>Not</th></tr>
+    {% for u in uploads %}
+    <tr>
+      <td>{{ u.file_name }}</td>
+      <td class="st-{{ u.status }}">{{ u.status }}</td>
+      <td>{{ (u.match_id or "")[:14] }}</td>
+      <td class="muted">{{ u.message or "" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Henüz yükleme yok.</p>{% endif %}
+</div>
+
+<script>
+const CHUNK = {{ chunk }}, MIN = {{ sizes[0] }}, MAX = {{ sizes[1] }};
+const box = document.getElementById("progress");
+let uploading = false;
+
+function line(text) {
+  const p = document.createElement("p"); p.textContent = text; box.appendChild(p); return p;
+}
+
+async function send(file) {
+  const p = line(file.name + ": başlıyor…");
+  if (file.size < MIN || file.size > MAX) { p.textContent = file.name + ": boyut demo için şüpheli, atlandı"; return; }
+  let r = await fetch("/api/yukleme", {method: "POST", headers: {"Content-Type": "application/json"},
+                                        body: JSON.stringify({name: file.name, size: file.size})});
+  if (!r.ok) { p.textContent = file.name + ": " + ((await r.json()).detail || "reddedildi"); return; }
+  const {id} = await r.json();
+  const parts = Math.ceil(file.size / CHUNK);
+  for (let i = 0; i < parts; i++) {
+    const body = file.slice(i * CHUNK, Math.min(file.size, (i + 1) * CHUNK));
+    for (let tryNo = 0; ; tryNo++) {          // kopan parça 3 kez denenir
+      r = await fetch(`/api/yukleme/${id}/${i}`, {method: "PUT", body});
+      if (r.ok || tryNo >= 2) break;
+    }
+    if (!r.ok) { p.textContent = file.name + ": yükleme koptu, tekrar dene"; return; }
+    p.textContent = `${file.name}: %${Math.round(100 * (i + 1) / parts)}`;
+  }
+  r = await fetch(`/api/yukleme/${id}/bitti`, {method: "POST"});
+  p.textContent = file.name + (r.ok ? ": yüklendi, sırada" : ": " + (await r.json()).detail);
+}
+
+document.getElementById("go").onclick = async () => {
+  const files = [...document.getElementById("files").files];
+  if (!files.length || uploading) return;
+  uploading = true; box.innerHTML = "";
+  for (const f of files) { await send(f); }
+  uploading = false; location.reload();
+};
+
+// İşlenen demo ya da maç geçmişi varsa sayfayı tazele (yükleme sürerken değil)
+{% if pending %}setTimeout(() => { if (!uploading) location.reload(); }, 8000);{% endif %}
+</script>
+{% endblock %}

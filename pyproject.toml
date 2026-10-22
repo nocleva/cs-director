@@ -17,13 +17,22 @@ dependencies = [
     "numpy>=2.4.6",
     "pyarrow>=26.0.0",
     "watchdog>=6.0.0",
+    "fastapi>=0.159.1",
+    "uvicorn[standard]>=0.54.0",
+    "jinja2>=3.1.6",
+    "markdown>=3.11.2",
+    "itsdangerous>=2.2.0",
+    "python-multipart>=0.0.32",
 ]
 
 [project.scripts]
 director = "director.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.0",
+]
 
 [build-system]
 requires = ["hatchling"]

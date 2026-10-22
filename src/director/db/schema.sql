@@ -204,3 +204,24 @@ CREATE TABLE IF NOT EXISTS demo_files (
     status       VARCHAR,                -- processed / mismatch
     added_at     TIMESTAMP DEFAULT current_timestamp
 );
+
+-- Web (şema v5): davet linkiyle katılan kullanıcılar ve yükledikleri demolar
+CREATE TABLE IF NOT EXISTS web_users (
+    steam_id     VARCHAR PRIMARY KEY,
+    faceit_id    VARCHAR,
+    nickname     VARCHAR,
+    sync_status  VARCHAR,                -- bekliyor / alınıyor / tamam / hata: <mesaj>
+    joined_at    TIMESTAMP DEFAULT current_timestamp
+);
+
+CREATE TABLE IF NOT EXISTS web_uploads (
+    id           VARCHAR PRIMARY KEY,    -- rastgele kimlik
+    steam_id     VARCHAR,                -- yükleyen
+    file_name    VARCHAR,
+    size_bytes   BIGINT,                 -- tarayıcının bildirdiği boyut (birleşen dosya buna eşit olmalı)
+    status       VARCHAR,                -- yükleniyor / sırada / işleniyor / tamam / reddedildi / hata / tutmadı
+    match_id     VARCHAR,
+    message      VARCHAR,
+    created_at   TIMESTAMP DEFAULT current_timestamp,
+    finished_at  TIMESTAMP
+);
