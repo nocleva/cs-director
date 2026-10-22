@@ -244,3 +244,10 @@ def test_nickname_join_never_uses_teammate_rule(web):
     client, store = web
     r = client.post("/katil", data={"nickname": "TestNick", "davet": ""})
     assert "Davet kodu geçersiz" in r.text
+
+
+def test_legal_pages_are_public(web):
+    client, _ = web
+    for path, text in (("/privacy", "Şifren bize hiç gelmez"), ("/terms", "bağlantılı değildir")):
+        r = client.get(path)
+        assert r.status_code == 200 and text in r.text

@@ -221,6 +221,16 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
         return enter(request, profile, invite_ok(davet), davet, verified=True)
 
+    # --- gizlilik / kullanım şartları (FACEIT onay ekranı bu adreslere bağlanır) ---------
+
+    @app.get("/privacy", response_class=HTMLResponse)
+    def privacy(request: Request):
+        return page(request, "legal.html", page="privacy", title="Gizlilik")
+
+    @app.get("/terms", response_class=HTMLResponse)
+    def terms(request: Request):
+        return page(request, "legal.html", page="terms", title="Kullanım şartları")
+
     @app.get("/cikis")
     def logout():
         resp = RedirectResponse("/", status_code=303)

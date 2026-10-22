@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ title }} · SquadMind</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Gizlilik / kullanım şartları: giriş sayfasıyla aynı tokenlar, okunur metin genişliği */
+:root { --bg-0: #111214; --bg-2: #23262A; --bg-3: #2E3237; --line: #E9EBEE; --muted: #8B9198;
+        --text-2: #ADB3BA; --accent: #F37321; --font: Inter, "Segoe UI", Helvetica, Arial, sans-serif;
+        color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg-0); color: var(--line); }
+body { font-family: var(--font); font-size: 14px; line-height: 1.65; }
+.wrap { max-width: 720px; margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-left, 0px)); }
+header .wrap { height: 64px; display: flex; align-items: center; justify-content: space-between; max-width: 1180px; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; color: var(--line); text-decoration: none; }
+nav a { color: var(--text-2); text-decoration: none; font-size: 13px; margin-left: 18px; }
+nav a[aria-current="page"] { color: var(--line); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+main { padding: 32px 0 56px; }
+.eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 8px 0 4px; font-size: 32px; letter-spacing: -0.8px; }
+.date { color: var(--muted); font-size: 12px; margin: 0 0 28px; }
+h2 { margin: 28px 0 8px; font-size: 16px; }
+p, li { color: var(--text-2); }
+ul { padding-left: 18px; }
+strong { color: var(--line); font-weight: 600; }
+a { color: var(--accent); }
+.en { margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--bg-3); }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M4 2v15h13" fill="none" stroke="#F37321" stroke-width="2.2" stroke-linecap="square"></path><path d="M13 13l4 4-4 4" fill="none" stroke="#F37321" stroke-width="2.2" stroke-linecap="square"></path></svg>SquadMind</a>
+  <nav><a href="/privacy"{% if page == "privacy" %} aria-current="page"{% endif %}>Gizlilik</a><a href="/terms"{% if page == "terms" %} aria-current="page"{% endif %}>Kullanım şartları</a></nav>
+</div></header>
+<main><div class="wrap">
+{% if page == "privacy" %}
+  <div class="eyebrow">Privacy policy</div>
+  <h1>Gizlilik</h1>
+  <p class="date">Son güncelleme: 23.10.2026</p>
+  <p>SquadMind, bir CS2 takımının kendi FACEIT maçlarını ve demolarını analiz ettiği küçük, davetli bir araçtır. Burada hangi veriyi neden tuttuğumuzu yazıyoruz.</p>
+  <h2>Hangi veriler</h2>
+  <ul>
+    <li><strong>FACEIT ile girişte:</strong> sadece FACEIT oyuncu kimliğin (ID). Şifren bize hiç gelmez; giriş FACEIT'in kendi sayfasında yapılır. E-posta adresini kullanmıyoruz.</li>
+    <li><strong>FACEIT'in herkese açık verisi:</strong> nickname, seviye / ELO, bağlı Steam ID, maç geçmişin ve maç skor tabloların (FACEIT Data API'den).</li>
+    <li><strong>Yüklediğin demolar:</strong> demo dosyası ve ondan çıkarılan maç verisi (round'lar, kill'ler, utility, oyuncu konumları). Bir demo, o maçtaki 10 oyuncunun oyun içi verisini içerir.</li>
+    <li><strong>Çerez:</strong> oturumunu açık tutan imzalı bir çerez (30 gün) ve giriş sırasında 10 dakikalık bir doğrulama çerezi. Reklam ya da izleme çerezi yok.</li>
+  </ul>
+  <h2>Ne için ve kim görüyor</h2>
+  <p>Veriler sadece takım analizi için kullanılır: oyuncu ve takım raporları, taktik tahtası. Raporları yalnızca giriş yapmış takım üyeleri görür. Veriler satılmaz, reklam için kullanılmaz, üçüncü taraflarla paylaşılmaz.</p>
+  <h2>Nerede tutuluyor</h2>
+  <p>Veriler, takım kaptanının bilgisayarındaki bir veritabanında ve demo klasöründe tutulur; site Cloudflare tüneli üzerinden yayınlanır.</p>
+  <h2>Silme</h2>
+  <p>Hesabının ve yüklediğin demoların silinmesini istersen <a href="mailto:support@squadmind.info">support@squadmind.info</a> adresine yaz; elle silinir. FACEIT bağlantısını FACEIT hesap ayarlarından da kaldırabilirsin.</p>
+  <div class="en">
+    <h2>In English</h2>
+    <p>SquadMind is a small, invite-only tool for one CS2 team to analyse its own FACEIT matches and demos. With FACEIT login we receive only your FACEIT player ID (never your password or e-mail); nickname, level, Steam ID and match history come from the public FACEIT Data API. Uploaded demos and the match data parsed from them are stored on the team captain's computer and shown only to logged-in team members. We use one signed session cookie and a short-lived login cookie, no tracking. Data is never sold or shared. To have your data deleted, e-mail <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
+  </div>
+{% else %}
+  <div class="eyebrow">Terms of service</div>
+  <h1>Kullanım şartları</h1>
+  <p class="date">Son güncelleme: 23.10.2026</p>
+  <h2>Ne sunuyoruz</h2>
+  <p>SquadMind, takımın FACEIT maçlarından ve demolarından analiz, rapor ve taktik önerisi üreten ücretsiz bir araçtır. Analizler veriye dayanır ama hatasız değildir; oyun kararları senindir.</p>
+  <h2>Kurallar</h2>
+  <ul>
+    <li>Sadece kendi FACEIT hesabınla gir ve sadece oynadığın maçların demolarını yükle.</li>
+    <li>Siteyi bozmaya, başkasının verisine erişmeye ya da sahte demo yüklemeye çalışma.</li>
+    <li>Raporlar takım içi kullanım içindir.</li>
+  </ul>
+  <h2>FACEIT ve Valve</h2>
+  <p>SquadMind bağımsız bir projedir; FACEIT, ESL FACEIT Group ya da Valve ile bağlantılı değildir ve onlar tarafından onaylanmamıştır. FACEIT ve Counter-Strike sahiplerinin markalarıdır. Oyun sırasında hiçbir veri okunmaz; araç sadece maç sonrası veriyle çalışır.</p>
+  <h2>Hizmet</h2>
+  <p>Site olduğu gibi sunulur; kesintisiz çalışma garantisi yoktur. Kurallara uymayan hesap kapatılabilir. Sorular için <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
+  <div class="en">
+    <h2>In English</h2>
+    <p>SquadMind is a free, invite-only analysis tool provided as is, without warranty. Log in only with your own FACEIT account and upload only demos of matches you played. Do not attempt to disrupt the site or access other users' data. SquadMind is independent and not affiliated with or endorsed by FACEIT, ESL FACEIT Group or Valve; it never reads data during a match. Accounts that break these rules may be removed. Contact: <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
+  </div>
+{% endif %}
+</div></main>
+</body>
+</html>
