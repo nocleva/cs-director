@@ -8,8 +8,10 @@ saniyede durduğu yerler), sekme başındaki sayılar takımın pistol / 2. roun
 
 from __future__ import annotations
 
+import copy
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,8 +21,9 @@ import polars as pl
 
 from squadmind.analysis.economy import pistol_conversion
 from squadmind.analysis.maps import BOARD_PLACES
-from squadmind.analysis.player_metrics import DemoData, load_demo_data
+from squadmind.analysis.player_metrics import DemoData, Rate, load_demo_data
 from squadmind.analysis.team_tactics import team_rounds
+from squadmind.analysis.tracking import TrackItem, measure
 from squadmind.config import PROJECT_ROOT
 from squadmind.viz.board import (
     SMOKE_RADIUS, TAKTIK, Board, Spot, _offset, _Projection, _route, _smooth_path,
@@ -34,6 +37,9 @@ DT = 0.1                    # oynatma karesi (sn)
 SPOT_WINDOW = (15, 25)      # rakip spotları: round'un bu saniyeleri
 SPOT_CELL = 150             # spot ızgarası (oyun birimi)
 MOLLY_RADIUS = 90.0
+SMALL_SAMPLE = 10           # gerekçe sayısının paydası bundan küçükse "az örnek" yazılır
+NO_DATA = "Bu maçlarda örnek yok; dal veriye dayanmıyor."
+_PLACEHOLDER = re.compile(r"\{(\w+)(?:\.([kn]))?\}")
 
 
 @dataclass
@@ -118,6 +124,59 @@ def side_stats(d: DemoData, steam_id: str, side: str) -> dict[str, dict[str, int
         if r["pistol_won"]:
             out["pistol"]["won"] += int(r["halves"])
     return out
+
+
+def format_rate(r: Rate, fmt: str) -> str:
+    """Gerekçe metnindeki sayı: pct %41, ratio 0,38, record 9-0 (kazanılan-kaybedilen), count 6."""
+    if fmt == "record":
+        return f"{r.num:.0f}-{r.den - r.num:.0f}"
+    if fmt == "count":
+        return f"{r.num:.0f}"
+    if r.value is None:
+        return "-"
+    if fmt == "ratio":
+        return f"{r.value:.2f}".replace(".", ",")
+    return f"%{100 * r.value:.0f}"
+
+
+def fill_evidence(text: str, metrics: dict[str, dict[str, Any]], d: DemoData,
+                  owner_sid: str) -> str:
+    """Gerekçe metnindeki {ad} / {ad.k} / {ad.n} yer tutucularını veriden doldurur.
+
+    Her metrik öneri takibindeki bir türdür (`tracking.measure`): elle yazılmış sayı
+    yeni demo geldikçe eskimesin. Bir metriğin örneği yoksa dal "veri yok" olur;
+    payda SMALL_SAMPLE'dan küçükse sona "Az örnek." eklenir.
+    """
+    if not metrics:
+        return text
+    rates = {name: (measure(TrackItem(name, "", m["kind"], "up", m.get("params", {})), d,
+                            owner_sid), m.get("fmt", "pct"))
+             for name, m in metrics.items()}
+    if any(r.den == 0 for r, _ in rates.values()):
+        return NO_DATA
+
+    def sub(m: re.Match) -> str:
+        r, fmt = rates[m.group(1)]
+        part = m.group(2)
+        if part == "k":
+            return f"{r.num:.0f}"
+        if part == "n":
+            return f"{r.den:.0f}"
+        return format_rate(r, fmt)
+
+    out = _PLACEHOLDER.sub(sub, text)
+    if min(r.den for r, _ in rates.values()) < SMALL_SAMPLE:
+        out += " Az örnek."
+    return out
+
+
+def with_evidence(strat: Strat, d: DemoData, owner_sid: str) -> Strat:
+    """Stratın kopyası: karar dallarının gerekçeleri veriden doldurulmuş."""
+    raw = copy.deepcopy(strat.raw)
+    for p in raw["players"]:
+        for b in p.get("branches", []):
+            b["why"] = fill_evidence(b.get("why", ""), b.pop("metrics", {}), d, owner_sid)
+    return Strat(strat.id, raw)
 
 
 # --- sayfa verisi ---------------------------------------------------------------------
@@ -227,7 +286,7 @@ def tactic_page(con: duckdb.DuckDBPyConnection, owner: str, strat: Strat) -> dic
     if key not in _CACHE:
         d = load_demo_data(con, strat.map_name)
         spots, side_rounds = enemy_spots(d, steam_id, strat.side)
-        background, data = build_board(strat, spots)
+        background, data = build_board(with_evidence(strat, d, steam_id), spots)
         _CACHE.clear()  # tek takım, tek strat dosyası grubu: eski girişleri tutmaya gerek yok
         _CACHE[key] = {"background": background, "data": data, "side_rounds": side_rounds,
                        "stats": side_stats(d, steam_id, strat.side), "demo_count": demo_count}

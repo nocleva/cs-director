@@ -149,22 +149,76 @@
     {
      "when": "İlk peek'te ölürsen",
      "then": "_squ1rtle_ 2 sn içinde öldüreni trade eder. nicorett3 bombayla geride kalır, ağırlık short'a kayar: Nocleva ve 5. oyuncu site'ı açar.",
-     "why": "_squ1rtle_ seni 6 kez trade etmiş; long'daki 10 yalnız ölümünün hiçbiri trade edilmemiş."
+     "why": "_squ1rtle_ seni {tb.k} kez trade etmiş ({tb.n} ölümünde). T'de long'daki {iso.n} yalnız ölümünden trade edilen: {iso.k}.",
+     "metrics": {
+      "tb": {
+       "kind": "traded_by",
+       "fmt": "count",
+       "params": {
+        "player": "DeloneCS",
+        "by": "_squ1rtle_"
+       }
+      },
+      "iso": {
+       "kind": "isolated_traded",
+       "fmt": "count",
+       "params": {
+        "player": "DeloneCS",
+        "side": "T",
+        "place": "LongA"
+       }
+      }
+     }
     },
     {
      "when": "İlk düelloyu aldın, long sende",
      "then": "Car ve site açısını temizle, cross'a koşma. _squ1rtle_ CT smoke'unu atınca site'a gir; nicorett3 plant ederken ramp'ı tut.",
-     "why": "T long opening'in 9-0 (59 round)."
+     "why": "T long opening'in {op} ({op.n} düello).",
+     "metrics": {
+      "op": {
+       "kind": "opening_record",
+       "fmt": "record",
+       "params": {
+        "player": "DeloneCS",
+        "side": "T",
+        "place": [
+         "LongDoors",
+         "LongA"
+        ]
+       }
+      }
+     }
     },
     {
      "when": "Long boş, kimse yok",
      "then": "Hızlan, 0:16'da site'tasın. CT spawn tarafına dön: rotasyon oradan gelir.",
-     "why": "Rakip CT'lerin %30'u 15-25. sn'de A'nın CT girişinde."
+     "why": "15-25. sn'de CT Spawn'da round başı {ct} rakip ({ct.n} T round).",
+     "metrics": {
+      "ct": {
+       "kind": "enemy_at_place",
+       "fmt": "ratio",
+       "params": {
+        "side": "T",
+        "place": "CTSpawn"
+       }
+      }
+     }
     },
     {
      "when": "Long'da AWP var",
      "then": "Kuru peek yok. Pop-flash'ı kendin at ya da long'u bırakıp short'a katıl.",
-     "why": "Long Doors pop-flash'ın: 98 atış, 71 rakip kör."
+     "why": "Long Doors flash'ların: {fl.n} atış, {fl.k} rakip kör.",
+     "metrics": {
+      "fl": {
+       "kind": "flash_at_place",
+       "fmt": "count",
+       "params": {
+        "player": "DeloneCS",
+        "side": "T",
+        "place": "LongDoors"
+       }
+      }
+     }
     }
    ]
   },
@@ -263,17 +317,44 @@
     {
      "when": "DeloneCS ölürse",
      "then": "Öldüreni hemen trade et; trade için 5 sn'den fazla bekleme. Sonra long'u sen tut.",
-     "why": "Takımın trade oranı rakiple aynı (%16): avantajımız opening'de, trade'de değil."
+     "why": "Trade edilen takım ölümü: {tt} ({tt.n} ölüm).",
+     "metrics": {
+      "tt": {
+       "kind": "team_traded_death",
+       "fmt": "pct",
+       "params": {}
+      }
+     }
     },
     {
      "when": "Long alındıysa",
      "then": "CT smoke'unu at, ramp'tan gir, site'ın arkasını temizle.",
-     "why": "Smoke CT girişini kapatıyor: rakibin en sık beklediği yer (%30)."
+     "why": "Smoke CT girişini kapatır: 15-25. sn'de CT Spawn'da round başı {ct} rakip.",
+     "metrics": {
+      "ct": {
+       "kind": "enemy_at_place",
+       "fmt": "ratio",
+       "params": {
+        "side": "T",
+        "place": "CTSpawn"
+       }
+      }
+     }
     },
     {
      "when": "Smoke'u zamanında atamadıysan",
      "then": "Girişi bekletme; flash'la birlikte gir, smoke'u plant sonrası için sakla.",
-     "why": "A rush'ın gücü hız: medyan giriş 20. sn, kazanma %74."
+     "why": "A rush'ın gücü hız: kazanma {rush} ({rush.n} round).",
+     "metrics": {
+      "rush": {
+       "kind": "pattern_win",
+       "fmt": "pct",
+       "params": {
+        "pattern": "rush",
+        "site": "A"
+       }
+      }
+     }
     }
    ]
   },
@@ -398,17 +479,48 @@
     {
      "when": "Önündekiler ölürse",
      "then": "Düelloya girme. Bombayı güvenli yerde bırak ya da short'a dönüp Nocleva'ya ver.",
-     "why": "T opening'in %24 (17 düello, az örnek); long'da round başı kill 0,38."
+     "why": "T opening kazanman {op} ({op.n} düello).",
+     "metrics": {
+      "op": {
+       "kind": "opening_record",
+       "fmt": "pct",
+       "params": {
+        "player": "nicorett3",
+        "side": "T"
+       }
+      }
+     }
     },
     {
      "when": "Site alındıysa",
      "then": "Default plant, sonra long'u tut. Plant sonrası 0:25'te Long A molly'si.",
-     "why": "Utility hasarın lobiden yüksek: round başı 5,8 (lobi 4,1)."
+     "why": "T utility hasarın round başı {ud} ({ud.n} round).",
+     "metrics": {
+      "ud": {
+       "kind": "utility_damage",
+       "fmt": "ratio",
+       "params": {
+        "player": "nicorett3",
+        "side": "T"
+       }
+      }
+     }
     },
     {
      "when": "Flash erken patladı / boşa gitti",
      "then": "İkinci flash'ı DeloneCS'in peek'i için sakla, kendin peek etme.",
-     "why": "Long Doors flash'larında 59 atışta 45 rakip kör."
+     "why": "Long Doors flash'larında {fl.n} atışta {fl.k} rakip kör.",
+     "metrics": {
+      "fl": {
+       "kind": "flash_at_place",
+       "fmt": "count",
+       "params": {
+        "player": "nicorett3",
+        "side": "T",
+        "place": "LongDoors"
+       }
+      }
+     }
     }
    ]
   },
@@ -512,17 +624,50 @@
     {
      "when": "Short'ta CT varsa",
      "then": "5. oyuncuyla çift peek: önce flash, sonra ikiniz birden. Tek başına uzun açı tutma.",
-     "why": "Ölümlerinin %41'i yalnızken (18 maç); short altında rakip %22."
+     "why": "Yalnızken ölümlerin: {iso} ({iso.n} ölüm).",
+     "metrics": {
+      "iso": {
+       "kind": "isolated_death",
+       "fmt": "pct",
+       "params": {
+        "player": "Nocleva"
+       }
+      }
+     }
     },
     {
      "when": "Long alındıysa",
      "then": "Site'a gir, CT spawn'ı AWP / Scout ile kilitle: rotasyon oradan gelir.",
-     "why": "T mid opening'in 11-1 (81 round): uzun açı senin gücün."
+     "why": "T mid opening'in {op} ({op.n} düello).",
+     "metrics": {
+      "op": {
+       "kind": "opening_record",
+       "fmt": "record",
+       "params": {
+        "player": "Nocleva",
+        "side": "T",
+        "place": [
+         "TopofMid",
+         "Middle"
+        ]
+       }
+      }
+     }
     },
     {
      "when": "Rakip catwalk'a iterse",
      "then": "Smoke'un arkasında kal, mid'i izle, rotasyonu bildir. 5. oyuncu short'u tutsun.",
-     "why": "Rakip CT'lerin %21'i Mid Doors'ta."
+     "why": "15-25. sn'de Mid Doors'ta round başı {md} rakip.",
+     "metrics": {
+      "md": {
+       "kind": "enemy_at_place",
+       "fmt": "ratio",
+       "params": {
+        "side": "T",
+        "place": "MidDoors"
+       }
+      }
+     }
     }
    ]
   },

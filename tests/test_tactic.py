@@ -94,3 +94,18 @@ def test_build_board_projects_players_utility_and_spots():
     assert {u["kind"] for u in data["utility"]} >= {"smoke", "flash"}
     assert data["spots"][0]["label"] == "%30"
     assert set(data["decisions"]) == {p["label"] for p in data["players"]}
+
+
+def test_fill_evidence_formats_and_flags(monkeypatch):
+    from squadmind.analysis.player_metrics import Rate
+    from squadmind.viz import tactic
+
+    rates = {"a": Rate(9, 9), "b": Rate(17, 25), "z": Rate(0, 0)}
+    monkeypatch.setattr(tactic, "measure", lambda item, d, sid: rates[item.label])
+    m = lambda fmt: {"kind": "x", "fmt": fmt}  # noqa: E731
+    assert tactic.fill_evidence("{a} ({a.n})", {"a": m("record")}, None, "s") == "9-0 (9) Az örnek."
+    assert tactic.fill_evidence("{b}", {"b": m("pct")}, None, "s") == "%68"
+    assert tactic.fill_evidence("{b}", {"b": m("ratio")}, None, "s") == "0,68"
+    # Örneği olmayan metrik: sayı uydurulmaz, dal veri yok olur
+    assert tactic.fill_evidence("{z}", {"z": m("pct")}, None, "s") == tactic.NO_DATA
+    assert tactic.fill_evidence("Standart görev.", {}, None, "s") == "Standart görev."

@@ -87,3 +87,20 @@ def test_status_rules():
     assert _status(up, Rate(16, 100), Rate(25, 100), 2) == "veri bekleniyor"
     down = TrackItem("x", "-", "late_deaths_at_place", "down", fmt="ratio")
     assert _status(down, Rate(12, 100), Rate(6, 100), 4) == "iyileşti"
+
+
+def test_new_measure_kinds(d):
+    # B'nin tek opening düellosu (CT) kaybedildi → 0-1
+    rec = measure(_item("opening_record", player=B, side="CT"), d, A)
+    assert (rec.num, rec.den) == (0, 1)
+    # B'yi öldüren E'yi A 2 sn sonra öldürdü: B'nin 1 ölümünün 1'ini A trade etti
+    tb = measure(_item("traded_by", player=B, by=A), d, A)
+    assert (tb.num, tb.den) == (1, 1)
+    # Flash: sadece o oyuncunun, o taraftaki, o bölgeye düşen flash'ları
+    d.utility = pl.DataFrame({
+        "thrower": [A, A, A, B], "thrower_side": ["CT", "CT", "T", "CT"],
+        "type": ["flash", "flash", "flash", "flash"],
+        "land_place": ["LongDoors", "LongDoors", "LongDoors", "LongDoors"],
+        "flashed_enemies": [2, None, 5, 3], "damage": [0.0, 0.0, 0.0, 0.0]})
+    fl = measure(_item("flash_at_place", player=A, side="CT", place="LongDoors"), d, A)
+    assert (fl.num, fl.den) == (2, 2)

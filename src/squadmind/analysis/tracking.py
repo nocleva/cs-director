@@ -7,7 +7,14 @@ bilmez, adlar plandan gelir. Böylece yeni plan / takım kod değiştirmeden tak
 Metrik türleri (hepsi Rate döner: pay / payda, örneklem görünsün diye):
 - late_deaths_at_place: oyuncunun `place`'te `after` sn'den sonraki `side` ölümleri / `side` round
 - traded_at_place: oyuncunun `place`'teki `side` ölümlerinden trade edilenler / ölümler
-- isolated_death: oyuncunun `side` ölümlerinden yalnız olanlar / ölçülenler
+- isolated_death: oyuncunun (`side` verilirse o taraftaki) ölümlerinden yalnız olanlar / ölçülenler
+- isolated_traded: oyuncunun `place`'teki yalnız `side` ölümlerinden trade edilenler / yalnız ölümler
+- opening_record: oyuncunun `side` opening düellosu (`place` verilirse orada) kazanılan / toplam
+- traded_by: `player`'ın ölümlerinden `by`'ın 5 sn içinde trade ettiği / `player`'ın ölümleri
+- flash_at_place: oyuncunun `place`'e düşen `side` flash'larında kör edilen rakip / atış
+- utility_damage: oyuncunun `side` utility hasarı / `side` round
+- enemy_at_place: takım `side`'dayken rakibin `window` sn'de `place`'te görüldüğü (round, oyuncu) / round
+- pattern_win: takımın `site`'a `pattern` desenli T round'larından kazanılan / round
 - spot_share: oyuncunun `side` round'larından `spot` alanında / koridorunda oynadıkları
 - spot_net: `spot`'ta (kill − ölüm) / round
 - opening_attempts: oyuncunun `side` opening düellosu (kill + ölüm) / `side` round
@@ -25,8 +32,8 @@ from pathlib import Path
 import polars as pl
 
 from squadmind.analysis.player_metrics import DemoData, Rate, death_isolation, player_rounds
-from squadmind.analysis.team_management import player_spots
-from squadmind.analysis.team_tactics import team_rounds
+from squadmind.analysis.team_management import player_spots, trade_pairs
+from squadmind.analysis.team_tactics import t_round_patterns, team_rounds
 
 # "Sonra" tarafında bu kadar maçtan azı varsa durum "veri bekleniyor"
 MIN_AFTER_MATCHES = 3
@@ -86,11 +93,50 @@ def measure(item: TrackItem, d: DemoData, owner_sid: str) -> Rate:
         dd = k.filter((pl.col("victim") == sid) & (pl.col("victim_side") == side)
                       & (pl.col("victim_place") == p["place"]))
         return Rate(int(dd["is_traded"].sum()), dd.height)
-    if item.kind == "isolated_death":
+    if item.kind in ("isolated_death", "isolated_traded"):
         iso = death_isolation(d).filter((pl.col("victim") == sid)
-                                        & (pl.col("victim_side") == side)
+                                        & ((pl.col("victim_side") == side) if side else pl.lit(True))
                                         & pl.col("isolated").is_not_null())
+        if item.kind == "isolated_traded":
+            iso = iso.filter(pl.col("isolated") & (pl.col("victim_place") == p["place"]))
+            return Rate(int(iso["is_traded"].sum()), iso.height)
         return Rate(int(iso["isolated"].sum()), iso.height)
+    if item.kind == "opening_record":
+        op = k.filter(pl.col("is_opening"))
+        won = op.filter((pl.col("attacker") == sid) & (pl.col("attacker_side") == side))
+        lost = op.filter((pl.col("victim") == sid) & (pl.col("victim_side") == side))
+        if "place" in p:  # düello oyuncunun o an bulunduğu yerde
+            places = p["place"] if isinstance(p["place"], list) else [p["place"]]
+            won = won.filter(pl.col("attacker_place").is_in(places))
+            lost = lost.filter(pl.col("victim_place").is_in(places))
+        return Rate(won.height, won.height + lost.height)
+    if item.kind == "traded_by":
+        by = _steam_id(d, p["by"])
+        pairs = trade_pairs(d, owner_sid)
+        hit = pairs.filter((pl.col("traded").str.to_lowercase() == p["player"].lower())
+                           & (pl.col("trader").str.to_lowercase() == p["by"].lower()))
+        deaths = k.filter((pl.col("victim") == sid)
+                          & (pl.col("attacker_side") != pl.col("victim_side"))).height
+        return Rate(int(hit["n"].sum()) if by else 0, deaths)
+    if item.kind == "flash_at_place":
+        fl = d.utility.filter((pl.col("thrower") == sid) & (pl.col("thrower_side") == side)
+                              & (pl.col("type") == "flash") & (pl.col("land_place") == p["place"]))
+        return Rate(int(fl["flashed_enemies"].fill_null(0).sum()), fl.height)
+    if item.kind == "utility_damage":
+        ut = d.utility.filter((pl.col("thrower") == sid) & (pl.col("thrower_side") == side))
+        return Rate(float(ut["damage"].fill_null(0).sum()), _player_side_rounds(d, sid, side))
+    if item.kind == "enemy_at_place":
+        tr = team_rounds(d, owner_sid).filter(pl.col("side") == side).select("match_id", "round_no")
+        lo, hi = p.get("window", (15, 25))
+        seen = (d.positions.cast({"round_no": pl.Int64}).join(tr, on=["match_id", "round_no"])
+                .filter((pl.col("side") != side) & (pl.col("place_name") == p["place"])
+                        & pl.col("time_in_round").is_between(lo, hi))
+                .select("match_id", "round_no", "player").unique())
+        return Rate(seen.height, tr.height)
+    if item.kind == "pattern_win":
+        tp = t_round_patterns(d, owner_sid).filter((pl.col("pattern") == p["pattern"])
+                                                   & (pl.col("target_site") == p["site"]))
+        return Rate(int(tp["won"].sum()), tp.height)
     if item.kind in ("spot_share", "spot_net"):
         sp = player_spots(d, owner_sid)
         name = p["player"]
