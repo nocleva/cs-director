@@ -359,6 +359,9 @@ def web(
     import uvicorn
 
     from squadmind.config import (
+        FACEIT_CLIENT_ID,
+        FACEIT_CLIENT_SECRET,
+        WEB_BASE_URL,
         WEB_INVITE_CODE,
         WEB_MAP,
         WEB_REQUIRED_DEMOS,
@@ -367,6 +370,7 @@ def web(
         WEB_UPLOADS,
     )
     from squadmind.web.app import WebSettings, create_app, default_secret
+    from squadmind.web.faceit_auth import FaceitOAuth
     from squadmind.web.store import Store
     from squadmind.web.worker import Worker
 
@@ -377,7 +381,11 @@ def web(
                     team_owner=WEB_TEAM_OWNER or None)
     settings = WebSettings(invite_code=WEB_INVITE_CODE, secret=default_secret(WEB_SECRET),
                            required_demos=WEB_REQUIRED_DEMOS, team_owner=WEB_TEAM_OWNER or None,
-                           map_name=WEB_MAP, uploads_dir=WEB_UPLOADS)
+                           map_name=WEB_MAP, uploads_dir=WEB_UPLOADS,
+                           oauth=FaceitOAuth(FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL))
+    if not settings.oauth.configured:
+        console.print("[yellow]FACEIT ile giriş ayarlı değil (FACEIT_CLIENT_ID / SECRET): "
+                      "nickname ile katılım açık.[/yellow]")
     worker.start()
     console.print(f"[green]Web arayüzü:[/green] http://{host}:{port}/?davet=<WEB_INVITE_CODE>")
     try:

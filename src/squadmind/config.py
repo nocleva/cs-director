@@ -53,5 +53,10 @@ WEB_REQUIRED_DEMOS = int(os.getenv("WEB_REQUIRED_DEMOS", "10"))
 # Takım raporu bu oyuncunun takımı için üretilir; analiz bu haritayla sınırlı
 WEB_TEAM_OWNER = os.getenv("WEB_TEAM_OWNER", "").strip()
 WEB_MAP = os.getenv("WEB_MAP", "de_dust2").strip() or None
+# FACEIT ile giriş (FACEIT Connect): geliştirici portalındaki OAuth2 istemcisi. Boşsa
+# nickname ile katılım kullanılır. Dönüş adresi: <WEB_BASE_URL>/giris/faceit/donus
+FACEIT_CLIENT_ID = os.getenv("FACEIT_CLIENT_ID", "").strip()
+FACEIT_CLIENT_SECRET = os.getenv("FACEIT_CLIENT_SECRET", "").strip()
+WEB_BASE_URL = os.getenv("WEB_BASE_URL", "https://app.squadmind.info").strip()
 # Web'den gelen dosyaların parça parça birleştirildiği klasör
 WEB_UPLOADS = DATA_DIR / "web_uploads"

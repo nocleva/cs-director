@@ -135,3 +135,80 @@ def test_join_warns_when_no_shared_match_with_owner(web, owner, warned):
     status = store.user(SELF).sync_status
     assert ("uyarı" in status) is warned
     assert ("doğru hesap mı" in client.get("/ben").text) is warned
+
+
+# --- FACEIT ile giriş ---------------------------------------------------------------
+
+class FakeOAuth:
+    """FACEIT'e gitmeyen OAuth: kod ne olursa olsun fixture oyuncusunu döndürür."""
+    configured = True
+
+    def __init__(self):
+        self.calls = []
+
+    def authorize_url(self, state, challenge):
+        return f"https://accounts.faceit.com/accounts?state={state}&code_challenge={challenge}"
+
+    def fetch_user(self, code, verifier):
+        self.calls.append((code, verifier))
+        return {"guid": "p-self"}
+
+
+@pytest.fixture
+def oauth_web(tmp_path, make_client):
+    store = Store(tmp_path / "web.duckdb")
+    worker = Worker(store, tmp_path / "processed", tmp_path / "tmp", client_factory=make_client)
+    worker.submit = lambda job: None
+    oauth = FakeOAuth()
+    settings = WebSettings(invite_code=INVITE, secret="test-secret", required_demos=10,
+                           team_owner=None, map_name=None, uploads_dir=tmp_path / "uploads",
+                           oauth=oauth)
+    client = TestClient(create_app(settings, store, worker, client_factory=make_client))
+    yield client, store, oauth
+    store.close()
+
+
+def _faceit_login(client, davet=INVITE, state=None):
+    r = client.get(f"/giris/faceit?davet={davet}", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("https://accounts.faceit.com/")
+    real_state = r.headers["location"].split("state=")[1].split("&")[0]
+    return client.get(f"/giris/faceit/donus?code=kod&state={state or real_state}",
+                      follow_redirects=False)
+
+
+def test_faceit_login_creates_user_from_faceit_id(oauth_web):
+    client, store, oauth = oauth_web
+    r = _faceit_login(client)
+    assert r.status_code == 303 and r.headers["location"] == "/ben"
+    assert [u.nickname for u in store.users()] == ["TestNick"]  # nickname FACEIT'ten
+    assert oauth.calls[0][0] == "kod" and len(oauth.calls[0][1]) > 40  # PKCE doğrulayıcı gitti
+
+
+def test_faceit_login_rejects_bad_state_and_missing_invite(oauth_web):
+    client, store, _ = oauth_web
+    assert "doğrulanamadı" in _faceit_login(client, state="sahte").text
+    assert "davet linkiyle" in _faceit_login(client, davet="yanlis").text
+    assert store.users() == []
+
+
+def test_faceit_login_known_user_needs_no_invite(oauth_web):
+    client, store, _ = oauth_web
+    _faceit_login(client)
+    client.cookies.clear()
+    r = _faceit_login(client, davet="")
+    assert r.status_code == 303 and r.headers["location"] == "/ben"
+
+
+def test_nickname_join_closed_when_faceit_login_on(oauth_web):
+    client, store, _ = oauth_web
+    r = client.post("/katil", data={"nickname": "TestNick", "davet": INVITE})
+    assert "FACEIT ile giriş yap" in r.text and store.users() == []
+
+
+def test_pkce_challenge_is_s256():
+    import base64
+    import hashlib
+
+    from squadmind.web.faceit_auth import pkce_pair
+    v, c = pkce_pair()
+    assert c == base64.urlsafe_b64encode(hashlib.sha256(v.encode()).digest()).rstrip(b"=").decode()

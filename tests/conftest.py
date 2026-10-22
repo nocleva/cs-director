@@ -27,6 +27,8 @@ def fake_faceit_handler(request: httpx.Request) -> httpx.Response:
 
     if path == "/players" and params.get("nickname") == "TestNick":
         return httpx.Response(200, json=load_fixture("player.json"))
+    if path == "/players/p-self":  # FACEIT ile girişte kimlikle profil
+        return httpx.Response(200, json=load_fixture("player.json"))
     if path == "/players/p-self/history":
         data = load_fixture("history.json")
         # offset/limit'e göre sayfala (gerçek API davranışı)

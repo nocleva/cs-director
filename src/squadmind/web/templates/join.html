@@ -1,22 +1,125 @@
-{% extends "base.html" %}
-{% block title %}Katıl · SquadMind{% endblock %}
-{% block body %}
-<div class="card" style="max-width:520px;margin:40px auto">
-  <h1>Takım demo ekibine katıl</h1>
-  {% if closed %}
-    <p class="muted">Katılım şu an kapalı.</p>
-  {% else %}
-  <p class="muted">Sadece FACEIT nickname'in gerekiyor. Maç geçmişin FACEIT'ten çekilir,
-    yüklediğin demolar analiz edilir ve kendi raporunu görürsün.</p>
-  <form method="post" action="/katil">
-    <input type="hidden" name="davet" value="{{ davet }}">
-    <label for="nickname">FACEIT nickname</label>
-    <input type="text" id="nickname" name="nickname" required autocomplete="off"
-           placeholder="ör. _squ1rtle_ (alt çizgi ve büyük harf dahil)">
-    <p class="muted" style="font-size: 13px">Profil adresindeki gibi yaz: faceit.com/.../players/<strong>ad</strong>. Alt çizgi, nokta ve büyük / küçük harf önemli; benzer adlı başka bir hesaba katılabilirsin.</p>
-    {% if error %}<p class="error">{{ error }}</p>{% endif %}
-    <p style="margin-top:14px"><button type="submit">Katıl</button></p>
-  </form>
-  {% endif %}
-</div>
-{% endblock %}
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SquadMind · Takımın, tek tahtada</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Giriş sayfası: taktik tahtasıyla aynı tokenlar (tek koyu tema) */
+:root {
+  --bg-0: #111214; --bg-1: #1A1C1F; --bg-2: #23262A; --bg-3: #2E3237;
+  --line: #E9EBEE; --muted: #8B9198; --text-2: #ADB3BA;
+  --accent: #F37321; --accent-2: #3DB5AE; --enemy: #E5484D;
+  --font: Inter, "Segoe UI", Helvetica, Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg-0); color: var(--line); }
+body { font-family: var(--font); font-size: 14px; line-height: 1.55; min-height: 100vh; display: flex; flex-direction: column; }
+.wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+
+.bar .wrap { height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+.bar .eyebrow { color: var(--text-2); }
+
+main { flex: 1; display: flex; align-items: center; }
+.grid { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: 56px; align-items: center; padding-block: 32px 48px; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-top: 16px; } }
+
+h1 { margin: 10px 0 14px; font-size: 44px; line-height: 1.05; font-weight: 700; letter-spacing: -1.4px; }
+h1 em { font-style: normal; color: var(--accent); }
+@media (max-width: 520px) { h1 { font-size: 34px; letter-spacing: -1px; } }
+.lead { margin: 0 0 28px; font-size: 15px; color: var(--text-2); max-width: 40ch; }
+
+.card { background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 8px; padding: 22px; }
+.btn { width: 100%; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 4px; background: var(--accent); color: var(--bg-0); font: 700 14px var(--font); letter-spacing: 0.2px; text-decoration: none; cursor: pointer; transition: filter 150ms ease-out, transform 150ms ease-out; }
+.btn:hover { filter: brightness(1.08); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
+.note b { color: var(--text-2); font-weight: 600; }
+.err { margin: 0 0 14px; padding: 10px 12px; border-left: 2px solid var(--enemy); background: rgba(229, 72, 77, 0.08); color: var(--line); font-size: 13px; border-radius: 0 4px 4px 0; }
+label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+input[type=text] { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--bg-3); border-radius: 4px; background: var(--bg-0); color: var(--line); font: 14px var(--font); margin-bottom: 12px; }
+
+.steps { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 14px; }
+.steps li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: baseline; }
+.steps .n { font-size: 11px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.steps b { display: block; font-size: 13px; font-weight: 600; }
+.steps span { font-size: 12px; color: var(--muted); }
+
+/* Sağ: gerçek Dust2 tahtası, kenarlara doğru sönen */
+.art { position: relative; border: 1px solid var(--bg-3); border-radius: 8px; background: var(--bg-0); padding: 24px; overflow: hidden; }
+.art .map { max-width: 520px; margin: 0 auto; opacity: 0.92; }
+.art .map svg { width: 100%; height: auto; display: block; }
+.art::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 60% 40%, transparent 55%, var(--bg-0) 100%); }
+.art .cap { position: absolute; left: 24px; top: 20px; z-index: 1; }
+.art .tag { position: absolute; right: 24px; bottom: 20px; z-index: 1; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-2); }
+.sq { width: 7px; height: 7px; border-radius: 1px; background: var(--accent-2); display: inline-block; }
+@media (max-width: 900px) { .art { padding: 16px; } .art .cap, .art .tag { display: none; } }
+
+footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M4 2v15h13" fill="none" stroke="#F37321" stroke-width="2.2" stroke-linecap="square"></path><path d="M13 13l4 4-4 4" fill="none" stroke="#F37321" stroke-width="2.2" stroke-linecap="square"></path></svg>
+      SquadMind
+    </div>
+    <span class="eyebrow">FACEIT / CS2</span>
+  </div>
+</header>
+
+<main>
+  <div class="wrap grid">
+    <section aria-labelledby="h">
+      <div class="eyebrow">Takım analizi · Taktik tahtası</div>
+      <h1 id="h">Takımın,<br><em>tek tahtada.</em></h1>
+      <p class="lead">FACEIT maçlarından ve demolarından: kim nerede iyi, hangi strat çalışıyor, kime destek lazım.</p>
+
+      <div class="card">
+        {% if error %}<p class="err" role="alert">{{ error }}</p>{% endif %}
+        {% if closed and not faceit_login %}
+          <p class="note" style="margin:0">Katılım şu an kapalı.</p>
+        {% elif faceit_login %}
+          <a class="btn" href="/giris/faceit{% if davet %}?davet={{ davet | urlencode }}{% endif %}">FACEIT ile giriş yap
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7h8M8 4l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"></path></svg></a>
+          <p class="note"><b>Bir şey yazmana gerek yok.</b> FACEIT kimliğinle girersin; nickname, seviye ve maç geçmişin FACEIT'ten gelir. Şifren bize hiç uğramaz.</p>
+          {% if not invited %}<p class="note">İlk kez katılıyorsan takım arkadaşından davet linki iste.</p>{% endif %}
+        {% else %}
+          <form method="post" action="/katil">
+            <input type="hidden" name="davet" value="{{ davet }}">
+            <label for="nickname">FACEIT nickname</label>
+            <input type="text" id="nickname" name="nickname" required autocomplete="off" placeholder="ör. _squ1rtle_">
+            <button class="btn" type="submit">Katıl</button>
+          </form>
+          <p class="note">Profil adresindeki gibi yaz: alt çizgi, nokta ve büyük / küçük harf önemli. Maç geçmişin FACEIT'ten çekilir.</p>
+        {% endif %}
+      </div>
+
+      <ol class="steps">
+        <li><span class="n">01</span><div><b>{% if faceit_login %}FACEIT ile gir{% else %}Nickname'inle katıl{% endif %}</b><span>Hesabın ve maç geçmişin FACEIT'ten otomatik gelir.</span></div></li>
+        <li><span class="n">02</span><div><b>Demolarını yükle</b><span>Aynı maç bir kez yüklenir; takım arkadaşının yüklediği senin için de sayılır.</span></div></li>
+        <li><span class="n">03</span><div><b>Raporunu ve tahtayı gör</b><span>Pozisyonların, rolün, takımın stratları ve rakip spotları.</span></div></li>
+      </ol>
+    </section>
+
+    {% if board %}
+    <figure class="art" aria-label="Dust2 taktik tahtası önizlemesi" style="margin:0">
+      <div class="cap"><div class="eyebrow">Dust2 · 2B taktik görünüm</div></div>
+      <div class="map">{{ board | safe }}</div>
+      <figcaption class="tag"><span class="sq"></span>Harita oyunun navmesh verisinden çizildi</figcaption>
+    </figure>
+    {% endif %}
+  </div>
+</main>
+
+<footer><div class="wrap"><span>SquadMind · FACEIT / CS2 takım analizi</span><span>Sadece davetli takım üyeleri</span></div></footer>
+</body>
+</html>

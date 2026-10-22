@@ -1,9 +1,10 @@
 """Web arayüzü (Faz 3a: takım demo ekibi).
 
-Akış: davet linki (?davet=<kod>) → FACEIT nickname → maç geçmişi arka planda çekilir →
+Akış: davet linki (?davet=<kod>) → FACEIT ile giriş (ayarlıysa; yoksa FACEIT nickname) →
+maç geçmişi arka planda çekilir →
 demolar tarayıcıdan parça parça yüklenir (tünel tek istekte ~100 MB sınırı koyar) →
 işçi sırayla işler (aynı demo bir kez kuralı dahil) → oyuncu kendi raporunu ve takım
-raporunu görür. Sadece kullanıcı bilgisi istenir: FACEIT nickname.
+raporunu görür. Kullanıcıdan bilgi istenmez: kimlik FACEIT girişinden, gerisi Data API'den.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import markdown as md
@@ -28,6 +30,7 @@ from squadmind.ingest.matches import profile_to_player_row, upsert_players
 from squadmind.reports.player_report import build_player_report
 from squadmind.reports.team_report import build_team_report
 from squadmind.viz import tactic as tactic_view
+from squadmind.web.faceit_auth import FaceitAuthError, FaceitOAuth, pkce_pair
 from squadmind.web.store import OPEN_STATES, QUEUED, UPLOADING, Store, WebUser
 from squadmind.web.worker import Job, Worker
 
@@ -35,6 +38,9 @@ log = logging.getLogger("squadmind.web")
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).with_name("templates")))
 COOKIE = "squadmind_oturum"
+# FACEIT girişi sürerken (state + PKCE doğrulayıcı + davet) tutulan kısa ömürlü çerez
+LOGIN_COOKIE = "squadmind_giris"
+LOGIN_SECONDS = 600
 SESSION_DAYS = 30
 # Parça boyutu: Cloudflare ücretsiz tüneli tek istekte ~100 MB'a izin verir
 CHUNK_BYTES = 32 * 1024 * 1024
@@ -53,6 +59,19 @@ class WebSettings:
     map_name: str | None
     uploads_dir: Path
     strats_dir: Path = tactic_view.STRATS_DIR  # taktik tahtasının strat dosyaları
+    oauth: FaceitOAuth | None = None            # FACEIT ile giriş (yoksa nickname ile katılım)
+
+
+@lru_cache(maxsize=1)
+def join_art() -> str:
+    """Giriş sayfasının görseli: Dust2 tahtası (navmesh yerelde yoksa boş)."""
+    try:
+        from squadmind.viz.board import TAKTIK, Board, render_board
+        return render_board(Board("de_dust2", target_places=[(1097, 2649)], target_radius=430),
+                            width=560, pad=16, theme=TAKTIK)
+    except Exception:  # noqa: BLE001 - görsel yoksa sayfa yine açılır
+        log.warning("giriş sayfası görseli çizilemedi", exc_info=True)
+        return ""
 
 
 def safe_file_name(name: str) -> str:
@@ -65,6 +84,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                client_factory=FaceitClient) -> FastAPI:
     app = FastAPI(title="SquadMind", docs_url=None, redoc_url=None, openapi_url=None)
     signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-oturum")
+    login_signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-giris")
+    oauth = settings.oauth if settings.oauth and settings.oauth.configured else None
     store.map_name = settings.map_name
 
     # --- oturum ---------------------------------------------------------------------
@@ -90,39 +111,89 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     # --- katılım --------------------------------------------------------------------
 
+    def join_page(request: Request, davet: str = "", error: str | None = None) -> HTMLResponse:
+        return page(request, "join.html", davet=davet, error=error,
+                    closed=not settings.invite_code, faceit_login=oauth is not None,
+                    invited=bool(davet), board=join_art())
+
+    def invite_ok(davet: str) -> bool:
+        return bool(settings.invite_code) and hmac.compare_digest(davet, settings.invite_code)
+
+    def enter(request: Request, profile: dict, invited: bool, davet: str):
+        """FACEIT profiliyle oturum aç: yeni oyuncu davetle gelmeli, kayıtlı oyuncu gelmesi şart değil."""
+        row = profile_to_player_row(profile)
+        if not row.get("steam_id"):
+            return join_page(request, davet, "Bu FACEIT hesabına bağlı CS2 / Steam hesabı bulunamadı.")
+        if store.user(row["steam_id"]) is None and not invited:
+            return join_page(request, davet, "Takıma davet linkiyle katılınır. Linki takım "
+                                             "arkadaşından iste.")
+        store.run(lambda con: upsert_players(con, [row]))
+        store.add_user(row["steam_id"], row["faceit_id"], row["nickname"])
+        worker.submit(Job("sync", row["steam_id"]))  # her girişte maç geçmişi tazelenir
+        resp = RedirectResponse("/ben", status_code=303)
+        resp.set_cookie(COOKIE, signer.dumps(row["steam_id"]), max_age=SESSION_DAYS * 86400,
+                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
+        resp.delete_cookie(LOGIN_COOKIE)
+        return resp
+
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, davet: str = ""):
         if current_user(request):
             return RedirectResponse("/ben", status_code=303)
-        return page(request, "join.html", davet=davet, error=None,
-                    closed=not settings.invite_code)
+        return join_page(request, davet)
 
     @app.post("/katil", response_class=HTMLResponse)
     def join(request: Request, nickname: str = Form(...), davet: str = Form("")):
-        def fail(msg: str):
-            return page(request, "join.html", davet=davet, error=msg,
-                        closed=not settings.invite_code)
-
-        if not settings.invite_code or not hmac.compare_digest(davet, settings.invite_code):
-            return fail("Davet kodu geçersiz. Linki takım arkadaşından tekrar iste.")
+        # FACEIT girişi açıksa nickname ile katılım kapalı: başkasının adıyla girilemesin
+        if oauth is not None:
+            return join_page(request, davet, "FACEIT ile giriş yap.")
+        if not invite_ok(davet):
+            return join_page(request, davet, "Davet kodu geçersiz. Linki takım arkadaşından tekrar iste.")
         nickname = nickname.strip()
         try:
             with client_factory() as client:
                 profile = client.get_player_by_nickname(nickname)
         except FaceitNotFound:
-            return fail(f"FACEIT'te '{nickname}' bulunamadı. Büyük / küçük harfe dikkat et.")
+            return join_page(request, davet,
+                             f"FACEIT'te '{nickname}' bulunamadı. Büyük / küçük harfe dikkat et.")
         except FaceitAPIError as exc:
-            return fail(f"FACEIT'e ulaşılamadı: {exc}")
-        row = profile_to_player_row(profile)
-        if not row.get("steam_id"):
-            return fail("Bu FACEIT hesabına bağlı CS2 / Steam hesabı bulunamadı.")
-        store.run(lambda con: upsert_players(con, [row]))
-        store.add_user(row["steam_id"], row["faceit_id"], row["nickname"])
-        worker.submit(Job("sync", row["steam_id"]))
-        resp = RedirectResponse("/ben", status_code=303)
-        resp.set_cookie(COOKIE, signer.dumps(row["steam_id"]), max_age=SESSION_DAYS * 86400,
-                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
+            return join_page(request, davet, f"FACEIT'e ulaşılamadı: {exc}")
+        return enter(request, profile, True, davet)
+
+    @app.get("/giris/faceit")
+    def faceit_login(request: Request, davet: str = ""):
+        if oauth is None:
+            raise HTTPException(404, "FACEIT ile giriş ayarlı değil.")
+        state = secrets.token_urlsafe(24)
+        verifier, challenge = pkce_pair()
+        resp = RedirectResponse(oauth.authorize_url(state, challenge), status_code=303)
+        resp.set_cookie(LOGIN_COOKIE, login_signer.dumps({"s": state, "v": verifier, "d": davet}),
+                        max_age=LOGIN_SECONDS, httponly=True, samesite="lax",
+                        secure=request.url.scheme == "https")
         return resp
+
+    @app.get("/giris/faceit/donus", response_class=HTMLResponse)
+    def faceit_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+        if oauth is None:
+            raise HTTPException(404, "FACEIT ile giriş ayarlı değil.")
+        try:
+            pending = login_signer.loads(request.cookies.get(LOGIN_COOKIE, ""), max_age=LOGIN_SECONDS)
+        except BadSignature:
+            return join_page(request, "", "Giriş süresi doldu; tekrar dene.")
+        davet = str(pending.get("d", ""))
+        if error or not code:
+            return join_page(request, davet, "FACEIT girişi tamamlanmadı.")
+        if not hmac.compare_digest(state, str(pending.get("s", ""))):
+            return join_page(request, davet, "Giriş isteği doğrulanamadı; tekrar dene.")
+        try:
+            user = oauth.fetch_user(code, str(pending["v"]))
+            with client_factory() as client:
+                profile = client.get_player(user["guid"])
+        except FaceitAuthError as exc:
+            return join_page(request, davet, str(exc))
+        except FaceitAPIError as exc:
+            return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
+        return enter(request, profile, invite_ok(davet), davet)
 
     @app.get("/cikis")
     def logout():
