@@ -37,6 +37,15 @@ LURK_WINDOW = (5.0, 40.0)       # T: takımdan uzaklık ölçülen erken/orta fa
 CT_SETUP_WINDOW = (15.0, 35.0)  # CT: oyuncunun "tuttuğu" alan
 DEATH_EARLY, DEATH_LATE = 20.0, 60.0
 
+# Ölüm anında en yakın takım arkadaşı bu mesafeden (Hammer birimi) uzaksa ölüm "yalnız".
+# 18 Dust2 maçındaki 2.526 ölümden seçildi: en yakın arkadaş ≤700 birimdeyken ölümlerin
+# ~%26'sı trade ediliyor, 700-900'de %17, 900 ötesinde %7 (1600 ötesinde %3).
+ISOLATION_DIST = 900.0
+# Takım arkadaşının konumu: ölüm anına en yakın kayıt, en fazla bu kadar tick uzakta
+# (kayıtlar 2 sn'de bir; 64 tick'lik demoda 128 tick)
+MATE_MAX_TICK_GAP = 128
+TEAM_SIZE = 5
+
 # Round'un "ana silahı" seçilirken bakılan birincil silah kategorileri
 # (bıçak, granat, pistol elde tutulsa da ana silah sayılmaz; birincil yoksa "pistol")
 PRIMARY_CATEGORIES = ("rifle", "awp", "scout", "smg", "heavy")
@@ -98,7 +107,7 @@ def load_demo_data(con: duckdb.DuckDBPyConnection, map_name: str | None = None) 
         kills=per_match("SELECT * FROM kills WHERE list_contains(?, match_id)"),
         utility=per_match("SELECT * FROM utility WHERE list_contains(?, match_id)"),
         positions=per_match(
-            "SELECT match_id, round_no, tick, time_in_round, player, side, x, y, place_name, "
+            "SELECT match_id, round_no, tick, time_in_round, player, side, x, y, z, place_name, "
             "active_weapon, equipment_value "
             "FROM positions_snapshot WHERE list_contains(?, match_id)"
         ),
@@ -209,6 +218,81 @@ def ct_zone_behaviour(d: DemoData) -> pl.DataFrame:
     )
 
 
+def death_isolation(d: DemoData) -> pl.DataFrame:
+    """Rakibin aldığı her ölüm: o an en yakın (hayattaki) takım arkadaşı ne kadar uzaktı.
+
+    Kurbanın yeri kill olayındaki kesin konum; takım arkadaşınınki ölüm anına en yakın
+    konum kaydı (en fazla MATE_MAX_TICK_GAP tick, ölüm anında hâlâ hayatta olmalı).
+    Kolonlar: match_id, round_no, tick, victim, victim_side, victim_place, is_traded,
+    mates_alive (kill sırasından), nearest_mate (ölçülemezse boş),
+    isolated (nearest_mate > ISOLATION_DIST; arkadaş yoksa / ölçülemezse boş)
+    """
+    if not {"victim_x", "victim_y"} <= set(d.kills.columns) or d.positions.height == 0:
+        return pl.DataFrame(schema={"match_id": pl.String, "round_no": pl.Int64,
+                                    "tick": pl.Int64, "victim": pl.String,
+                                    "isolated": pl.Boolean, "nearest_mate": pl.Float64})
+    rk = ["match_id", "round_no"]
+    has_z = "victim_z" in d.kills.columns and "z" in d.positions.columns
+    all_k = d.kills.cast({"round_no": pl.Int64, "tick": pl.Int64}).sort(*rk, "tick")
+    # Kurbanın takımından bu ölümden önce ölen sayısı → hayattaki takım arkadaşı
+    team_dead = (pl.col("victim_side") == pl.col("victim_side")).cast(pl.Int32)
+    k = (
+        all_k.with_columns(
+            (team_dead.cum_sum().over([*rk, "victim_side"]) - 1).alias("team_dead_before"))
+        .filter(pl.col("attacker_side") != pl.col("victim_side"))
+        .with_row_index("_kid")
+        .with_columns((TEAM_SIZE - 1 - pl.col("team_dead_before")).clip(0).alias("mates_alive"))
+    )
+    deaths = all_k.group_by(*rk, pl.col("victim").alias("player")).agg(
+        pl.col("tick").min().alias("death_tick"))
+    cols = ["match_id", "round_no", pl.col("tick").cast(pl.Int64).alias("ptick"), "player",
+            "side", pl.col("x").alias("px"), pl.col("y").alias("py")]
+    if has_z:
+        cols.append(pl.col("z").alias("pz"))
+    pos = d.positions.select(cols).cast({"round_no": pl.Int64})
+    dist2 = (pl.col("victim_x") - pl.col("px")) ** 2 + (pl.col("victim_y") - pl.col("py")) ** 2
+    if has_z:
+        dist2 = dist2 + (pl.col("victim_z") - pl.col("pz")) ** 2
+    near = (
+        k.select("_kid", *rk, "tick", "victim", "victim_side", "victim_x", "victim_y",
+                 *(["victim_z"] if has_z else []))
+        .join(pos, left_on=[*rk, "victim_side"], right_on=[*rk, "side"])
+        .filter(pl.col("player") != pl.col("victim"))
+        .filter((pl.col("ptick") - pl.col("tick")).abs() <= MATE_MAX_TICK_GAP)
+        .join(deaths, on=[*rk, "player"], how="left")
+        # Ölüm anında hayatta: hiç ölmedi ya da daha sonra öldü
+        .filter(pl.col("death_tick").is_null() | (pl.col("death_tick") > pl.col("tick")))
+        .with_columns((pl.col("ptick") - pl.col("tick")).abs().alias("_gap"))
+        .sort("_gap").group_by("_kid", "player").first()
+        .group_by("_kid").agg(dist2.sqrt().min().alias("nearest_mate"))
+    )
+    return (
+        k.join(near, on="_kid", how="left")
+        # Son kalan oyuncu için "yalnız" ölçüsü anlamsız
+        .with_columns(
+            pl.when(pl.col("mates_alive") == 0).then(None)
+            .otherwise(pl.col("nearest_mate")).alias("nearest_mate"))
+        .with_columns((pl.col("nearest_mate") > ISOLATION_DIST).alias("isolated"))
+        .select(*rk, "tick", "victim", "victim_side", "victim_place", "is_traded",
+                "mates_alive", "nearest_mate", "isolated")
+    )
+
+
+def isolation_counts(d: DemoData) -> pl.DataFrame:
+    """(maç, oyuncu) başına yalnız / destekli ölüm ve trade edilme sayıları."""
+    iso = death_isolation(d)
+    if "is_traded" not in iso.columns:
+        return pl.DataFrame(schema={"match_id": pl.String, "steam_id": pl.String})
+    measured = pl.col("isolated").is_not_null()
+    isolated = pl.col("isolated").fill_null(False)
+    return iso.group_by("match_id", pl.col("victim").alias("steam_id")).agg(
+        measured.sum().alias("iso_measured"),
+        isolated.sum().alias("iso_deaths"),
+        (isolated & pl.col("is_traded")).sum().alias("iso_traded"),
+        (measured & ~isolated & pl.col("is_traded")).sum().alias("sup_traded"),
+    )
+
+
 # --- (maç, oyuncu) ham sayımları -----------------------------------------------
 
 def _weapon_category(col: str = "weapon") -> pl.Expr:
@@ -307,7 +391,8 @@ def player_match_metrics(d: DemoData) -> pl.DataFrame:
     )
 
     out = base
-    for extra in (kills, deaths, contact, util, st, lurk_distance(d), ct_zone_behaviour(d)):
+    for extra in (kills, deaths, contact, util, st, lurk_distance(d), ct_zone_behaviour(d),
+                  isolation_counts(d)):
         out = out.join(extra, on=keys, how="left")
     # Sayım kolonlarında boşluk = 0; ortalama/uzaklık kolonları boş kalır
     keep_null = {"lurk_dist", "ct_home_zone", "faction"}
@@ -374,6 +459,9 @@ def aggregate(pm: pl.DataFrame) -> dict[str, Rate]:
         "ct_open_attempt": Rate(ct_att, ct_rounds),
         "ct_open_win": Rate(s("ct_ok"), ct_att),
         "traded_death": Rate(s("traded_deaths"), s("deaths")),
+        "isolated_death": Rate(s("iso_deaths"), s("iso_measured")),
+        "isolated_traded": Rate(s("iso_traded"), s("iso_deaths")),
+        "supported_traded": Rate(s("sup_traded"), s("iso_measured") - s("iso_deaths")),
         "trade_kill": Rate(s("trade_kills"), s("kills")),
         "awp_share": Rate(s("k_awp"), s("kills")),
         "sniper_share": Rate(s("k_awp") + s("k_scout"), s("kills")),
@@ -413,19 +501,29 @@ def weapon_breakdown(d: DemoData, steam_id: str) -> pl.DataFrame:
 def place_breakdown(d: DemoData, steam_id: str, kind: str) -> pl.DataFrame:
     """Oyuncunun ölüm ('death') ya da kill ('kill') yerleri, tarafa göre."""
     if kind == "death":
-        df = d.kills.filter(pl.col("victim") == steam_id).select(
-            pl.col("victim_side").alias("side"), pl.col("victim_place").alias("place"),
-            "is_traded",
+        iso = death_isolation(d).select("match_id", "round_no", "tick", "victim", "isolated")
+        df = (
+            d.kills.filter(pl.col("victim") == steam_id)
+            .cast({"round_no": pl.Int64, "tick": pl.Int64})
+            .join(iso, on=["match_id", "round_no", "tick", "victim"], how="left")
+            .select(pl.col("victim_side").alias("side"), pl.col("victim_place").alias("place"),
+                    "is_traded", "isolated")
         )
     else:
         df = d.kills.filter(
             (pl.col("attacker") == steam_id) & (pl.col("attacker_side") != pl.col("victim_side"))
         ).select(pl.col("attacker_side").alias("side"), pl.col("attacker_place").alias("place"),
-                 pl.lit(None, pl.Boolean).alias("is_traded"))
+                 pl.lit(None, pl.Boolean).alias("is_traded"),
+                 pl.lit(None, pl.Boolean).alias("isolated"))
     totals = df.group_by("side").agg(pl.len().alias("side_total"))
     return (
         df.group_by("side", "place")
-        .agg(pl.len().alias("n"), pl.col("is_traded").sum().alias("traded"))
+        .agg(pl.len().alias("n"), pl.col("is_traded").sum().alias("traded"),
+             pl.col("isolated").sum().alias("isolated"),
+             (pl.col("isolated") & pl.col("is_traded")).sum().alias("isolated_traded"),
+             (pl.col("isolated") == False).sum().alias("supported"),  # noqa: E712 — boş ≠ False
+             ((pl.col("isolated") == False) & pl.col("is_traded")).sum()  # noqa: E712
+             .alias("supported_traded"))
         .join(totals, on="side")
         .with_columns((pl.col("n") / pl.col("side_total")).alias("share"))
         .sort(["side", "n"], descending=[False, True])

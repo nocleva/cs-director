@@ -74,6 +74,7 @@ Bir bölge / silah / oyun tarzını **sadece kill sayısıyla** değerlendirme. 
 - **Hasar ve isabet:** öldürmeyen vuruşlar da round'u etkiler (rakibi zayıflatır, takım arkadaşına kolay kill bırakır). `damages` tablosu.
 - **Duvar / kapı arkası:** `kills.penetrated > 0` kesin wallbang kill'dir. `damages.through_wall` **tahminidir** (gerçek duvar arkası vuruşların ~%73'ünü yakalar, direkt vuruşların ~%3'ünü yanlışlıkla işaretler); bunu söyleyerek kullan.
 - **Bedel:** aynı bölgede kaç kez ölünüyor, bu ölümler trade ediliyor mu (`is_traded`), round'un kaçıncı saniyesinde.
+- **Yalnız mı öldü:** raporda "Yalnız ölüm" metriği ve ölüm yerlerinde "yalnız / arkadaş yakında" ayrımı var (en yakın hayattaki takım arkadaşı >900 birim = yalnız; kod: `death_isolation`). Kendi mesafe hesabını yapma, bunu kullan. Arkadaş yakındayken de trade edilmiyorsa sorun mesafe değil açıdır (ör. uzaktan sniper; trade için aynı açıya peek gerekir): öneriyi buna göre ver.
 - **Silah alternatifi:** aynı bölgede farklı silahların sonucu. Örnek: Mid Doors'ta Scout, AWP'ye göre daha ucuz ve kapı arkası vuruşta daha etkiliyse bu bir güçlü yöndür, göz ardı etme; ekonomi önerisine çevir.
 
 ### Kill'in ve hasarın değeri

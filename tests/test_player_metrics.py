@@ -343,3 +343,56 @@ def test_weapon_exposure_per_round_and_place(d):
     # full buy filtresi: R1 (pistol round) elenir; R2 CT full (scout), R3 T full (sadece bıçak)
     full = weapon_exposure(d, A, buy="full")
     assert full.select("side", "main_weapon").sort("side").rows() == [("CT", "scout"), ("T", "pistol")]
+
+
+def _iso_data() -> DemoData:
+    """Yalnız ölüm testi: kurban hep (0,0,0)'da ölür, takım arkadaşı A farklı mesafelerde."""
+    def k(rnd, tick, att, att_side, vic, vic_side, traded=False):
+        row = _kill(rnd, tick / 64, att, att_side, vic, vic_side, traded=traded,
+                    vic_place="MidDoors")
+        return {**row, "victim_x": 0.0, "victim_y": 0.0, "victim_z": 0.0}
+
+    kills = pl.DataFrame([
+        k(1, 1280, C, "T", B, "CT", traded=True),  # A 500 birimde → destekli
+        k(1, 1920, C, "T", A, "CT"),               # A'nın arkadaşı B ölü → ölçülemez
+        k(2, 1280, C, "T", B, "CT"),               # A 1000 birimde → yalnız
+        k(3, 1500, A, "CT", C, "T"),               # C önce ölür
+        k(3, 2000, A, "CT", D, "T"),               # D'nin arkadaşı C ölü → ölçülemez
+    ])
+    pos = pl.DataFrame({
+        "match_id": [M] * 5, "round_no": [1, 2, 2, 3, 1],
+        "tick": [1250, 1300, 1100, 2000, 1900],
+        "player": [A, A, A, C, B], "side": ["CT", "CT", "CT", "T", "CT"],
+        # R2'de 180 tick önceki (çok eski) yakın kayıt sayılmamalı
+        "x": [500.0, 1000.0, 100.0, 10.0, 5.0], "y": [0.0] * 5, "z": [0.0] * 5,
+        "place_name": ["MidDoors"] * 5, "time_in_round": [20.0] * 5,
+    })
+    base = make_data()
+    return DemoData(base.rounds, base.roster, kills, base.utility, pos, base.stats,
+                    base.match_maps)
+
+
+def test_death_isolation_distance_and_alive_mates():
+    from director.analysis.player_metrics import death_isolation
+
+    iso = death_isolation(_iso_data()).sort("round_no", "tick")
+    rows = iso.select("round_no", "victim", "mates_alive", "isolated").rows()
+    # Takım 5 kişi varsayılır: R1'de B ilk ölen → 4 arkadaş; A ikinci → 3
+    assert rows == [(1, B, 4, False), (1, A, 3, None), (2, B, 4, True),
+                    (3, C, 4, None), (3, D, 3, None)]
+    assert iso["nearest_mate"][0] == pytest.approx(500.0)
+    assert iso["nearest_mate"][2] == pytest.approx(1000.0)
+
+
+def test_isolation_counts_and_rates():
+    from director.analysis.player_metrics import isolation_counts
+
+    ic = isolation_counts(_iso_data())
+    b = ic.filter(pl.col("steam_id") == B).row(0, named=True)
+    assert (b["iso_measured"], b["iso_deaths"], b["iso_traded"], b["sup_traded"]) == (2, 1, 0, 1)
+    # Rapor akışı: B'nin ölçülebilen 2 ölümünden 1'i yalnız, destekli olan trade edildi
+    pm = player_match_metrics(_iso_data())
+    r = aggregate(pm.filter(pl.col("steam_id") == B))
+    assert r["isolated_death"].value == pytest.approx(1 / 2)
+    assert r["supported_traded"].value == pytest.approx(1.0)
+    assert r["isolated_traded"].value == pytest.approx(0.0)

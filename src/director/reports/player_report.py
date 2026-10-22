@@ -24,6 +24,7 @@ from director.analysis.impact import (
     kill_value_by_weapon,
 )
 from director.analysis.player_metrics import (
+    ISOLATION_DIST,
     DemoData,
     Rate,
     aggregate,
@@ -92,6 +93,10 @@ SECTIONS: dict[str, list[Metric]] = {
     "Trade": [
         Metric("traded_death", "Ölümün trade edilmesi", "pct", "high"),
         Metric("trade_kill", "Kill'in trade kill olması", "pct", None),
+        Metric("isolated_death", "Yalnız ölüm (en yakın takım arkadaşı >900 birim)", "pct",
+               "low"),
+        Metric("isolated_traded", "Yalnız ölümde trade edilme", "pct", None),
+        Metric("supported_traded", "Takım arkadaşı yakındayken trade edilme", "pct", None),
     ],
     "Utility": [
         Metric("util_per_round", "Round başı utility", "ratio", None),
@@ -413,7 +418,11 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
     lines += _kill_value_section(d, steam_id)
 
     # --- bölgeler
-    lines += ["## Bölgeler", ""]
+    lines += ["## Bölgeler", "",
+              f"_Yalnız ölüm: ölüm anında en yakın hayattaki takım arkadaşı {ISOLATION_DIST:.0f} "
+              "birimden uzak (bu mesafenin ötesinde ölümlerin trade edilme oranı bu maçlarda "
+              "~%25'ten ~%7'ye düşüyor). Takımın son kalan oyuncusunun ölümü ikisine de "
+              "sayılmaz._", ""]
     for kind, title in (("death", "Ölüm yerleri"), ("kill", "Kill yerleri")):
         pb = place_breakdown(d, steam_id, kind)
         lines += [f"### {title}", ""]
@@ -423,8 +432,12 @@ def build_player_report(con: duckdb.DuckDBPyConnection, nickname: str,
                 continue
             total = part["side_total"][0]
             items = []
-            for place, n, traded, share in part.select("place", "n", "traded", "share").iter_rows():
-                extra = f", {traded} trade edildi" if kind == "death" else ""
+            for r in part.iter_rows(named=True):
+                place, n, share = r["place"], r["n"], r["share"]
+                # Ölümde: toplam trade + yalnız / takım arkadaşı yakındayken ayrımı
+                extra = (f", {r['traded']} trade edildi; yalnız {r['isolated']} "
+                         f"(trade {r['isolated_traded']}), arkadaş yakında {r['supported']} "
+                         f"(trade {r['supported_traded']})" if kind == "death" else "")
                 items.append(f"{place or '?'} %{100 * share:.0f} ({n}{extra})")
             lines.append(f"- **{side}** ({total}): " + " · ".join(items))
         lines.append("")
