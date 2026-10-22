@@ -102,3 +102,18 @@ def test_rare_mates_are_grouped_as_other():
     assert core_roster(d, A)["steam_id"].to_list() == [A]
     players = set(_team_player_rounds(d, A)["player"].to_list())
     assert players == {A, OTHER}
+
+
+def test_early_death_still_gets_a_spot():
+    """15. sn'den önce ölen oyuncu pencere dışında kalmaz: son kaydının alanı verilir."""
+    from tests.test_team import _pos
+
+    d = make_team_data()
+    # P5 R6'da sadece 5. sn'de B'de görülüyor (pencere 15-35 sn başlamadan öldü)
+    d.positions = pl.concat([d.positions, pl.DataFrame([_pos(6, 5, "5", "BombsiteB", "CT")])])
+    d.kills = pl.DataFrame([_kill(6, 6, E, "T", "5", "CT", opening=True)])
+    sp = player_spots(d, A)
+    p5 = sp.filter((pl.col("player") == "5") & (pl.col("side") == "CT")
+                   & (pl.col("spot") == "B")).row(0, named=True)
+    # R5'te de B'deydi: 2 round, 1 ölüm (R6'daki erken opening ölümü sayıldı)
+    assert (p5["rounds"], p5["deaths"], p5["od"]) == (2, 1, 1)

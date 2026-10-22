@@ -73,17 +73,26 @@ def _round_events(d: DemoData) -> pl.DataFrame:
 
 def _place_rounds(d: DemoData, side: str, table: dict[str, dict[str, str]],
                   window: tuple[float, float], col: str) -> pl.DataFrame:
-    """Her (maç, round, oyuncu) için penceredeki en sık alan / koridor (o taraf)."""
+    """Her (maç, round, oyuncu) için penceredeki en sık alan / koridor (o taraf).
+
+    Pencere başlamadan ölen oyuncu (erken opening ölümü) dışarıda kalmasın diye: pencerede
+    kaydı olmayanlara round başından pencere sonuna kadarki SON kaydının alanı verilir.
+    """
     rows = [(m, p, v) for m, places in table.items() for p, v in places.items()]
     pmap = pl.DataFrame(rows, schema=["map", "place_name", col], orient="row")
-    return (
+    pos = (
         d.positions.cast({"round_no": pl.Int64})
-        .filter((pl.col("side") == side) & pl.col("time_in_round").is_between(*window))
+        .filter((pl.col("side") == side) & (pl.col("time_in_round") <= window[1]))
         .join(d.match_maps.select("match_id", "map"), on="match_id")
         .join(pmap, on=["map", "place_name"])
-        .group_by(*_RK, pl.col("player").alias("steam_id"))
-        .agg(pl.col(col).mode().sort().first())
+        .rename({"player": "steam_id"})
     )
+    key = [*_RK, "steam_id"]
+    in_window = (pos.filter(pl.col("time_in_round") >= window[0])
+                 .group_by(key).agg(pl.col(col).mode().sort().first()))
+    early = (pos.join(in_window, on=key, how="anti")
+             .sort("tick").group_by(key).agg(pl.col(col).last()))
+    return pl.concat([in_window, early])
 
 
 def player_spots(d: DemoData, steam_id: str) -> pl.DataFrame:
