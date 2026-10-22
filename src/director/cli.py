@@ -25,6 +25,7 @@ from director.ingest.demos import (
     processed_demos_in_db,
 )
 from director.ingest.matches import profile_to_player_row, sync_player_matches
+from director.parse.demo_parser import PARSER_VERSION
 from director.reports.player_report import build_player_report
 
 app = typer.Typer(help="CS2 FACEIT Gaming Director", no_args_is_help=True)
@@ -198,14 +199,23 @@ def local_demo_match_ids(*folders: Path) -> set[str]:
 def demo_links(
     nickname: str,
     map_name: str = typer.Option(None, "--map", help="Sadece bu harita (ör. dust2)"),
+    outdated: bool = typer.Option(
+        False, "--outdated",
+        help="Sadece eski parser ile işlenmiş, demosu diskte olmayan maçlar (yeniden indirilecek)",
+    ),
     db: Path = DbOption,
 ) -> None:
-    """Demosu henüz indirilmemiş maçların FACEIT sayfa linklerini Markdown'a yazar."""
+    """Demosu diskte olmayan maçların FACEIT sayfa linklerini Markdown'a yazar.
+
+    Durum kolonu: "yeni" = hiç işlenmedi; "eski parser" = işlendi ama yeni alanlar
+    (ör. wallbang, hasar) için yeniden indirilip işlenmeli.
+    """
     have = local_demo_match_ids(DEMOS_INBOX, DEMOS_PROCESSED)
     with connect(db, read_only=True) as con:
         rows = con.execute(
             """
-            SELECT m.match_id, m.date, m.map, m.score_a, m.score_b, s.faction, s.result
+            SELECT m.match_id, m.date, m.map, m.score_a, m.score_b, s.faction, s.result,
+                   m.demo_status, m.parser_version
             FROM matches m
             JOIN match_player_stats s USING (match_id)
             JOIN players p ON p.faceit_id = s.player_id
@@ -216,28 +226,43 @@ def demo_links(
             [nickname, map_name, map_name, map_name],
         ).fetchall()
 
-    todo = [r for r in rows if r[0] not in have]
+    def status(r) -> str | None:
+        """Bu maçın demosu gerekli mi; gerekiyorsa neden."""
+        mid, demo_status, version = r[0], r[7], r[8]
+        if mid in have:
+            return None
+        if demo_status == "processed":
+            return "eski parser" if (version or 1) < PARSER_VERSION else None
+        if demo_status == "mismatch":
+            return None  # bozuk demo; tekrar indirmek işe yaramaz
+        return "yeni"
+
+    todo = [(r, st) for r in rows if (st := status(r))]
+    if outdated:
+        todo = [(r, st) for r, st in todo if st == "eski parser"]
+    title = "Yeniden indirilecek demolar" if outdated else "İndirilecek demolar"
     lines = [
-        f"# İndirilecek demolar — {nickname}",
+        f"# {title} — {nickname}",
         "",
-        f"Elde olan: {len(rows) - len(todo)} · İndirilecek: {len(todo)}. "
-        "En yeniden eskiye; FACEIT eski demoları sildiği için üstten başla.",
-        f"İndirdiğin `.dem.zst` dosyalarını `{DEMOS_INBOX}` içine at.",
+        f"İndirilecek: {len(todo)}. En yeniden eskiye; FACEIT eski demoları sildiği için "
+        "üstten başla.",
+        f"İndirdiğin `.dem.zst` dosyalarını `{DEMOS_INBOX}` içine at, sonra "
+        "`uv run director ingest-demos`.",
         "",
-        "| # | Tarih | Harita | Skor | Sonuç | Maç sayfası |",
-        "|---|---|---|---|---|---|",
+        "| # | Tarih | Harita | Skor | Sonuç | Durum | Maç sayfası |",
+        "|---|---|---|---|---|---|---|",
     ]
-    for i, (mid, date, mp, sa, sb, faction, won) in enumerate(todo, 1):
+    for i, ((mid, date, mp, sa, sb, faction, won, *_), st) in enumerate(todo, 1):
         own, opp = (sa, sb) if faction == "faction1" else (sb, sa)
         lines.append(
             f"| {i} | {date:%Y-%m-%d} | {(mp or '?').removeprefix('de_')} | {own}-{opp} | "
-            f"{'G' if won else 'M'} | [aç](https://www.faceit.com/tr/cs2/room/{mid}) |"
+            f"{'G' if won else 'M'} | {st} | [aç](https://www.faceit.com/tr/cs2/room/{mid}) |"
         )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     out = REPORTS_DIR / "demo_links.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    console.print(f"[green]{len(todo)} maç listelendi[/green] (elde olan {len(rows) - len(todo)}): {out}")
+    console.print(f"[green]{len(todo)} maç listelendi:[/green] {out}")
 
 
 def _mb(n: int) -> str:
