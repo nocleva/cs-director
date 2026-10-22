@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from director.config import DB_PATH, DEMOS_INBOX, DEMOS_PROCESSED, REPORTS_DIR
+from director.config import DB_PATH, DEMOS_INBOX, DEMOS_PROCESSED, DEMOS_TMP, REPORTS_DIR
 from director.db import connect, init_db
 from director.faceit.client import FaceitAPIError, FaceitClient, FaceitNotFound
+from director.ingest.demos import find_demos, ingest_inbox, match_id_from_filename
 from director.ingest.matches import profile_to_player_row, sync_player_matches
 
 app = typer.Typer(help="CS2 FACEIT Gaming Director", no_args_is_help=True)
@@ -166,10 +166,6 @@ def summary(
     console.print(table)
 
 
-# FACEIT demo dosya adı maç ID'siyle başlar: "1-<uuid>-1-1.dem.zst"
-MATCH_ID_RE = re.compile(r"^(1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
-
-
 def local_demo_match_ids(*folders: Path) -> set[str]:
     """inbox/processed klasörlerindeki demo dosyalarından maç ID'lerini çıkarır."""
     ids: set[str] = set()
@@ -177,9 +173,9 @@ def local_demo_match_ids(*folders: Path) -> set[str]:
         if not folder.exists():
             continue
         for f in folder.iterdir():
-            m = MATCH_ID_RE.match(f.name)
-            if m:
-                ids.add(m.group(1))
+            mid = match_id_from_filename(f.name)
+            if mid:
+                ids.add(mid)
     return ids
 
 
@@ -211,7 +207,7 @@ def demo_links(
         "",
         f"Elde olan: {len(rows) - len(todo)} · İndirilecek: {len(todo)}. "
         "En yeniden eskiye; FACEIT eski demoları sildiği için üstten başla.",
-        "İndirdiğin `.dem.zst` dosyalarını `data/demos/inbox/` içine at.",
+        f"İndirdiğin `.dem.zst` dosyalarını `{DEMOS_INBOX}` içine at.",
         "",
         "| # | Tarih | Harita | Skor | Sonuç | Maç sayfası |",
         "|---|---|---|---|---|---|",
@@ -227,6 +223,54 @@ def demo_links(
     out = REPORTS_DIR / "demo_links.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     console.print(f"[green]{len(todo)} maç listelendi[/green] (elde olan {len(rows) - len(todo)}): {out}")
+
+
+@app.command("ingest-demos")
+def ingest_demos(
+    details: bool = typer.Option(False, "--details", help="Oyuncu bazında FACEIT karşılaştırması"),
+    db: Path = DbOption,
+) -> None:
+    """Inbox'taki demoları açar, ayrıştırır, DB'ye yazar ve processed/'a taşır."""
+    pending = find_demos(DEMOS_INBOX)
+    if not pending:
+        console.print(f"[yellow]İşlenecek demo yok:[/yellow] {DEMOS_INBOX}")
+        return
+
+    with connect(db) as con:
+        init_db(con)
+        with console.status("Demolar işleniyor...") as status:
+            results = ingest_inbox(
+                con, DEMOS_INBOX, DEMOS_PROCESSED, DEMOS_TMP,
+                on_start=lambda f: status.update(f"İşleniyor: {f.name}"),
+            )
+
+    table = Table(title=f"Demo işleme — {len(results)} dosya")
+    for col in ("Maç", "Harita", "Round", "Kill", "Utility", "Konum", "FACEIT ile"):
+        table.add_column(col)
+    for r in results:
+        if r.error:
+            table.add_row(r.match_id or r.file[:24], r.map_name or "?", "", "", "", "",
+                          f"[red]{r.error}[/red]")
+            continue
+        check = {True: "[green]tutarlı[/green]", False: "[yellow]fark var[/yellow]",
+                 None: "[dim]FACEIT verisi yok[/dim]"}[r.validated]
+        table.add_row(r.match_id[:14] + "…", (r.map_name or "").removeprefix("de_"),
+                      str(r.rounds), str(r.kills), str(r.utility), str(r.positions), check)
+    console.print(table)
+
+    # İstenirse ya da fark varsa oyuncu bazında karşılaştırmayı göster
+    for r in results:
+        if r.validation and (details or r.validated is False):
+            t = Table(title=f"{r.match_id} — FACEIT / demo")
+            for col in ("Oyuncu", "Kill", "Death", "ADR", ""):
+                t.add_column(col)
+            for v in r.validation:
+                adr = (f"{v.faceit_adr:.1f} / {v.demo_adr:.1f}"
+                       if v.faceit_adr is not None and v.demo_adr is not None else "-")
+                t.add_row(v.nickname, f"{v.faceit_kills} / {v.demo_kills}",
+                          f"{v.faceit_deaths} / {v.demo_deaths}", adr,
+                          "[green]✓[/green]" if v.ok else "[yellow]![/yellow]")
+            console.print(t)
 
 
 if __name__ == "__main__":

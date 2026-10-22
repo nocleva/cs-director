@@ -88,12 +88,15 @@ cs2-director/
 | `players` | steam_id, faceit_id, nickname, elo, level |
 | `matches` | match_id, map, date, team_a, team_b, score, demo_url, demo_status |
 | `match_player_stats` | match_id, player_id, kills, deaths, adr, hs_pct, kast, rating |
-| `rounds` | match_id, round_no, winner_side, reason, ct_buy_type, t_buy_type, bomb_site |
-| `kills` | match_id, round_no, tick, attacker, victim, weapon, attacker_place, victim_place, is_opening, is_traded, time_in_round |
-| `utility` | match_id, round_no, thrower, type (smoke/flash/molly/he), land_place, flashed_enemies, damage |
-| `positions_snapshot` | match_id, round_no, tick, player, x, y, z, place_name (her 2 saniyede bir) |
+| `rounds` | match_id, round_no, winner_side, reason, ct/t_buy_type, ct/t_equipment, bomb_site, plant_tick, ct_faction |
+| `kills` | match_id, round_no, tick, time_in_round, attacker/victim (+_name, _side, _place, _x/_y/_z), weapon, headshot, is_opening, is_trade_kill, is_traded |
+| `utility` | match_id, round_no, time_in_round, thrower (+_name, _side), type (smoke/flash/he/molly), x/y/z, land_place, flashed_enemies, flashed_teammates, blind_duration, damage |
+| `positions_snapshot` | match_id, round_no, tick, time_in_round, player, side, x, y, z, place_name, health, money, equipment_value, active_weapon (her 2 saniyede bir, sadece canlı round + hayattaki oyuncu) |
+| `demo_player_stats` | match_id, steam_id, kills, deaths, adr, kast, opening_kills/deaths, traded_deaths, clutch, utility (awpy) |
 
-`place_name` (demolardaki "last_place_name" alanı: "BombsiteA", "Apartments" vb.) taktik analizinin temelidir: koordinatı insanın anlayacağı bölgeye çevirir.
+Şema v2 (`schema_version` tablosu). Isınma ve bıçak roundları elenir; demo verisi her işlemede FACEIT skor tablosuyla karşılaştırılır (kill/death ±1, ADR ±5).
+
+`place_name` (demodaki `m_szLastPlaceName` alanı: "BombsiteA", "LongA" vb.; utility için en yakın bilinen konumdan türetilir) taktik analizinin temelidir: koordinatı insanın anlayacağı bölgeye çevirir.
 
 ## 6. Metrikler ve Rol Sınıflandırma
 

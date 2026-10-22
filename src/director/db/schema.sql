@@ -51,52 +51,122 @@ CREATE TABLE IF NOT EXISTS match_player_stats (
     PRIMARY KEY (match_id, player_id)
 );
 
--- Round sonuçları (demodan)
+-- ===================== Demodan gelen tablolar (şema v2) =====================
+-- Kolonlar awpy 3.x'in gerçek çıktısına göre. Steam id'ler metin (players.steam_id ile eşleşir).
+-- Taraf: 'CT' / 'T'. Zaman: freeze time bitişinden itibaren saniye.
+
+-- Round sonuçları ve ekonomi
 CREATE TABLE IF NOT EXISTS rounds (
-    match_id     VARCHAR,
-    round_no     INTEGER,
-    winner_side  VARCHAR,                -- 'CT' / 'T'
-    reason       VARCHAR,
-    ct_buy_type  VARCHAR,                -- eco / force / full ...
-    t_buy_type   VARCHAR,
-    bomb_site    VARCHAR,
+    match_id         VARCHAR,
+    round_no         INTEGER,
+    winner_side      VARCHAR,            -- 'CT' / 'T'
+    reason           VARCHAR,            -- ct_win / terrorists_win / bomb_defused / target_saved ...
+    freeze_end_tick  BIGINT,
+    end_tick         BIGINT,
+    ct_buy_type      VARCHAR,            -- pistol / eco / force / full
+    ct_equipment     INTEGER,            -- takımın freeze sonundaki toplam ekipman değeri
+    t_buy_type       VARCHAR,
+    t_equipment      INTEGER,
+    bomb_site        VARCHAR,            -- plant edilen site (A / B), yoksa NULL
+    plant_tick       BIGINT,
+    ct_faction       VARCHAR,            -- bu round CT olan takım: 'faction1' / 'faction2'
     PRIMARY KEY (match_id, round_no)
 );
 
--- Kill olayları (demodan)
+-- Kill olayları (ısınma kill'leri hariç)
 CREATE TABLE IF NOT EXISTS kills (
     match_id        VARCHAR,
     round_no        INTEGER,
-    tick            INTEGER,
-    attacker        VARCHAR,             -- steam id
+    tick            BIGINT,
+    time_in_round   DOUBLE,
+    attacker        VARCHAR,             -- steam id (dünya / düşme ölümünde NULL)
+    attacker_name   VARCHAR,
+    attacker_side   VARCHAR,
     victim          VARCHAR,
+    victim_name     VARCHAR,
+    victim_side     VARCHAR,
+    assister        VARCHAR,
     weapon          VARCHAR,
-    attacker_place  VARCHAR,
+    headshot        BOOLEAN,
+    flash_assist    BOOLEAN,
+    thru_smoke      BOOLEAN,
+    attacker_place  VARCHAR,             -- ör. LongA, MidDoors
     victim_place    VARCHAR,
-    is_opening      BOOLEAN,
-    is_traded       BOOLEAN,
-    time_in_round   DOUBLE               -- saniye
+    attacker_x      DOUBLE,
+    attacker_y      DOUBLE,
+    attacker_z      DOUBLE,
+    victim_x        DOUBLE,
+    victim_y        DOUBLE,
+    victim_z        DOUBLE,
+    is_opening      BOOLEAN,             -- round'un ilk kill'i
+    is_trade_kill   BOOLEAN,             -- bu kill bir takım arkadaşının intikamı
+    is_traded       BOOLEAN              -- bu ölüm kısa sürede trade edildi
 );
 
--- Utility kullanımı (demodan)
+-- Utility kullanımı: kim, nereye, ne etki
 CREATE TABLE IF NOT EXISTS utility (
+    match_id           VARCHAR,
+    round_no           INTEGER,
+    tick               BIGINT,           -- patlama / smoke açılma / yangın başlama anı
+    time_in_round      DOUBLE,
+    thrower            VARCHAR,
+    thrower_name       VARCHAR,
+    thrower_side       VARCHAR,
+    type               VARCHAR,          -- smoke / flash / he / molly
+    x                  DOUBLE,
+    y                  DOUBLE,
+    z                  DOUBLE,
+    land_place         VARCHAR,          -- düştüğü bölge (en yakın bilinen konumdan)
+    flashed_enemies    INTEGER,          -- sadece flash
+    flashed_teammates  INTEGER,          -- sadece flash
+    blind_duration     DOUBLE,           -- rakiplerin toplam kör kaldığı saniye
+    damage             DOUBLE            -- HE / molotof ile rakibe verilen hasar
+);
+
+-- Pozisyon örnekleri: canlı round içinde, hayattaki oyuncular, 2 saniyede bir
+CREATE TABLE IF NOT EXISTS positions_snapshot (
     match_id         VARCHAR,
     round_no         INTEGER,
-    thrower          VARCHAR,
-    type             VARCHAR,            -- smoke / flash / molly / he
-    land_place       VARCHAR,
-    flashed_enemies  INTEGER,
-    damage           DOUBLE
+    tick             BIGINT,
+    time_in_round    DOUBLE,
+    player           VARCHAR,            -- steam id
+    player_name      VARCHAR,
+    side             VARCHAR,
+    x                DOUBLE,
+    y                DOUBLE,
+    z                DOUBLE,
+    place_name       VARCHAR,
+    health           INTEGER,
+    money            INTEGER,
+    equipment_value  INTEGER,
+    active_weapon    VARCHAR
 );
 
--- Pozisyon örnekleri (her 2 saniyede bir, demodan)
-CREATE TABLE IF NOT EXISTS positions_snapshot (
-    match_id    VARCHAR,
-    round_no    INTEGER,
-    tick        INTEGER,
-    player      VARCHAR,
-    x           DOUBLE,
-    y           DOUBLE,
-    z           DOUBLE,
-    place_name  VARCHAR
+-- awpy'nin maç başı oyuncu istatistikleri (KAST, opening, trade, clutch, utility)
+CREATE TABLE IF NOT EXISTS demo_player_stats (
+    match_id              VARCHAR,
+    steam_id              VARCHAR,
+    name                  VARCHAR,
+    rounds_played         INTEGER,
+    kills                 INTEGER,
+    deaths                INTEGER,
+    assists               INTEGER,
+    flash_assists         INTEGER,
+    headshot_kills        INTEGER,
+    adr                   DOUBLE,
+    kast                  DOUBLE,
+    opening_kills         INTEGER,
+    opening_deaths        INTEGER,
+    traded_deaths         INTEGER,
+    multikill_2k          INTEGER,
+    multikill_3k          INTEGER,
+    multikill_4k          INTEGER,
+    multikill_5k          INTEGER,
+    clutches_played       INTEGER,
+    clutches_won          INTEGER,
+    utility_damage        INTEGER,
+    flashes_thrown        INTEGER,
+    enemies_flashed       INTEGER,
+    flash_duration_dealt  DOUBLE,
+    PRIMARY KEY (match_id, steam_id)
 );

@@ -18,6 +18,7 @@ DATA_DIR = Path(os.getenv("DIRECTOR_DATA_DIR", PROJECT_ROOT / "data"))
 CACHE_DIR = DATA_DIR / "cache"
 DEMOS_INBOX = DATA_DIR / "demos" / "inbox"
 DEMOS_PROCESSED = DATA_DIR / "demos" / "processed"
+DEMOS_TMP = DATA_DIR / "demos" / "tmp"  # açılmış .dem dosyaları (işlem sonrası silinir)
 DB_PATH = Path(os.getenv("DIRECTOR_DB", DATA_DIR / "director.duckdb"))
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
