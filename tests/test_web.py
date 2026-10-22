@@ -161,7 +161,7 @@ def oauth_web(tmp_path, make_client):
     worker.submit = lambda job: None
     oauth = FakeOAuth()
     settings = WebSettings(invite_code=INVITE, secret="test-secret", required_demos=10,
-                           team_owner=None, map_name=None, uploads_dir=tmp_path / "uploads",
+                           team_owner="Sahip", map_name=None, uploads_dir=tmp_path / "uploads",
                            oauth=oauth)
     client = TestClient(create_app(settings, store, worker, client_factory=make_client))
     yield client, store, oauth
@@ -187,7 +187,7 @@ def test_faceit_login_creates_user_from_faceit_id(oauth_web):
 def test_faceit_login_rejects_bad_state_and_missing_invite(oauth_web):
     client, store, _ = oauth_web
     assert "doğrulanamadı" in _faceit_login(client, state="sahte").text
-    assert "davet linkiyle" in _faceit_login(client, davet="yanlis").text
+    assert "davet linki iste" in _faceit_login(client, davet="yanlis").text
     assert store.users() == []
 
 
@@ -212,3 +212,35 @@ def test_pkce_challenge_is_s256():
     from squadmind.web.faceit_auth import pkce_pair
     v, c = pkce_pair()
     assert c == base64.urlsafe_b64encode(hashlib.sha256(v.encode()).digest()).rstrip(b"=").decode()
+
+
+def _shared_matches(store, n, same_side=True):
+    """TestNick (p-self) ile takım sahibi 'Sahip' arasında n ortak maç."""
+    def fill(con):
+        con.execute("INSERT INTO players (faceit_id, steam_id, nickname) VALUES ('p-owner', 's-owner', 'Sahip')")
+        for i in range(n):
+            con.execute("INSERT INTO match_player_stats (match_id, player_id, nickname, faction) "
+                        "VALUES (?, 'p-self', 'TestNick', 'faction1'), (?, 'p-owner', 'Sahip', ?)",
+                        [f"m{i}", f"m{i}", "faction1" if same_side else "faction2"])
+    store.run(fill)
+
+
+def test_faceit_login_admits_teammate_without_invite(oauth_web):
+    client, store, _ = oauth_web
+    _shared_matches(store, 3)
+    r = _faceit_login(client, davet="")
+    assert r.status_code == 303 and r.headers["location"] == "/ben"
+
+
+def test_faceit_login_rejects_opponent_and_rare_teammate(oauth_web):
+    client, store, _ = oauth_web
+    _shared_matches(store, 5, same_side=False)   # hep rakip taraftaydı
+    assert "en az 3" in _faceit_login(client, davet="").text
+    assert store.users() == []
+
+
+def test_nickname_join_never_uses_teammate_rule(web):
+    # Nickname ile kimlik doğrulanmaz: ortak maç olsa bile davet şart
+    client, store = web
+    r = client.post("/katil", data={"nickname": "TestNick", "davet": ""})
+    assert "Davet kodu geçersiz" in r.text

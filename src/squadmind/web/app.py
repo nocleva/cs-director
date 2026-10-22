@@ -41,6 +41,9 @@ COOKIE = "squadmind_oturum"
 # FACEIT girişi sürerken (state + PKCE doğrulayıcı + davet) tutulan kısa ömürlü çerez
 LOGIN_COOKIE = "squadmind_giris"
 LOGIN_SECONDS = 600
+# FACEIT ile girişte davetsiz kabul: takım sahibiyle aynı tarafta en az bu kadar maç
+# (tek seferlik rastgele takım arkadaşı girmesin)
+TEAM_MIN_SHARED = 3
 SESSION_DAYS = 30
 # Parça boyutu: Cloudflare ücretsiz tüneli tek istekte ~100 MB'a izin verir
 CHUNK_BYTES = 32 * 1024 * 1024
@@ -119,14 +122,37 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     def invite_ok(davet: str) -> bool:
         return bool(settings.invite_code) and hmac.compare_digest(davet, settings.invite_code)
 
-    def enter(request: Request, profile: dict, invited: bool, davet: str):
-        """FACEIT profiliyle oturum aç: yeni oyuncu davetle gelmeli, kayıtlı oyuncu gelmesi şart değil."""
+    def same_team_matches(faceit_id: str) -> int:
+        """Oyuncunun takım sahibiyle aynı tarafta oynadığı maç sayısı (DB'deki skor tablolarından)."""
+        if not settings.team_owner:
+            return 0
+        return store.run(lambda con: con.execute(
+            """
+            SELECT count(DISTINCT a.match_id)
+            FROM match_player_stats a
+            JOIN match_player_stats b ON b.match_id = a.match_id AND b.faction = a.faction
+            JOIN players p ON p.faceit_id = b.player_id
+            WHERE a.player_id = ? AND lower(p.nickname) = lower(?)
+            """, [faceit_id, settings.team_owner]).fetchone()[0])
+
+    def enter(request: Request, profile: dict, invited: bool, davet: str, verified: bool = False):
+        """FACEIT profiliyle oturum aç.
+
+        Kayıtlı oyuncu her zaman girer. Yeni oyuncu: davet koduyla ya da (sadece FACEIT
+        girişinde, kimlik doğrulanmışken) takım sahibiyle aynı tarafta TEAM_MIN_SHARED maçı
+        varsa davetsiz. Nickname ile katılımda kimlik doğrulanmadığı için davet şart.
+        """
         row = profile_to_player_row(profile)
         if not row.get("steam_id"):
             return join_page(request, davet, "Bu FACEIT hesabına bağlı CS2 / Steam hesabı bulunamadı.")
-        if store.user(row["steam_id"]) is None and not invited:
-            return join_page(request, davet, "Takıma davet linkiyle katılınır. Linki takım "
-                                             "arkadaşından iste.")
+        teammate = verified and (
+            (settings.team_owner or "").lower() == (row["nickname"] or "").lower()
+            or same_team_matches(row["faceit_id"]) >= TEAM_MIN_SHARED)
+        if store.user(row["steam_id"]) is None and not invited and not teammate:
+            owner = settings.team_owner or "takım"
+            return join_page(request, davet,
+                             f"{row['nickname']}: {owner} ile aynı takımda en az {TEAM_MIN_SHARED} "
+                             "maçın görünmüyor. Takıma yeni katıldıysan davet linki iste.")
         store.run(lambda con: upsert_players(con, [row]))
         store.add_user(row["steam_id"], row["faceit_id"], row["nickname"])
         worker.submit(Job("sync", row["steam_id"]))  # her girişte maç geçmişi tazelenir
@@ -193,7 +219,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, str(exc))
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
-        return enter(request, profile, invite_ok(davet), davet)
+        return enter(request, profile, invite_ok(davet), davet, verified=True)
 
     @app.get("/cikis")
     def logout():
