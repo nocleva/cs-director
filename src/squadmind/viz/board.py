@@ -66,6 +66,18 @@ SADE = Theme(
     label_upper=False, mono_font="Consolas, monospace",
 )
 
+# Apple yaklaşımı: saf siyah zemin, koyu mod sistem renkleri (turuncu, camgöbeği, kırmızı,
+# sarı), sistem yazı tipi; harita tam ekran, arayüz üstünde yüzen yarı saydam paneller
+APPLE = Theme(
+    bg="#000000", floor_low="#111113", floor_mid="#18181B", floor_high="#202024",
+    wall="#3A3A3C", target_floor="#2B1D0F", label="#8E8E93", text="#F5F5F7",
+    t="#FF9F0A", support="#64D2FF", t_ink="#1C1000", support_ink="#00202B",
+    enemy="#FF453A", smoke="#AEAEB2", flash="#FFD60A", molly="#FF9F0A",
+    grid=None, route_width=2.2,
+    label_font="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif",
+    label_upper=False, mono_font="SF Mono, Menlo, Consolas, monospace",
+)
+
 # Oyuncu rolleri (renk temadan gelir); eski adlar geriye uyumluluk için
 T, SUPPORT = "t", "support"
 T_COLOR, SUPPORT_COLOR = T, SUPPORT
