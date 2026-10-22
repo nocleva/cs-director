@@ -204,7 +204,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | `squadmind clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
 | `squadmind report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
 | `squadmind report team <nick> [--map]` | Takım raporu → `reports/team_<nick>.md` |
-| `squadmind web [--port 8000]` | Web arayüzü (Faz 3a): davet linkiyle katılım, demo yükleme, oyuncu / takım raporu. Dışarı açmak: `cloudflared tunnel --url http://127.0.0.1:8000` (adres her başlatmada değişir) |
+| `squadmind web [--port 8000]` | Web arayüzü (Faz 3a): davet linkiyle katılım, demo yükleme, oyuncu / takım raporu. Kalıcı adres **https://app.squadmind.info** (Cloudflare named tunnel `squadmind`, ayar `~/.cloudflared/config.yml`; çalıştırma: `cloudflared tunnel run squadmind`) |
 | `squadmind track <plans/*.json>` | Öneri takibi: planın kurallarına bağlı metrikler, plan tarihinden önce / sonra → `reports/track_<plan>.md` |
 | `squadmind query "<SELECT>"` | Salt-okunur SQL (ajanlar için) |
 
