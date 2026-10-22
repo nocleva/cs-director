@@ -1,0 +1,655 @@
+{
+ "id": "dust2_force_a",
+ "map": "de_dust2",
+ "side": "T",
+ "title": "Force A",
+ "subtitle": "T tarafı · force, hızlı A bölüşümü",
+ "thesis": "Para az, bekleme yok.",
+ "thesis_sub": "Long + Short → A · 0:15",
+ "duration": 22,
+ "entry": 15,
+ "entry_note": "Long + Short aynı anda",
+ "target_places": [
+  [
+   1097,
+   2649
+  ],
+  [
+   1389,
+   2538
+  ],
+  [
+   489,
+   2326
+  ]
+ ],
+ "target_radius": 430,
+ "tabs": [
+  {
+   "id": "r2-kaybedersek",
+   "label": "R2 · Kaybedersek",
+   "order": 3,
+   "stat": "r2_after_loss",
+   "note": "Pistol kaybı sonrası force: tek smoke, iki flash, molly yok. Hız utility'nin yerini tutar."
+  }
+ ],
+ "players": [
+  {
+   "label": "1",
+   "name": "DeloneCS",
+   "mark": "tri",
+   "role": "entry",
+   "kol": "Long",
+   "hint": "SMG ile yakın açı: Long Doors'ta bekleme, flash'la birlikte geç.",
+   "lane": -4,
+   "keys": [
+    [
+     0,
+     [
+      -600,
+      -700,
+      101
+     ]
+    ],
+    [
+     6.5,
+     [
+      350,
+      -61,
+      5
+     ]
+    ],
+    [
+     9,
+     [
+      815,
+      758,
+      4
+     ]
+    ],
+    [
+     14,
+     [
+      1330,
+      1760,
+      0
+     ]
+    ],
+    [
+     18,
+     [
+      1300,
+      2450,
+      60
+     ]
+    ]
+   ],
+   "task": "SMG / force tüfeği. 0:08 long flash'ının arkasından Long Doors'u durmadan geç, 0:14'te Long A'yı aç, site'a ilk sen gir.",
+   "timeline": [
+    [
+     0,
+     "T spawn'dan long'a koşuyor",
+     "Bu round bekleme yok: doors'a flash'la aynı anda varacaksın."
+    ],
+    [
+     8,
+     "Flash patladı: Long Doors'tan geçiyor",
+     "Köşeyi SMG ile yakından temizle; uzun düelloya girme."
+    ],
+    [
+     14,
+     "Long A",
+     "Car ve site açısı: yakın mesafe senin avantajın."
+    ],
+    [
+     15,
+     "Site'a giriş",
+     "Short koluyla aynı anda."
+    ]
+   ],
+   "branches": [
+    {
+     "when": "Doors'ta ilk düelloyu kaybedersen",
+     "then": "_squ1rtle_ hemen trade eder; nicorett3 bombayla doors'tan geçer, plan bozulmaz.",
+     "why": "_squ1rtle_ seni {tb.k} kez trade etmiş ({tb.n} ölümünde).",
+     "metrics": {
+      "tb": {
+       "kind": "traded_by",
+       "fmt": "count",
+       "params": {
+        "player": "DeloneCS",
+        "by": "_squ1rtle_"
+       }
+      }
+     }
+    },
+    {
+     "when": "Long'da AWP / tüfek tutuyorsa",
+     "then": "Geri çekilme: flash'ın içinden yakın mesafeye gir. Force'ta beklemek kaybettiriyor.",
+     "why": "Force'ta siteye girilmeyen round'lar: kazanma {w} ({w.n} round).",
+     "metrics": {
+      "w": {
+       "kind": "pattern_win",
+       "fmt": "pct",
+       "params": {
+        "pattern": "girilmedi",
+        "buy": "force"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "label": "2",
+   "name": "_squ1rtle_",
+   "mark": "dot",
+   "role": "trade",
+   "kol": "Long",
+   "hint": "Force'ta tüfek alan sensin: DeloneCS'in açtığı açıyı sen kilitle.",
+   "lane": 0,
+   "keys": [
+    [
+     0,
+     [
+      -650,
+      -730,
+      101
+     ]
+    ],
+    [
+     6.8,
+     [
+      350,
+      -61,
+      5
+     ]
+    ],
+    [
+     9.5,
+     [
+      815,
+      758,
+      4
+     ]
+    ],
+    [
+     14.5,
+     [
+      1460,
+      1620,
+      0
+     ]
+    ],
+    [
+     18.5,
+     [
+      1450,
+      2250,
+      10
+     ]
+    ]
+   ],
+   "task": "Force tüfeği (Galil). DeloneCS'in 1-2 adım arkasında, ölürse anında trade. Site'ta ramp ve CT tarafını tut.",
+   "timeline": [
+    [
+     0,
+     "Long'a, DeloneCS'in arkasında",
+     "Trade mesafesi: aynı açıyı görebileceğin yerde kal."
+    ],
+    [
+     9.5,
+     "Long Doors: trade mesafesinde",
+     "DeloneCS peek atınca öldüreni görebileceğin yerde dur."
+    ],
+    [
+     15,
+     "Site'a giriş",
+     "Ramp'tan gir, site'ın arkasını temizle."
+    ],
+    [
+     18.5,
+     "CT tarafını tutuyor",
+     "Rotasyon CT spawn'dan gelir; uzun açıyı tüfekle sen tut."
+    ]
+   ],
+   "branches": [
+    {
+     "when": "DeloneCS ölürse",
+     "then": "Öldüreni 5 sn içinde trade et, sonra long'u sen aç.",
+     "why": "Trade edilen takım ölümü: {tt} ({tt.n} ölüm).",
+     "metrics": {
+      "tt": {
+       "kind": "team_traded_death",
+       "fmt": "pct",
+       "params": {}
+      }
+     }
+    },
+    {
+     "when": "Long boşsa",
+     "then": "Hızlan; 0:15'te site'tasın. Bomba için nicorett3'ü bekleme, site'ı aç.",
+     "why": "Force'ta A rush: kazanma {r} ({r.n} round).",
+     "metrics": {
+      "r": {
+       "kind": "pattern_win",
+       "fmt": "pct",
+       "params": {
+        "pattern": "rush",
+        "site": "A",
+        "buy": "force"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "label": "3",
+   "name": "nicorett3",
+   "mark": "square",
+   "role": "support",
+   "kol": "Long",
+   "hint": "Tek flash, tek bomba: flash'ı 0:08'de at, plant'a kadar düello açma.",
+   "lane": 4,
+   "keys": [
+    [
+     0,
+     [
+      -620,
+      -760,
+      101
+     ]
+    ],
+    [
+     7,
+     [
+      500,
+      250,
+      5
+     ]
+    ],
+    [
+     10.5,
+     [
+      815,
+      758,
+      4
+     ]
+    ],
+    [
+     15,
+     [
+      1423,
+      1619,
+      -2
+     ]
+    ],
+    [
+     19,
+     [
+      1150,
+      2560,
+      110
+     ]
+    ],
+    [
+     22,
+     [
+      1150,
+      2560,
+      110
+     ]
+    ]
+   ],
+   "task": "SMG + bomba. 0:08 long flash'ı, sonra arkadan gel ve 0:19'da plant et.",
+   "timeline": [
+    [
+     0,
+     "Bombayla long'a",
+     "Önde koşma; flash pozisyonuna git."
+    ],
+    [
+     8,
+     "Long flash",
+     "Long'un üstünden at: DeloneCS'in geçişini hazırlar."
+    ],
+    [
+     15,
+     "Long A",
+     "Önündekiler açarken arkadan gel."
+    ],
+    [
+     19,
+     "Plant",
+     "Default plant; sonra long'u tut."
+    ]
+   ],
+   "branches": [
+    {
+     "when": "Önündekiler ölürse",
+     "then": "Düelloya girme; bombayı short'a taşı, Nocleva ve 5. oyuncuyla gir.",
+     "why": "T opening kazanman {op} ({op.n} düello).",
+     "metrics": {
+      "op": {
+       "kind": "opening_record",
+       "fmt": "pct",
+       "params": {
+        "player": "nicorett3",
+        "side": "T"
+       }
+      }
+     }
+    },
+    {
+     "when": "Site alındıysa",
+     "then": "Hemen plant et; long ve short'tan gelen iki kol site'ı birlikte tutar.",
+     "why": "Force'ta A split: kazanma {s} ({s.n} round).",
+     "metrics": {
+      "s": {
+       "kind": "pattern_win",
+       "fmt": "pct",
+       "params": {
+        "pattern": "split",
+        "site": "A",
+        "buy": "force"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "label": "4",
+   "name": "Nocleva",
+   "mark": "cross",
+   "role": "Scout",
+   "kol": "Short",
+   "hint": "Force'ta Scout: short'un üstünü tek mermiyle kilitle, uzun düelloyu sen al.",
+   "lane": -3,
+   "keys": [
+    [
+     0,
+     [
+      -680,
+      -690,
+      101
+     ]
+    ],
+    [
+     4,
+     [
+      -313,
+      122,
+      7
+     ]
+    ],
+    [
+     9,
+     [
+      -37,
+      1335,
+      4
+     ]
+    ],
+    [
+     12,
+     [
+      -37,
+      1335,
+      4
+     ]
+    ],
+    [
+     14.5,
+     [
+      380,
+      1760,
+      50
+     ]
+    ],
+    [
+     18,
+     [
+      489,
+      2326,
+      109
+     ]
+    ]
+   ],
+   "task": "Scout. Catwalk'tan 0:12'de short flash'ını at, 0:15'te long'la aynı anda short'tan gir.",
+   "timeline": [
+    [
+     0,
+     "Top mid'e",
+     "Mid'i izleyerek geç."
+    ],
+    [
+     9,
+     "Catwalk",
+     "Short'a erken çıkma."
+    ],
+    [
+     12,
+     "Short flash",
+     "Flash patlayınca çık."
+    ],
+    [
+     15,
+     "Short'tan giriş",
+     "Long koluyla aynı saniyede."
+    ],
+    [
+     18,
+     "Site'ta, CT spawn açısı",
+     "Rotasyonu Scout'la kes."
+    ]
+   ],
+   "branches": [
+    {
+     "when": "Short'ta CT varsa",
+     "then": "5. oyuncuyla çift peek; tek başına uzun açı tutma.",
+     "why": "Yalnızken ölümlerin: {iso} ({iso.n} ölüm).",
+     "metrics": {
+      "iso": {
+       "kind": "isolated_death",
+       "fmt": "pct",
+       "params": {
+        "player": "Nocleva"
+       }
+      }
+     }
+    },
+    {
+     "when": "Rakip mid'den itiyorsa",
+     "then": "Catwalk'ta Scout'la tek kill al, sonra short'a devam et; mid'de kalma.",
+     "why": "T mid opening'in {op} ({op.n} düello).",
+     "metrics": {
+      "op": {
+       "kind": "opening_record",
+       "fmt": "record",
+       "params": {
+        "player": "Nocleva",
+        "side": "T",
+        "place": [
+         "TopofMid",
+         "Middle"
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "label": "5",
+   "name": "5. oyuncu",
+   "mark": "ring",
+   "role": "esnek",
+   "kol": "Short",
+   "hint": "Tek smoke sende: 0:05'te Xbox, sonra Nocleva'nın yanına.",
+   "lane": 3,
+   "keys": [
+    [
+     0,
+     [
+      -700,
+      -720,
+      101
+     ]
+    ],
+    [
+     4.5,
+     [
+      -313,
+      122,
+      7
+     ]
+    ],
+    [
+     5.5,
+     [
+      -313,
+      122,
+      7
+     ]
+    ],
+    [
+     10,
+     [
+      -60,
+      1250,
+      4
+     ]
+    ],
+    [
+     12,
+     [
+      -60,
+      1250,
+      4
+     ]
+    ],
+    [
+     14.5,
+     [
+      120,
+      1520,
+      20
+     ]
+    ],
+    [
+     17,
+     [
+      380,
+      1760,
+      50
+     ]
+    ]
+   ],
+   "task": "SMG. 0:05'te top mid'den Xbox smoke'u, catwalk'tan short'a, Nocleva ile birlikte gir.",
+   "timeline": [
+    [
+     0,
+     "Top mid'e",
+     "Smoke pozisyonuna geç."
+    ],
+    [
+     5,
+     "Xbox smoke",
+     "Mid görüşü kapanır; catwalk'a güvenli geçersin."
+    ],
+    [
+     10,
+     "Catwalk",
+     "Nocleva'nın yanında kal."
+    ],
+    [
+     15,
+     "Short'tan giriş",
+     "Nocleva'yla çift peek."
+    ]
+   ],
+   "branches": [
+    {
+     "when": "Smoke kaçtıysa",
+     "then": "Catwalk'ta bekleme; hemen short'a geç.",
+     "why": "Standart görev (bu slot maçtan maça değişiyor, veri yok)."
+    }
+   ]
+  }
+ ],
+ "utility": [
+  {
+   "kind": "smoke",
+   "t": 5,
+   "land": [
+    -300,
+    1400,
+    -60
+   ],
+   "label": "Xbox smoke",
+   "thrower": "5",
+   "dx": -118,
+   "dy": 34
+  },
+  {
+   "kind": "flash",
+   "t": 8,
+   "land": [
+    1120,
+    1180,
+    0
+   ],
+   "label": "Long flash",
+   "thrower": "3",
+   "dx": 14,
+   "dy": 22
+  },
+  {
+   "kind": "flash",
+   "t": 12,
+   "land": [
+    430,
+    1930,
+    80
+   ],
+   "label": "Short flash",
+   "thrower": "4",
+   "dx": -112,
+   "dy": -4
+  }
+ ],
+ "events": [
+  {
+   "t": 5,
+   "kind": "smoke",
+   "title": "Xbox smoke",
+   "sub": "Tek smoke: mid'i kapat"
+  },
+  {
+   "t": 8,
+   "kind": "flash",
+   "title": "Long flash",
+   "sub": "Doors'u durmadan geç"
+  },
+  {
+   "t": 12,
+   "kind": "flash",
+   "title": "Short flash",
+   "sub": "Short kolunu aç"
+  },
+  {
+   "t": 15,
+   "kind": "entry",
+   "title": "Long + Short giriş",
+   "sub": "Bekleme yok"
+  },
+  {
+   "t": 19,
+   "kind": "plant",
+   "title": "Plant",
+   "sub": "Default plant, long'u tut"
+  }
+ ]
+}

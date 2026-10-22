@@ -28,19 +28,15 @@
   {
    "id": "r1",
    "label": "R1 · Pistol",
-   "stat": "pistol"
+   "stat": "pistol",
+   "order": 1
   },
   {
    "id": "r2-kazanirsak",
    "label": "R2 · Kazanırsak",
    "stat": "r2_after_win",
-   "note": "Aynı rush, bu kez tüfeklerle: rakip eco / force'ta."
-  },
-  {
-   "id": "r2-kaybedersek",
-   "label": "R2 · Kaybedersek",
-   "stat": "r2_after_loss",
-   "note": "Force + aynı A rush: rakip silah aldı, hız avantajı bizde kalsın."
+   "note": "Aynı rush, bu kez tüfeklerle: rakip eco / force'ta.",
+   "order": 2
   }
  ],
  "players": [

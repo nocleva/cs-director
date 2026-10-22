@@ -258,7 +258,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return render_report(request, "Taktik tahtası", f"_{exc}_")
         entry = int(strat.raw.get("entry", 0))
         return page(request, "tactic.html", user=user, strat=strat, tab=tab,
-                    tabs=[(s, t) for s in strats for t in s.tabs],
+                    tabs=tactic_view.all_tabs(strats),
                     map_label=strat.map_name.removeprefix("de_").capitalize(),
                     stat=tactic_view.stat_line(tab, ctx["stats"], strat.side),
                     entry_label=f"{entry // 60}:{entry % 60:02d}",

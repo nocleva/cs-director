@@ -14,7 +14,8 @@ Metrik türleri (hepsi Rate döner: pay / payda, örneklem görünsün diye):
 - flash_at_place: oyuncunun `place`'e düşen `side` flash'larında kör edilen rakip / atış
 - utility_damage: oyuncunun `side` utility hasarı / `side` round
 - enemy_at_place: takım `side`'dayken rakibin `window` sn'de `place`'te görüldüğü (round, oyuncu) / round
-- pattern_win: takımın `site`'a `pattern` desenli T round'larından kazanılan / round
+- pattern_win: takımın `pattern` desenli T round'larından kazanılan / round (`site` ve alım tipi
+  `buy` verilirse onlarla süzülür)
 - spot_share: oyuncunun `side` round'larından `spot` alanında / koridorunda oynadıkları
 - spot_net: `spot`'ta (kill − ölüm) / round
 - opening_attempts: oyuncunun `side` opening düellosu (kill + ölüm) / `side` round
@@ -134,8 +135,11 @@ def measure(item: TrackItem, d: DemoData, owner_sid: str) -> Rate:
                 .select("match_id", "round_no", "player").unique())
         return Rate(seen.height, tr.height)
     if item.kind == "pattern_win":
-        tp = t_round_patterns(d, owner_sid).filter((pl.col("pattern") == p["pattern"])
-                                                   & (pl.col("target_site") == p["site"]))
+        tp = t_round_patterns(d, owner_sid).filter(pl.col("pattern") == p["pattern"])
+        if "site" in p:
+            tp = tp.filter(pl.col("target_site") == p["site"])
+        if "buy" in p:
+            tp = tp.filter(pl.col("own_buy") == p["buy"])
         return Rate(int(tp["won"].sum()), tp.height)
     if item.kind in ("spot_share", "spot_net"):
         sp = player_spots(d, owner_sid)

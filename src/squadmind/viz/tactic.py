@@ -71,9 +71,15 @@ def load_strats(folder: Path = STRATS_DIR, map_name: str | None = None) -> list[
     return out
 
 
+def all_tabs(strats: list[Strat]) -> list[tuple[Strat, dict[str, Any]]]:
+    """Tüm stratların sekmeleri, sekmedeki `order` sırasıyla (yoksa dosya sırası)."""
+    pairs = [(s, t) for s in strats for t in s.tabs]
+    return sorted(pairs, key=lambda st: st[1].get("order", 99))
+
+
 def find_tab(strats: list[Strat], tab_id: str | None) -> tuple[Strat, dict[str, Any]] | None:
     """Sekme kimliğine göre (strat, sekme); kimlik yoksa / bulunmazsa ilk sekme."""
-    pairs = [(s, t) for s in strats for t in s.tabs]
+    pairs = all_tabs(strats)
     for s, t in pairs:
         if t["id"] == tab_id:
             return s, t
