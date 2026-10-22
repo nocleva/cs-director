@@ -30,6 +30,7 @@ from director.ingest.matches import profile_to_player_row, sync_player_matches
 from director.ingest.watch import DemoWatcher, process_download
 from director.parse.demo_parser import PARSER_VERSION
 from director.reports.player_report import build_player_report
+from director.reports.team_report import build_team_report
 
 app = typer.Typer(help="CS2 FACEIT Gaming Director", no_args_is_help=True)
 report_app = typer.Typer(help="Markdown raporlar", no_args_is_help=True)
@@ -483,6 +484,33 @@ def report_player(
         f"[green]Rapor hazır[/green] ({rep.demo_matches} demo maçı) — "
         f"T: {rep.t_role or 'belirgin değil'}, CT: {rep.ct_role or 'belirgin değil'}"
     )
+    console.print(str(out))
+
+
+@report_app.command("team")
+def report_team(
+    nickname: str,
+    map_name: str = typer.Option(None, "--map", help="Sadece bu harita (ör. dust2)"),
+    db: Path = DbOption,
+) -> None:
+    """Takım raporu: T desenleri, CT dizilişleri, plant / retake, ekonomi kararları."""
+    if not Path(db).exists():
+        console.print("[red]Veritabanı yok. Önce `director sync <nickname>`.[/red]")
+        raise typer.Exit(1)
+    full_map = None if not map_name else (map_name if map_name.startswith("de_")
+                                          else f"de_{map_name}")
+    with connect(db, read_only=True) as con:
+        try:
+            rep = build_team_report(con, nickname, full_map)
+        except LookupError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = f"_{full_map.removeprefix('de_')}" if full_map else ""
+    out = REPORTS_DIR / f"team_{rep.nickname}{suffix}.md"
+    out.write_text(rep.markdown, encoding="utf-8")
+    console.print(f"[green]Takım raporu hazır[/green] ({rep.matches} maç, {rep.rounds} round)")
     console.print(str(out))
 
 

@@ -16,6 +16,10 @@ Tüm komutları proje kökünden (`cs-director/`) çalıştır. Veritabanına **
    uv run director report player <nick> --map dust2  # tek harita
    ```
    Çıktı: `reports/player_<nick>.md`. Önce bunu baştan sona oku.
+   Takım soruları (taktik desenleri, CT dizilişi, ekonomi kararları) için:
+   ```bash
+   uv run director report team <nick> --map dust2   # → reports/team_<nick>_dust2.md
+   ```
 2. **Derinlemesine sorgu** (hipotezini doğrulamak için):
    ```bash
    uv run director query "<SELECT ...>"

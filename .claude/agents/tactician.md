@@ -21,13 +21,13 @@ Komutları proje kökünden (`cs-director/`) çalıştır. Sadece okuma.
    uv run director report player <nick> --map <harita>
    ```
    Kullan: rol puanları (Roller), silah payı (Silahlar), **Silah × bölge** tablosu (kill, opening, hasar, wallbang, bölgede ölüm), CT'de tutulan alan, ölüm yerleri ve trade edilme.
-2. Derin sorgu: `uv run director query "<SELECT ...>"` (şema: `src/director/db/schema.sql`).
-   ```sql
-   -- T tarafında round kazandıran plant siteleri (takımın oynadığı maçlarda)
-   SELECT r.bomb_site, count(*) round, sum((r.winner_side='T')::INT) t_kazanma
-   FROM rounds r WHERE r.bomb_site IS NOT NULL GROUP BY 1;
+2. Takım raporu (stratların temeli):
+   ```bash
+   uv run director report team <nick> --map <harita>
    ```
-3. Bölge adları ve alanlar: `src/director/analysis/maps.py` (Dust2: LongA, ShortStairs, MidDoors, Catwalk, UpperTunnel, BombsiteB ...). Stratlarda bu adları kullan ki oyuncular raporlarla eşleştirebilsin.
+   Kullan: T desenleri (rush / execute / split, site, giriş zamanı, plant ve plant sonrası kazanma), giriş rotaları (long / short / mid / tünel kombinasyonları), CT dizilişleri (A-Mid-B), plant / retake oranları, ekonomi kararları. Takımın **zaten iyi oynadığı** desenleri koru, kötü giden desen yerine veriyle desteklenen alternatif öner. "⚠️ az örnek" satırlardan kesin sonuç çıkarma.
+3. Derin sorgu: `uv run director query "<SELECT ...>"` (şema: `src/director/db/schema.sql`).
+4. Bölge adları, koridorlar ve site giriş alanları: `src/director/analysis/maps.py` (Dust2: LongA, ShortStairs, MidDoors, Catwalk, UpperTunnel, BombsiteB ...). Stratlarda bu adları kullan ki oyuncular raporlarla eşleştirebilsin.
 
 Bir oyuncunun demo verisi yoksa raporu sadece FACEIT bölümünü gösterir; o oyuncunun rolünü ve güçlü bölgesini **bilinmiyor** say, ona esnek / standart görev ver ve bunu belirt.
 

@@ -177,7 +177,8 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | 1b | ✅ Demo inbox → awpy parse → DB. Parser v3 (wallbang + hasar; utility hasarı kırpılmış). 18 Dust2 maçı işlendi, hepsi FACEIT ile doğrulandı |
 | 1c | ✅ Oyuncu metrikleri, takım içi rol puanları, silah maruziyeti (round başına), kill / hasar değeri (`analysis/impact.py`), `director report player <nick> [--map dust2]` |
 | 1d | ✅ `director` ajanı 22.10'da ilk gerçek analizi üretti (Nocleva, Dust2). `scout` ve `tactician` henüz denenmedi |
-| 2a+ | ⏳ Başlamadı |
+| 2a | ✅ `director report team <nick> [--map]`: T desenleri (rush / execute / split / girilmedi + default işareti), giriş rotaları, CT dizilişleri, plant / retake, ekonomi (`analysis/team_tactics.py`, `analysis/economy.py`) |
+| 2b+ | ⏳ Başlamadı |
 
 ### Veri ve ortam
 - Veri OneDrive DIŞINDA: `C:\Users\furka\cs-director-data` (`.env` → `DIRECTOR_DATA_DIR`). İçinde `director.duckdb`, `cache/`, `demos/{inbox,processed,tmp}`.
@@ -197,6 +198,7 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 | `director reprocess-demos` | processed/'daki demoları güncel parser ile yeniden işler (parser'a alan eklenince) |
 | `director clean-demos` | Verisi DB'de olan demo dosyalarını onayla siler |
 | `director report player <nick> [--map]` | Oyuncu raporu → `reports/player_<nick>.md` |
+| `director report team <nick> [--map]` | Takım raporu → `reports/team_<nick>.md` |
 | `director query "<SELECT>"` | Salt-okunur SQL (ajanlar için) |
 
 ### Alınan kararlar ve nedenleri
@@ -211,6 +213,9 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - **Hasar = kırpılmış hasar:** `damages.dmg_health` ham (20 canlıya AWP 115 yazar). Analiz `director.parse.damage.cap_damage` ile kalan cana göre kırpar (`dmg` kolonu, `load_demo_data` içinde); 180/180 oyuncu-maç ADR'ı FACEIT ile ≤2,3 farkla tutuyor. Parser v3 utility (HE / molotof) hasarını da kırpar.
 - **Kill değeri** (kullanıcının isteği: "low bırakmak da kritik, eco kill'in değeri farklı"): `impact.py`. Kill türü (katilin hasar payı ≥90 tek başına, <40 bitirme), kazanma olasılığı katkısı (WPA: sağ kalan sayısına göre, bu maçların verisinden, WP_PRIOR=10 ile yumuşatılmış, ekonomi hariç), ekonomi bağlamı (eco'ya kill, fakirken kill, rakip ekipmanı), öldürmeyen hasar (low ≤40, asist ≥41, hasar desteği). Sağ kalan sayısı 5 kişilik takım varsayar.
 - **Yalnız ölüm** (`death_isolation`): ölüm anında en yakın hayattaki takım arkadaşı >900 birim (3B; arkadaşın ölüm anına en yakın konum kaydı, ≤128 tick). Eşik veriden: ≤700 birimde ölümlerin ~%26'sı, 900 ötesinde ~%7'si trade ediliyor. Son kalan oyuncunun ölümü sayılmaz. Raporda Trade metrikleri + ölüm yerlerinde yalnız / arkadaş yakında ayrımı.
+- **T desen kuralları** (`team_tactics.py`; Dust2 koridor / giriş alanı tanımları `maps.py` LANES / HIT_AREAS, 184 plant round'undan): hedef site = plant edilen ya da giriş alanında en çok bulunulan; giriş = ≥3 T aynı anda giriş alanında (yoksa plant anı); rush ≤25 sn, sonra ≥2 koridor = split, tek = execute. Default = 15-20. sn'de ≥3 koridora yayılma. CT dizilişi 15-35. sn'de A-Mid-B sayıları, sadece 5 CT'nin yeri bilinen round'lar (~%60).
+- **Takım = oyuncunun her maçtaki takımı.** Nocleva'nın 18 Dust2 maçının 11'inde aynı çekirdek kadro (DeloneCS, _squ1rtle_, nicorett3).
+- **Ekonomi:** awpy alım tipi; pistol kazanılınca 2. round alımı da "force" sayılıyor. Kayıp sonrası karar o round + sonraki round ile değerlendirilir.
 - **Silah karşılaştırması round başına:** her round'a oyuncunun ana silahı atanır (`round_main_weapon`: konum kayıtlarında en çok tutulan birincil silah, yoksa pistol); `weapon_exposure` taraf × ana silah, opsiyonel bölge ve alım tipi filtresiyle. Toplam kill/hasar ile silah kıyası yapılmaz.
 
 ### Şimdiye kadarki bulgular (Nocleva, 18 Dust2 maçı)
@@ -222,12 +227,14 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - Kill değeri (lobiye göre): asist / round 0,23 (0,16), hasar desteği / round 19 (15), low bırakma 0,28 (0,19) → öldürmeyen hasarla takıma çok iş hazırlıyor; bunun büyük kısmı Scout'tan (43 low bırakma, 29'u takımca bitirildi, 46 asist; AWP'de 12 / 8 / 8). Zayıf: fakirken kill / round 0,47 (0,67; 96 round). Eco'daki rakibe kill payı %11 (lobi %6).
 - Yalnız ölüm %41 (96/232; lobi %36, belirgin zayıf). Mid Doors CT 47 ölüm: yalnız 26 (trade 2), takım arkadaşı yakındayken (medyan ~490 birim) 19 (trade **0**). Yani Mid Doors'ta sorun sadece yalnızlık değil: karşıdan vuran sniper'ı trade etmek için arkadaşın aynı açıya peek atması gerekiyor; "yanına trade oyuncusu" tek başına yetmez.
 - director ajanının ilk analizi: Mid Doors ölümleri iki desen: (a) ilk 20 sn'de karşı sniper düellosu (~20 ölüm, 17'si Top of Mid AWP/Scout'tan), (b) 30-45. sn'de Scout'la kapıda tek başına yakalanma (~27 ölüm). Ajanın "yakında takım arkadaşı" (800 birim) hesabı ad hoc, kodda değil.
+- Takım (Dust2, 188 T / 210 CT round): A rush %74 (31 round, plant sonrası %88) ve A split %100 (10, az örnek) vs A execute %53 (53; long'dan %48, short'tan %44). B execute %77 (22). Plant sonrası kazanma T %80+; rakip plant edince retake A %20 (50), B %32 (47). CT 2-2-1 %72 (40), 3-1-1 %59 (27). Kayıptan sonra çoğunlukla force (100 round, %43; sonraki round %52); eco nadir (14; o round %7, sonraki %79). Pistol kazanılınca 2. round 20/20.
 - FACEIT geneli: Dust2 %71 kazanma; Mirage %31 (13 maç), Inferno K/D 0.80 (9 maç) zayıf.
 
 ### Açık işler (öncelik sırasıyla)
 1. `inbox/` içindeki `1-806933ec-...dem.zst` awpy ile okunamıyor (protobuf UTF-8 hatası); kullanıcı silecek ya da başka bir parser (demoparser2) denenecek.
-2. Faz 2a: T tarafı ilk 20 sn pozisyonlarından taktik desenleri (default / rush / split / execute) + ekonomi kararları → `director report team`.
-3. Diğer haritalar için `analysis/maps.py` alan tanımı (şimdilik sadece Dust2).
+2. Faz 2b: `director scout <match_id>` (rakip scout). Takım raporu fonksiyonları (`team_rounds`, `t_round_patterns`, `ct_setups`) rakip için de kullanılabilir: rakip oyuncunun steam_id'si verilince onun takımını analiz eder.
+3. T desen sınıflandırmasını birkaç round'da demodan izleyerek doğrula (özellikle "girilmedi" ve default eşiği).
+4. Diğer haritalar için `analysis/maps.py` alan tanımı (şimdilik sadece Dust2).
 
 ### Bilinen teknik tuzaklar
 - DuckDB 2.x: `.pl()` yok → `pl.from_arrow(con.cursor().sql(sql, params=...).to_arrow_table())`. Açık sonuç varken aynı bağlantıda yeni sorgu hata verir (ayrı `cursor()` kullan). `ON CONFLICT DO UPDATE` içinde `current_timestamp` yerine `now()`.
