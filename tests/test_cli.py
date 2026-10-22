@@ -38,3 +38,12 @@ def test_summary_shows_own_score_first(tmp_path, make_client):
 def test_summary_without_db_fails_cleanly(tmp_path):
     result = runner.invoke(app, ["summary", "TestNick", "--db", str(tmp_path / "yok.duckdb")])
     assert result.exit_code == 1
+
+
+def test_local_demo_match_ids_reads_faceit_filenames(tmp_path):
+    from director.cli import local_demo_match_ids
+
+    mid = "1-9a8491dc-c098-4a8a-9193-dcc3ffc4831a"
+    (tmp_path / f"{mid}-1-1.dem.zst").touch()
+    (tmp_path / "rastgele.dem").touch()  # maç ID'si olmayan dosya yok sayılır
+    assert local_demo_match_ids(tmp_path, tmp_path / "yok") == {mid}

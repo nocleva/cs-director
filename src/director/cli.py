@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from director.config import DB_PATH
+from director.config import DB_PATH, DEMOS_INBOX, DEMOS_PROCESSED, REPORTS_DIR
 from director.db import connect, init_db
 from director.faceit.client import FaceitAPIError, FaceitClient, FaceitNotFound
 from director.ingest.matches import profile_to_player_row, sync_player_matches
@@ -163,6 +164,69 @@ def summary(
         _avg(kd_vals), _avg(adr_vals), _avg(hs_vals), f"{wins}/{len(rows)}",
     )
     console.print(table)
+
+
+# FACEIT demo dosya adı maç ID'siyle başlar: "1-<uuid>-1-1.dem.zst"
+MATCH_ID_RE = re.compile(r"^(1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+
+
+def local_demo_match_ids(*folders: Path) -> set[str]:
+    """inbox/processed klasörlerindeki demo dosyalarından maç ID'lerini çıkarır."""
+    ids: set[str] = set()
+    for folder in folders:
+        if not folder.exists():
+            continue
+        for f in folder.iterdir():
+            m = MATCH_ID_RE.match(f.name)
+            if m:
+                ids.add(m.group(1))
+    return ids
+
+
+@app.command("demo-links")
+def demo_links(
+    nickname: str,
+    map_name: str = typer.Option(None, "--map", help="Sadece bu harita (ör. dust2)"),
+    db: Path = DbOption,
+) -> None:
+    """Demosu henüz indirilmemiş maçların FACEIT sayfa linklerini Markdown'a yazar."""
+    have = local_demo_match_ids(DEMOS_INBOX, DEMOS_PROCESSED)
+    with connect(db, read_only=True) as con:
+        rows = con.execute(
+            """
+            SELECT m.match_id, m.date, m.map, m.score_a, m.score_b, s.faction, s.result
+            FROM matches m
+            JOIN match_player_stats s USING (match_id)
+            JOIN players p ON p.faceit_id = s.player_id
+            WHERE lower(p.nickname) = lower(?) AND m.demo_url IS NOT NULL
+              AND (? IS NULL OR m.map = 'de_' || lower(?) OR m.map = lower(?))
+            ORDER BY m.date DESC
+            """,
+            [nickname, map_name, map_name, map_name],
+        ).fetchall()
+
+    todo = [r for r in rows if r[0] not in have]
+    lines = [
+        f"# İndirilecek demolar — {nickname}",
+        "",
+        f"Elde olan: {len(rows) - len(todo)} · İndirilecek: {len(todo)}. "
+        "En yeniden eskiye; FACEIT eski demoları sildiği için üstten başla.",
+        "İndirdiğin `.dem.zst` dosyalarını `data/demos/inbox/` içine at.",
+        "",
+        "| # | Tarih | Harita | Skor | Sonuç | Maç sayfası |",
+        "|---|---|---|---|---|---|",
+    ]
+    for i, (mid, date, mp, sa, sb, faction, won) in enumerate(todo, 1):
+        own, opp = (sa, sb) if faction == "faction1" else (sb, sa)
+        lines.append(
+            f"| {i} | {date:%Y-%m-%d} | {(mp or '?').removeprefix('de_')} | {own}-{opp} | "
+            f"{'G' if won else 'M'} | [aç](https://www.faceit.com/tr/cs2/room/{mid}) |"
+        )
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = REPORTS_DIR / "demo_links.md"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    console.print(f"[green]{len(todo)} maç listelendi[/green] (elde olan {len(rows) - len(todo)}): {out}")
 
 
 if __name__ == "__main__":
