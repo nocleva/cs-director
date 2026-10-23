@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block title %}Taktik oluştur · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .setup { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+  .setup label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .6px; }
+  .setup input[type=text] { width: 260px; }
+  .seg { display: inline-flex; border: 1px solid var(--bg-3); border-radius: 6px; overflow: hidden; }
+  .seg button { height: 40px; border-radius: 0; background: transparent; color: var(--text-2); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg-0); }
+  .seg button:disabled { opacity: .4; cursor: not-allowed; }
+  .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--bg-2); border-radius: 12px; padding: 14px; }
+  .panel h2 { font-size: 13px; margin-bottom: 10px; }
+  .search { width: 100%; margin-bottom: 10px; }
+  .plist { display: grid; gap: 6px; max-height: 560px; overflow-y: auto; }
+  .chip { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--bg-1); border: 1px solid transparent; cursor: grab; user-select: none; transition: border-color 150ms, transform 150ms; text-align: left; height: auto; color: var(--line); font: inherit; width: 100%; justify-content: flex-start; }
+  .chip:hover { border-color: var(--bg-3); transform: translateX(2px); }
+  .chip[aria-pressed="true"] { border-color: var(--accent); }
+  .chip.placed { opacity: .45; }
+  .chip .nm { font-weight: 600; font-size: 13px; }
+  .chip .meta { font-size: 11px; color: var(--muted); }
+  .chip .tag { margin-left: auto; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 100px; background: rgba(243,115,33,.15); color: var(--accent); letter-spacing: .4px; }
+  .lvl-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--c); }
+  .boardwrap { background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 12px; padding: 12px; }
+  .board { position: relative; width: 100%; max-width: 640px; margin: 0 auto; touch-action: none; }
+  .board svg { display: block; width: 100%; height: auto; }
+  .board svg.ov { position: absolute; inset: 0; cursor: crosshair; }
+  .board.drop-ok { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: 8px; }
+  .hint { font-size: 12px; color: var(--muted); text-align: center; margin: 10px 0 0; }
+  .pcard { border-top: 1px solid var(--bg-3); padding: 10px 0; }
+  .pcard:first-of-type { border-top: 0; padding-top: 0; }
+  .pcard .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .pcard .nm { font-weight: 700; }
+  .pcard .pl { font-size: 12px; color: var(--accent-2); }
+  /* güç çubuğu (sınıf adı üst menünün .bar'ıyla çakışmasın) */
+  .sbar { height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; margin: 4px 0 2px; }
+  .sbar > div { height: 100%; }
+  .ln { font-size: 12px; margin-top: 6px; }
+  .ln .muted { font-size: 11px; }
+  .best { font-size: 11px; margin-top: 6px; color: var(--text-2); }
+  .best b { color: var(--ok); }
+  .rm { background: transparent; color: var(--muted); height: 24px; padding: 0 6px; font-size: 11px; }
+  .empty { color: var(--muted); font-size: 13px; }
+  .locked { font-size: 12px; color: var(--muted); border: 1px dashed var(--bg-3); border-radius: 8px; padding: 10px; margin-top: 12px; }
+  .saved { display: grid; gap: 6px; }
+  .saved .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: var(--bg-1); border-radius: 8px; }
+  .saved a { color: var(--line); text-decoration: none; font-weight: 600; }
+  .saved form { display: inline; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <div class="eyebrow">Taktik oluştur · Dust2</div>
+    <h1>{{ current.name if current else "Yeni taktik" }}</h1>
+    <p class="sub">Oyuncuları haritaya yerleştir; her noktada oyuncunun o bölgedeki peek hatlarındaki gerçek düello kaydı görünür.</p>
+  </div>
+</div>
+
+<div class="setup">
+  <div><label for="tname">Taktik adı</label><input type="text" id="tname" maxlength="60" placeholder="ör. Hızlı A long" value="{{ current.name if current else '' }}"></div>
+  <div><label>Harita</label>
+    <div class="seg"><button type="button" aria-pressed="true">Dust2</button><button type="button" disabled title="Peek hatları henüz tanımlı değil">Mirage</button><button type="button" disabled title="Peek hatları henüz tanımlı değil">Inferno</button></div></div>
+  <div><label>Taraf</label>
+    <div class="seg" id="sideSeg"><button type="button" data-side="T" aria-pressed="true">T</button><button type="button" data-side="CT" aria-pressed="false">CT</button></div></div>
+  <button type="button" id="save">Kaydet</button>
+  <span class="muted" id="saveMsg" style="font-size:12px"></span>
+</div>
+
+<div class="layout">
+  <aside class="panel">
+    <h2>Oyuncular</h2>
+    <input type="text" class="search" id="search" placeholder="Ara…" aria-label="Oyuncu ara">
+    <div class="plist" id="plist"></div>
+    <p class="hint" style="text-align:left">Listede sen ve takımlarında daveti kabul eden oyuncular var. Başkasını eklemek için <a href="/takimlar">takımına davet et</a>.</p>
+  </aside>
+
+  <section class="boardwrap" aria-label="Taktik tahtası">
+    <div class="board" id="board">
+      {{ board | safe }}
+      <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-label="Yerleşimler"></svg>
+    </div>
+    <p class="hint">Oyuncuyu listeden tahtaya sürükle, ya da seçip tahtada bir noktaya tıkla. Yerleştirdiğin oyuncuyu tahtada sürükleyerek taşıyabilirsin (en fazla 5).</p>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h2>Yerleşimler</h2>
+      <div id="cards"><p class="empty">Henüz oyuncu yerleştirilmedi.</p></div>
+      <div class="locked"><b>Rakip modu</b> yakında: karşılaşma tahmini, istatistik doğrulaması tamamlanınca açılacak. Şu an rakipler verimizde çoğunlukla tek maçlık; tahmin güvenilir değil.</div>
+    </div>
+    {% if saved %}
+    <div class="panel" style="margin-top:14px">
+      <h2>Kayıtlı taktiklerim</h2>
+      <div class="saved">
+        {% for t in saved %}
+        <div class="row"><a href="/olustur?id={{ t.id }}">{{ t.name }}</a><span class="muted" style="font-size:11px">{{ t.side }}</span>
+          <form method="post" action="/olustur/{{ t.id }}/sil"><button class="rm" type="submit" aria-label="Sil">Sil</button></form></div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+
+<script id="payload" type="application/json">{{ payload | tojson }}</script>
+<script>
+const P = JSON.parse(document.getElementById("payload").textContent);
+const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov"), board = document.getElementById("board");
+const C = { t: "#F37321", ct: "#3DB5AE", line: "#E9EBEE", bg0: "#111214", ok: "#3FB950", low: "#E5484D", mid: "#F37321" };
+const el = (tag, a, p = ov) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; };
+const byId = Object.fromEntries(P.players.map((p) => [p.steam_id, p]));
+let side = "T", selected = null, placements = [];
+if (P.current) { side = P.current.side; placements = JSON.parse(P.current.data || "[]").filter((q) => byId[q.steam_id]); }
+
+// Dünya ↔ piksel (tahtanın izdüşümü; y ekseni ters)
+const toPx = (x, y) => [(x - P.proj.minx) * P.proj.s + P.proj.pad, (P.proj.maxy - y) * P.proj.s + P.proj.pad];
+const toWorld = (px, py) => [(px - P.proj.pad) / P.proj.s + P.proj.minx, P.proj.maxy - (py - P.proj.pad) / P.proj.s];
+function svgPoint(evt) {
+  const pt = ov.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+  return pt.matrixTransform(ov.getScreenCTM().inverse());
+}
+// Noktanın bölgesi: oyuncuların gerçek konum kayıtlarından kurulan ızgarada en yakın hücre
+function placeAt(x, y) {
+  let best = null, bd = 320;
+  for (const [gx, gy, , place] of P.grid) { const d = Math.hypot(gx - x, gy - y); if (d < bd) { bd = d; best = place; } }
+  return best;
+}
+const linesOf = (place) => Object.entries(P.linePlaces).filter(([, ps]) => ps.includes(place)).map(([id]) => id);
+const pct = (v) => "%" + Math.round(100 * v);
+const color = (v) => v >= 0.55 ? C.ok : v <= 0.45 ? C.low : C.mid;
+const demoLvl = (n) => n >= 10 ? "ok" : n > 5 ? "mid" : "low";
+
+// --- oyuncu listesi ---
+const plist = document.getElementById("plist"), search = document.getElementById("search");
+function renderList() {
+  const q = search.value.trim().toLowerCase(); plist.innerHTML = "";
+  P.players.filter((p) => !q || (p.nickname || "").toLowerCase().includes(q)).forEach((p, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip lvl-" + demoLvl(p.demos);
+    b.draggable = true; b.dataset.sid = p.steam_id;
+    b.setAttribute("aria-pressed", selected === p.steam_id ? "true" : "false");
+    if (placements.some((q2) => q2.steam_id === p.steam_id)) b.classList.add("placed");
+    b.innerHTML = `<span class="lvl-dot"></span><span><span class="nm"></span><br><span class="meta"></span></span>`;
+    b.querySelector(".nm").textContent = p.nickname + (p.me ? " (sen)" : "");
+    b.querySelector(".meta").textContent = `${p.demos} Dust2 demosu${p.level ? " · L" + p.level : ""}`;
+    if (!p.me && p.rank < 3) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "ÖNERİLEN"; b.appendChild(t); }
+    b.addEventListener("click", () => { selected = selected === p.steam_id ? null : p.steam_id; renderList(); });
+    b.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", p.steam_id); });
+    plist.appendChild(b);
+  });
+}
+search.addEventListener("input", renderList);
+
+// --- yerleştirme ---
+function put(sid, px, py) {
+  const [x, y] = toWorld(px, py);
+  const place = placeAt(x, y);
+  const existing = placements.find((q) => q.steam_id === sid);
+  if (existing) Object.assign(existing, { x, y, place });
+  else if (placements.length >= 5) { flash("En fazla 5 oyuncu yerleştirilebilir."); return; }
+  else placements.push({ steam_id: sid, x, y, place });
+  render();
+}
+board.addEventListener("dragover", (e) => { e.preventDefault(); board.classList.add("drop-ok"); });
+board.addEventListener("dragleave", () => board.classList.remove("drop-ok"));
+board.addEventListener("drop", (e) => { e.preventDefault(); board.classList.remove("drop-ok"); const sid = e.dataTransfer.getData("text/plain"); if (byId[sid]) { const p = svgPoint(e); put(sid, p.x, p.y); } });
+ov.addEventListener("click", (e) => { if (dragging || !selected) return; const p = svgPoint(e); put(selected, p.x, p.y); selected = null; renderList(); });
+
+// Tahtadaki jetonu sürükleme (fare + dokunmatik)
+let dragging = null;
+ov.addEventListener("pointermove", (e) => { if (!dragging) return; const p = svgPoint(e); dragging.moved = true; const q = placements.find((r) => r.steam_id === dragging.sid); [q.x, q.y] = toWorld(p.x, p.y); q.place = placeAt(q.x, q.y); render(); });
+const endDrag = () => { if (dragging) setTimeout(() => { dragging = null; }, 0); };
+ov.addEventListener("pointerup", endDrag); ov.addEventListener("pointerleave", endDrag);
+
+function render() {
+  ov.innerHTML = "";
+  const col = side === "T" ? C.t : C.ct;
+  placements.forEach((q, i) => {
+    const [px, py] = toPx(q.x, q.y);
+    const g = el("g", { transform: `translate(${px.toFixed(1)},${py.toFixed(1)})`, style: "cursor:grab" });
+    el("circle", { r: 14, fill: "transparent" }, g);
+    el("circle", { r: 6.5, fill: col, stroke: C.bg0, "stroke-width": 1.2 }, g);
+    const t = el("text", { y: 2.8, "text-anchor": "middle", "font-size": 7.5, "font-weight": 800, fill: C.bg0, "font-family": "Inter, sans-serif" }, g); t.textContent = i + 1;
+    const n = el("text", { x: 9, y: -7, "font-size": 9, "font-weight": 600, fill: C.line, "paint-order": "stroke", stroke: C.bg0, "stroke-width": 2.5, "font-family": "Inter, sans-serif" }, g);
+    n.textContent = byId[q.steam_id].nickname;
+    g.addEventListener("pointerdown", (e) => { e.stopPropagation(); dragging = { sid: q.steam_id, moved: false }; ov.setPointerCapture(e.pointerId); });
+  });
+  renderCards(); renderList();
+}
+
+// Oyuncunun bir bölgedeki gücü: bölgeye bağlı hatlardaki kayıtlar (yoksa genel güç)
+function strengthAt(sid, place) {
+  const card = P.cards[sid] || { lines: {}, overall: null, duels: 0 };
+  const rows = linesOf(place).map((ln) => ({ ln, v: card.lines[`${ln}|${side}`] })).filter((r) => r.v);
+  return { rows, overall: card.overall, duels: card.duels };
+}
+function bestFor(place, exclude) {
+  let best = null;
+  for (const p of P.players) {
+    if (p.steam_id === exclude) continue;
+    for (const { v } of strengthAt(p.steam_id, place).rows) {
+      if (v.conf === "az") continue;
+      if (!best || v.strength > best.v.strength) best = { p, v };
+    }
+  }
+  return best;
+}
+function renderCards() {
+  const box = document.getElementById("cards");
+  if (!placements.length) { box.innerHTML = `<p class="empty">Henüz oyuncu yerleştirilmedi.</p>`; return; }
+  box.innerHTML = "";
+  placements.forEach((q, i) => {
+    const p = byId[q.steam_id], s = strengthAt(q.steam_id, q.place);
+    const d = document.createElement("div"); d.className = "pcard";
+    let html = `<div class="top"><span class="nm">${i + 1}. </span><span class="pl"></span><button class="rm" type="button">Kaldır</button></div>`;
+    if (!q.place) html += `<p class="ln muted">Bu nokta oyuncuların gezdiği alanların dışında.</p>`;
+    else if (!s.rows.length) html += `<p class="ln muted">Bu bölgede (${q.place}) ${side} tarafında peek hattı kaydı yok.${s.overall != null ? " Genel düello gücü " + pct(s.overall) + " (" + s.duels + " düello)." : ""}</p>`;
+    s.rows.forEach(({ ln, v }) => {
+      html += `<div class="ln">${P.lineNames[ln]} · <b style="color:${color(v.strength)}">${pct(v.strength)}</b> <span class="muted">· ${v.wins}/${v.n} düello · güven ${v.conf}</span>
+        <div class="sbar"><div style="width:${Math.round(100 * v.strength)}%;background:${color(v.strength)}"></div></div></div>`;
+    });
+    const best = q.place ? bestFor(q.place, q.steam_id) : null;
+    const mine = s.rows.filter((r) => r.v.conf !== "az").reduce((m, r) => Math.max(m, r.v.strength), 0);
+    if (best && best.v.strength > mine + 0.03) {
+      // Önerilen oyuncu başka bir noktaya yerleşikse bu bir takas önerisidir
+      const at = placements.find((r) => r.steam_id === best.p.steam_id);
+      html += `<p class="best">Bu noktada daha güçlü: <b></b> (${pct(best.v.strength)}, ${best.v.n} düello)${at ? " · şu an " + (at.place || "başka noktada") + ", takas düşünülebilir" : ""}</p>`;
+    }
+    d.innerHTML = html;
+    d.querySelector(".nm").textContent = `${i + 1}. ${p.nickname}`;
+    d.querySelector(".pl").textContent = q.place || "bilinmeyen alan";
+    if (best && d.querySelector(".best b")) d.querySelector(".best b").textContent = best.p.nickname;
+    d.querySelector(".rm").addEventListener("click", () => { placements = placements.filter((r) => r !== q); render(); });
+    box.appendChild(d);
+  });
+}
+
+// --- taraf, kaydet ---
+document.querySelectorAll("#sideSeg button").forEach((b) => {
+  b.setAttribute("aria-pressed", b.dataset.side === side ? "true" : "false");
+  b.addEventListener("click", () => { side = b.dataset.side; document.querySelectorAll("#sideSeg button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); render(); });
+});
+function flash(msg) { const m = document.getElementById("saveMsg"); m.textContent = msg; setTimeout(() => { m.textContent = ""; }, 3000); }
+document.getElementById("save").addEventListener("click", async () => {
+  const body = { id: P.current ? P.current.id : null, name: document.getElementById("tname").value, side,
+                 placements: placements.map((q) => ({ steam_id: q.steam_id, x: +q.x.toFixed(1), y: +q.y.toFixed(1), place: q.place })) };
+  const r = await fetch("/api/olustur", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { flash((await r.json()).detail || "Kaydedilemedi"); return; }
+  const { id } = await r.json(); location.href = "/olustur?id=" + id;
+});
+// Kayıtlı taktik yüklenince bölgeler güncel ızgaraya göre yeniden bulunur
+placements.forEach((q) => { q.place = placeAt(q.x, q.y); });
+render();
+</script>
+{% endblock %}

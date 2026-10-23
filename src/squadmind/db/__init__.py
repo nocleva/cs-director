@@ -16,7 +16,8 @@ SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 # v5: web_users, web_uploads (davetle katılım ve web yüklemeleri).
 # v6: takım oluşturma (web_teams, web_team_members), yüklemede harita, kadro erişimi.
 # v7: label_reviews (desen etiketlerinin insan doğrulaması, Faz 2b).
-SCHEMA_VERSION = 7
+# v8: user_tactics (taktik oluşturucuda kaydedilen yerleşimler).
+SCHEMA_VERSION = 8
 
 # v3'te mevcut tablolara eklenen kolonlar (eski DB'ler için)
 _V3_COLUMNS = (

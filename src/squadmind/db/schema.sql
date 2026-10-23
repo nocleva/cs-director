@@ -259,3 +259,15 @@ CREATE TABLE IF NOT EXISTS label_reviews (
     reviewed_at TIMESTAMP DEFAULT current_timestamp,
     PRIMARY KEY (match_id, round_no, reviewer)
 );
+
+-- Kullanıcının oluşturduğu taktikler (şema v8): oyuncu yerleşimleri JSON olarak
+CREATE TABLE IF NOT EXISTS user_tactics (
+    id          VARCHAR PRIMARY KEY,
+    owner       VARCHAR,                 -- oluşturanın steam_id'si
+    name        VARCHAR,
+    map         VARCHAR,
+    side        VARCHAR,                 -- T / CT
+    data        VARCHAR,                 -- JSON: [{steam_id, x, y, place}]
+    created_at  TIMESTAMP DEFAULT current_timestamp,
+    updated_at  TIMESTAMP DEFAULT current_timestamp
+);

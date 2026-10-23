@@ -299,3 +299,30 @@ class Store:
         keys = ("match_id", "round_no", "label", "target_site", "verdict", "corrected", "note",
                 "reviewer", "reviewed_at")
         return [dict(zip(keys, r, strict=True)) for r in rows]
+
+    # --- taktik oluşturucu -----------------------------------------------------------
+
+    def save_tactic(self, owner: str, name: str, map_name: str, side: str, data: str,
+                    tactic_id: str | None = None) -> str:
+        """Yeni taktik ya da (aynı sahibin) mevcut taktiğini günceller; kimliği döner."""
+        with self.cursor() as cur:
+            if tactic_id and cur.execute("SELECT 1 FROM user_tactics WHERE id = ? AND owner = ?",
+                                         [tactic_id, owner]).fetchone():
+                cur.execute("UPDATE user_tactics SET name = ?, map = ?, side = ?, data = ?, "
+                            "updated_at = now() WHERE id = ?", [name, map_name, side, data, tactic_id])
+                return tactic_id
+            new_id = uuid.uuid4().hex[:12]
+            cur.execute("INSERT INTO user_tactics (id, owner, name, map, side, data) "
+                        "VALUES (?, ?, ?, ?, ?, ?)", [new_id, owner, name, map_name, side, data])
+            return new_id
+
+    def tactics_of(self, owner: str) -> list[dict[str, Any]]:
+        with self.cursor() as cur:
+            rows = cur.execute("SELECT id, name, map, side, data, updated_at FROM user_tactics "
+                               "WHERE owner = ? ORDER BY updated_at DESC", [owner]).fetchall()
+        keys = ("id", "name", "map", "side", "data", "updated_at")
+        return [dict(zip(keys, r, strict=True)) for r in rows]
+
+    def delete_tactic(self, owner: str, tactic_id: str) -> None:
+        with self.cursor() as cur:
+            cur.execute("DELETE FROM user_tactics WHERE id = ? AND owner = ?", [tactic_id, owner])

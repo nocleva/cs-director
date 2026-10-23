@@ -27,6 +27,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from squadmind.faceit.client import FaceitAPIError, FaceitClient, FaceitNotFound
 from squadmind.analysis import label_review as lr
+from squadmind.analysis import tactic_builder as tbld
 from squadmind.analysis import team_builder as tb
 from squadmind.ingest import demos as demo_rules
 from squadmind.ingest.matches import profile_to_player_row, upsert_players
@@ -571,6 +572,115 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         reviews = store.reviews()
         return JSONResponse({"accuracy": lr.accuracy(reviews),
                              "reviews": [{**r, "reviewed_at": str(r["reviewed_at"])} for r in reviews]})
+
+    # --- taktik oluşturucu ------------------------------------------------------------
+
+    _builder_cache: dict[tuple, dict] = {}
+
+    def builder_model(map_name: str) -> dict:
+        """Haritanın düello modeli, bölge ızgarası ve tahta; demo sayısı değişince yenilenir."""
+        from squadmind.analysis import duels as du
+        from squadmind.analysis.maps import BOARD_PLACES
+        from squadmind.analysis.player_metrics import load_demo_data
+        from squadmind.viz.board import TAKTIK, Board, _Projection, map_polygons, render_board
+
+        def build(con):
+            n = con.execute("SELECT count(*) FROM matches WHERE demo_status = 'processed' AND map = ?",
+                            [map_name]).fetchone()[0]
+            key = (map_name, n)
+            if key not in _builder_cache:
+                d = load_demo_data(con, map_name)
+                width, pad = 640, 16
+                proj = _Projection(map_polygons(map_name), width, pad)
+                _builder_cache.clear()
+                _builder_cache[key] = {
+                    "model": du.strengths(du.duels(d, map_name)), "grid": tbld.place_grid(d),
+                    "board": render_board(Board(map_name, places=BOARD_PLACES.get(map_name, {}),
+                                                target_places=[]), width=width, pad=pad, theme=TAKTIK),
+                    "proj": {"minx": proj.minx, "maxy": proj.maxy, "s": proj.s, "pad": proj.pad,
+                             "w": width, "h": proj.height},
+                }
+            return _builder_cache[key]
+        return store.run(build, lock=False)
+
+    def builder_players(user: WebUser, map_name: str) -> list[dict]:
+        """Taktikte kullanılabilecek oyuncular (izin modeli): kendisi, takımlarında daveti kabul
+        etmiş üyeler ve kadro erişimi varsa takım sahibinin çekirdek kadrosu. Öneri sırası:
+        en çok aynı tarafta oynananlar önce."""
+        def load(con):
+            ids = {user.faceit_id}
+            for t in store.teams_of(user.faceit_id):
+                if t["status"] == "üye":
+                    ids |= {m["faceit_id"] for m in store.team_members(t["id"]) if m["status"] == "üye"}
+            if user.team_access and settings.team_owner:
+                owner = con.execute("SELECT faceit_id FROM players WHERE lower(nickname) = lower(?)",
+                                    [settings.team_owner]).fetchone()
+                if owner:
+                    ids.add(owner[0])
+                    ids |= {r["faceit_id"] for r in tb.played_with(con, owner[0], limit=4, min_together=10)}
+            rows = con.execute(
+                """
+                SELECT p.faceit_id, p.steam_id, p.nickname, p.level,
+                       count(DISTINCT m.match_id) FILTER (WHERE m.demo_status = 'processed' AND m.map = ?) AS demos
+                FROM players p LEFT JOIN match_player_stats s ON s.player_id = p.faceit_id
+                LEFT JOIN matches m ON m.match_id = s.match_id
+                WHERE list_contains(?, p.faceit_id) AND p.steam_id IS NOT NULL
+                GROUP BY 1, 2, 3, 4
+                """, [map_name, list(ids)]).fetchall()
+            rank = {r["faceit_id"]: i for i, r in enumerate(tb.played_with(con, user.faceit_id, limit=50, min_together=1))}
+            out = [{"faceit_id": f, "steam_id": s, "nickname": n, "level": lv, "demos": dm,
+                    "me": f == user.faceit_id, "rank": -1 if f == user.faceit_id else rank.get(f, 999)}
+                   for f, s, n, lv, dm in rows]
+            return sorted(out, key=lambda r: (r["rank"], (r["nickname"] or "").lower()))
+        return store.run(load, lock=False)
+
+    @app.get("/olustur", response_class=HTMLResponse)
+    def builder_page(request: Request, id: str = ""):
+        user = current_user(request)
+        if user is None:
+            return RedirectResponse("/", status_code=303)
+        map_name = "de_dust2"   # şimdilik peek hatları sadece Dust2'de tanımlı
+        try:
+            bm = builder_model(map_name)
+        except Exception:  # noqa: BLE001 - veri yoksa sayfa açıklama gösterir
+            log.exception("taktik oluşturucu modeli kurulamadı")
+            return render_report(request, "Taktik oluştur", "_Bu harita için henüz yeterli veri yok._")
+        players = builder_players(user, map_name)
+        cards = tbld.player_cards(bm["model"], map_name, [p["steam_id"] for p in players])
+        saved = store.tactics_of(user.steam_id)
+        current = next((t for t in saved if t["id"] == id), None)
+        payload = {
+            "map": map_name, "proj": bm["proj"], "grid": bm["grid"], "players": players, "cards": cards,
+            "lineNames": tbld.line_names(map_name), "linePlaces": tbld.line_places(map_name),
+            "base": {f"{ln}|{sd}": round(p, 3) for (ln, sd), p in bm["model"]["base"].items()},
+            "current": None if current is None else {**current, "updated_at": str(current["updated_at"])},
+        }
+        return page(request, "builder.html", user=user, board=bm["board"], payload=payload,
+                    saved=saved, current=current, w=bm["proj"]["w"], h=bm["proj"]["h"])
+
+    @app.post("/api/olustur")
+    async def builder_save(request: Request):
+        user = require_user(request)
+        body = await request.json()
+        name = str(body.get("name", "")).strip()[:60] or "Adsız taktik"
+        side = body.get("side") if body.get("side") in ("T", "CT") else "T"
+        allowed = {p["steam_id"] for p in builder_players(user, "de_dust2")}
+        placements = []
+        for pl_ in (body.get("placements") or [])[:5]:
+            if pl_.get("steam_id") not in allowed:
+                raise HTTPException(403, "Bu oyuncunun verisini kullanma iznin yok.")
+            placements.append({"steam_id": pl_["steam_id"], "x": float(pl_["x"]), "y": float(pl_["y"]),
+                               "place": str(pl_.get("place") or "")[:40]})
+        import json as _json
+        tid = store.save_tactic(user.steam_id, name, "de_dust2", side, _json.dumps(placements),
+                                str(body.get("id") or "") or None)
+        return {"id": tid}
+
+    @app.post("/olustur/{tactic_id}/sil")
+    def builder_delete(request: Request, tactic_id: str):
+        user = require_user(request)
+        store.delete_tactic(user.steam_id, tactic_id)
+        return RedirectResponse("/olustur", status_code=303)
 
     # --- takım oluşturma ---------------------------------------------------------------
 

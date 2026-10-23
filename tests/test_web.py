@@ -424,3 +424,20 @@ def test_login_link_signs_in_known_user_only(web):
     assert r.headers["location"] == "/ben" and "squadmind_oturum" in r.headers["set-cookie"]
     other = make_login_link("baska-secret", "http://x", SELF).split("?t=")[1]
     assert "süresi dolmuş" in client.get(f"/giris/link?t={other}").text
+
+
+def test_tactic_builder_saves_only_permitted_players(web):
+    client, store = web
+    _join(client)
+    assert client.get("/olustur").status_code == 200        # veri azsa açıklama sayfası
+    ok = client.post("/api/olustur", json={"name": "Deneme", "side": "CT",
+                                           "placements": [{"steam_id": SELF, "x": 1, "y": 2}]})
+    assert ok.status_code == 200
+    saved = store.tactics_of(SELF)
+    assert [(t["name"], t["side"]) for t in saved] == [("Deneme", "CT")]
+    # Takımına katılmamış birinin verisi kullanılamaz
+    bad = client.post("/api/olustur", json={"name": "x", "placements": [{"steam_id": "76561100000000099", "x": 0, "y": 0}]})
+    assert bad.status_code == 403
+    # Aynı kimlikle kaydetmek kendi taktiğini günceller (yeni kayıt açmaz)
+    again = client.post("/api/olustur", json={"id": saved[0]["id"], "name": "Yeni ad", "placements": []})
+    assert again.json()["id"] == saved[0]["id"] and store.tactics_of(SELF)[0]["name"] == "Yeni ad"
