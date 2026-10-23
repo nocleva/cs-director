@@ -557,15 +557,36 @@ def _residual_part(model: RatingModel, steam_id: str, line: str | None, side: st
     return r, v, dn, ln
 
 
+# --- Can farkı (statistician-validation, profesör kararı 23.10) ------------------------------
+# Can = iki oyuncu arasındaki ilk hasardan ÖNCEKİ can (o rakipten alınan hasar hariç). Sınama:
+# 2.607 kill'le biten Dust2 düellosu, ELO + silah tabanına ek log-kayıp kazancı ileri +0,026
+# [+0,015; +0,036], bir-maç-dışarıda +0,030 [+0,021; +0,039]. Tam veride katsayı 0,801 / 50 HP;
+# ileri kalibrasyon eğimi 0,895 olduğu için bu oranla küçültüldü → 0,717 (eğim 0,96-1,06).
+# Standart hata maç-kümeli bootstrap'tan (Hessian 0,060'tan geniş olanı). ELO ve silah eşitken
+# 50 HP fark ≈ %67 [%64; %70]. Can kullanıcının girdiği bir DURUMDUR, oyuncu gücü değil.
+HP_COEF = 0.717           # logit / 50 HP
+HP_SE = 0.082
+HP_UNIT = 50.0
+
+
+def hp_term(hp_a: float, hp_b: float) -> tuple[float, float]:
+    """A − B can farkının logit katkısı ve varyansı (can 1-100'e kırpılır)."""
+    d = (min(max(hp_a, 1.0), 100.0) - min(max(hp_b, 1.0), 100.0)) / HP_UNIT
+    return HP_COEF * d, (HP_SE * d) ** 2
+
+
 def matchup(model: RatingModel, a: str, side_a: str, b: str, line: str | None,
             fa: PlayerFeatures, fb: PlayerFeatures, band: str | None = None, *,
             weapon: WeaponEffect | None = None, cls_a: str | None = None,
-            cls_b: str | None = None, dist: float | None = None) -> Matchup:
+            cls_b: str | None = None, dist: float | None = None,
+            hp_a: float = 100.0, hp_b: float = 100.0) -> Matchup:
     """P(A, B'yi yener): A `side_a` tarafında, `line` hattında (None = hat dışı).
 
     `band` sadece model base="line" ile kurulduysa ve o hat × dilim varsa tabanı değiştirir.
     `weapon` (opsiyonel, varsayılan kapalı): silah sınıfları (`cls_a`, `cls_b`) ve mesafe
     (`dist`) da verilirse silah etkisi eklenir; biri eksikse hiç eklenmez.
+    `hp_a` / `hp_b`: düelloya girerken can (varsayılan 100/100 = etkisiz); logite eklenir,
+    olasılık yine `bound` ile %20-80'de kalır.
     """
     key = _line_key(line)
     base_t = model.base_band.get((key, band)) if band else None
@@ -586,6 +607,9 @@ def matchup(model: RatingModel, a: str, side_a: str, b: str, line: str | None,
         wx = weapon_x(cls_a, cls_b, dist, weapon.simple)
         delta += float(wx @ weapon.beta)
         var += float(wx @ weapon.cov @ wx)
+    h, hv = hp_term(hp_a, hp_b)
+    delta += h
+    var += hv
     sd = math.sqrt(max(var, 0.0))
     p = _sigmoid(base + bound(delta))
     lo = _sigmoid(base + bound(delta - Z90 * sd))

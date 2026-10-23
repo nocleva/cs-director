@@ -161,3 +161,21 @@ def test_class_band_record_counts_both_sides_and_filters():
     assert rs.height == 1 and rs["band"][0] == "uzak"
     assert du.class_band_record(du_.head(0)).height == 0
     assert du.class_band_record(du_)["player"].n_unique() == 3
+
+
+# --- Can farkı (profesör kararı 23.10) -------------------------------------------------------
+
+def test_hp_term_neutral_symmetric_and_clamped():
+    # Eşit can etkisiz; işaret A − B farkına göre; 1-100 dışı kırpılır
+    assert rt.hp_term(100, 100) == (0.0, 0.0)
+    assert rt.hp_term(37, 37)[0] == 0.0
+    up, var = rt.hp_term(100, 50)
+    assert up == pytest.approx(rt.HP_COEF) and var == pytest.approx(rt.HP_SE ** 2)
+    assert rt.hp_term(50, 100)[0] == pytest.approx(-up)
+    assert rt.hp_term(500, -20) == rt.hp_term(100, 1)
+
+
+def test_hp_50_gap_is_about_67_percent_on_even_logit():
+    # ELO ve silah eşitken (logit 0) 50 HP fark ≈ %67 (sınama raporu: %67,2)
+    p = 1 / (1 + math.exp(-rt.bound(rt.hp_term(100, 50)[0])))
+    assert 0.64 < p < 0.70

@@ -663,8 +663,19 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                 and _rating_cache["weapon"] is not None:
             wkw = {"weapon": _rating_cache["weapon"], "cls_a": wa, "cls_b": wb, "dist": dist}
         # Ana olasılık: yalnız canlı ELO (κ=0). Stat düzeltmeli olasılık ayrı satır (kanıtı zayıf)
-        m0 = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa0, fb0, **wkw)
-        m = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa, fb, **wkw)
+        # Can (profesör kararı 23.10: ana olasılığa eklenir; kart ayrıca "can eşitken" satırını gösterir)
+        def _hp(v) -> float:
+            try:
+                return min(100.0, max(1.0, float(v)))
+            except (TypeError, ValueError):
+                return 100.0
+        hp_a, hp_b = _hp(a.get("hp", 100)), _hp(b.get("hp", 100))
+        m0 = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa0, fb0, hp_a=hp_a, hp_b=hp_b, **wkw)
+        m = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa, fb, hp_a=hp_a, hp_b=hp_b, **wkw)
+        if (hp_a, hp_b) != (100.0, 100.0):
+            meq = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa0, fb0, **wkw)
+            out["hp"] = {"a": hp_a, "b": hp_b, "p_eq": round(meq.p, 3), "lo_eq": round(meq.lo, 3),
+                         "hi_eq": round(meq.hi, 3)}
         conf = m0.conf
         if b_key == "ortalama":
             # Ortalama rakip bir tanım (verilen ELO'da popülasyon ortalaması), eksik veri değil:
