@@ -349,6 +349,22 @@ def ingest_demos(
             console.print(t)
 
 
+@app.command("faceit-check")
+def faceit_check() -> None:
+    """FACEIT ile giriş istemcisinin kimliği / secret'ı FACEIT'te geçerli mi (DB açmaz)."""
+    from squadmind.config import FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL
+    from squadmind.web.faceit_auth import FaceitOAuth
+
+    if not (FACEIT_CLIENT_ID and FACEIT_CLIENT_SECRET):
+        console.print("[red].env içinde FACEIT_CLIENT_ID / FACEIT_CLIENT_SECRET yok.[/red]")
+        raise typer.Exit(1)
+    result = FaceitOAuth(FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL).check_credentials()
+    console.print(result)
+    # Kimlik geçerli değilse betiklerde fark edilsin diye hata koduyla çık
+    if not result.startswith("400"):
+        raise typer.Exit(1)
+
+
 @app.command()
 def web(
     host: str = typer.Option("127.0.0.1", help="Dinlenecek adres (tünel yerelden bağlanır)"),
@@ -392,6 +408,9 @@ def web(
     if not settings.oauth.configured:
         console.print("[yellow]FACEIT ile giriş ayarlı değil (FACEIT_CLIENT_ID): "
                       "nickname ile katılım açık.[/yellow]")
+    elif settings.oauth.client_secret:
+        # Açılışta secret'ı FACEIT'e sor: reddedilirse giriş zaten çalışamaz (günlükte görünsün)
+        console.print(f"FACEIT kimlik kontrolü: {settings.oauth.check_credentials()}")
     worker.start()
     console.print(f"[green]Web arayüzü:[/green] http://{host}:{port}/?davet=<WEB_INVITE_CODE>")
     try:

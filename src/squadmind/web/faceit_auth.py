@@ -101,7 +101,36 @@ class FaceitOAuth:
         if tok.status_code != 200:
             log.warning("FACEIT token yanıtı %s: %s (kod uzunluğu %d)", tok.status_code,
                         tok.headers.get("www-authenticate"), len(code))
+            if tok.status_code == 401:
+                # 401 iki şey olabilir: istemci kimliği / secret reddedildi ya da kod bu
+                # istemciye ait değil. Sahte kodlu kontrol isteği ikisini ayırır
+                log.warning("FACEIT kimlik kontrolü: %s", self.check_credentials(http))
         return tok
+
+    def check_credentials(self, http: httpx.Client | None = None) -> str:
+        """İstemci kimliği + secret FACEIT'te geçerli mi? Sahte kodla token isteği atar.
+
+        FACEIT token uç noktası (Spring, realm "oauth2/client") kimliği kabul ederse sahte
+        kod için 400 (invalid_grant), kimliği reddederse 401 döner. 23.10.2026 ölçümü:
+        doğrulayıcısız istek doğru secret'la da 401, bu yüzden istekte PKCE doğrulayıcısı
+        da var. Dönen metin günlüğe yazılır (secret içermez).
+        """
+        form = {"grant_type": "authorization_code", "code": "squadmind-kontrol",
+                "redirect_uri": self.redirect_uri,
+                "code_verifier": secrets.token_urlsafe(48)}
+        try:
+            if http is None:
+                with httpx.Client(timeout=self.timeout) as own:
+                    r = self._token(own, form)
+            else:
+                r = self._token(http, form)
+        except httpx.HTTPError as exc:
+            return f"ulaşılamadı ({exc})"
+        if r.status_code == 400:
+            return "400: kimlik geçerli (sahte kod reddedildi) → sorun gerçek kodda"
+        if r.status_code == 401:
+            return "401: istemci kimliği / secret reddedildi → App Studio'da secret'ı yenileyip .env'ye yaz"
+        return f"{r.status_code}: beklenmeyen yanıt"
 
     def fetch_user(self, code: str, verifier: str) -> dict[str, Any]:
         """Yetki kodu → erişim anahtarı → kullanıcı bilgisi (en az `guid`)."""
