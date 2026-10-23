@@ -34,8 +34,8 @@ echo "== awpy harita verisi"
 tar -C "$HOME" -c .awpy | ssh "${SSHO[@]}" "squadmind@$HOST" 'tar -x -C /home/squadmind'
 
 echo "== tünel kimliği ve ayarı (root)"
-scp "${SSHO[@]}" -q "$HOME/.cloudflared/$TUNNEL_ID.json" "root@$HOST:/etc/cloudflared/$TUNNEL_ID.json"
-ssh "${SSHO[@]}" "root@$HOST" "chmod 600 /etc/cloudflared/$TUNNEL_ID.json && cat > /etc/cloudflared/config.yml <<EOF
+scp "${SSHO[@]}" -q "$HOME/.cloudflared/$TUNNEL_ID.json" "ubuntu@$HOST:/tmp/$TUNNEL_ID.json"
+ssh "${SSHO[@]}" "ubuntu@$HOST" "sudo install -m 600 /tmp/$TUNNEL_ID.json /etc/cloudflared/$TUNNEL_ID.json && rm /tmp/$TUNNEL_ID.json && sudo tee /etc/cloudflared/config.yml >/dev/null <<EOF
 tunnel: $TUNNEL_ID
 credentials-file: /etc/cloudflared/$TUNNEL_ID.json
 ingress:
@@ -43,7 +43,7 @@ ingress:
     service: http://127.0.0.1:8000
   - service: http_status:404
 EOF
-systemctl restart squadmind-web squadmind-tunnel; sleep 6; systemctl --no-pager --lines=0 status squadmind-web squadmind-tunnel | grep -E 'Active|●'"
+sudo systemctl restart squadmind-web squadmind-tunnel; sleep 6; sudo systemctl --no-pager --lines=0 status squadmind-web squadmind-tunnel | grep -E 'Active|●'"
 
 echo "== canlı kontrol"
 curl -s -o /dev/null -w "app.squadmind.info %{http_code}\n" https://app.squadmind.info/
