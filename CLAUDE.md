@@ -2,20 +2,25 @@
 
 > Bu dosya Claude Code'un her oturumda okuduğu proje hafızasıdır. Proje kök dizinine `CLAUDE.md` adıyla koy.
 
-## 1. Vizyon
+## 1. Vizyon (23.10.2026'da yenilendi)
 
-FACEIT CS2 maçlarının geçmiş verilerini (istatistik + demo dosyaları) toplayıp:
-- takımın **başarılı ve eksik** taktiklerini tespit eden,
-- oyuncu istatistiklerini **yorumlayan** (sadece sayı değil, "neden" ve "ne yapmalı"),
-- oyuncuları **rollerine** (entry, AWP, support, lurker, anchor, rotator) göre sınıflandıran,
-- bu rollere, silah tercihlerine ve seviyelerine göre **taktik yazan**,
-- **rakip takımı** maç öncesi scout eden
+SquadMind bir **düello ve taktik arenası**: CS2 oyuncuları FACEIT ile katılır, demo izni verir; sistem
+maçlarından pozisyona göre gücünü hesaplar. Oyuncu kendini kuş bakışı haritada sürükle-bırak yerleştirir,
+karşısına **bir FACEIT seviyesinde ortalama rakip** ya da başka bir oyuncu koyar; ikisi birbirini görüyorsa
+düelloyu kimin kazanacağı hesaplanır ve **kazananın jetonu yeşile döner**. Böylece arkadaşlar peek'lerde
+kim daha iyi diye pozisyonları kapıştırır. Sonraki adım: ekip kurup taktik çizmek (ör. A rush) ve takımları
+karşılaştırıp kazananı göstermek.
 
-SquadMind'ı kurmak.
-
-**Asıl amaç: takımı yönetmek.** Her özellik şu sorulardan birine hizmet etmeli: kim nerede iyi, nasıl bir taktik kurabiliriz, nereleri tutmak mantıklı, gücümüz / farkımız nerede, kime destek gerekli, takımın birbiriyle uyumlu olduğu noktalar. Uymayan fikir "sonra" listesine gider.
-
-**Dürüstlük kuralı:** Analizler veriye dayanır. Veri yetersizse ajan bunu söyler, tahmin uydurmaz. Her öneri hangi metrikten geldiğini gösterir (ör. "B site retake başarın %18, 11 denemede").
+- **Herkes kıyaslanabilir:** FACEIT ile katılan her oyuncu. Katılmamış oyuncu için FACEIT geçmişi erişilebiliyorsa
+  ortalama bir puanla ilerlenir (kişisel profil gizli; onay için demo izni şart; onaysız profil rakip koyamaz,
+  sadece kendini konumlar).
+- **ELO her zaman FACEIT'ten canlı alınır;** DB'de / sunucuda saklı ELO geçersizdir.
+- **Görüş kuralı:** iki oyuncu birbirini görmüyorsa düello hesaplanmaz (`analysis/geometry.py`).
+- **Arka plan analizi sürer:** coach (director), scout ve tactician ajanları oyuncuları analiz eder;
+  puanlama sistemini (istatistik ekibi + profesör) hepsi destekler.
+- **Dürüstlük kuralı:** analizler veriye dayanır. Veri yetersizse söylenir, tahmin uydurulmaz. Her olasılık
+  aralığı ve güven etiketiyle gösterilir; sınamayı geçmeyen model "güvenilir" diye sunulmaz.
+- **Gizli hedef ve kullanıcı tercihleri:** Claude'un hafızasında (repo'ya yazılmaz).
 
 ## 2. Veri Kaynakları
 
@@ -129,38 +134,36 @@ Her rol bir **güven skoru** ile verilir; az maçta düşük güven gösterilir.
 - CT tarafı: setup dağılımı (2-1-2, 3-1-1 vb.), retake başarısı.
 - Ekonomi kararları: force buy sonrası kazanma, eco round kazanma.
 
-## 7. Ajanlar
+## 7. Ajanlar (`.claude/agents/`)
 
-### `director` (ana ajan)
-- DuckDB'ye **sadece okuma** amaçlı SQL ve analiz fonksiyonları üzerinden erişir.
-- Çıktı formatı: Özet → Güçlü yönler → Zayıf yönler → 3-5 somut öneri (her biri metrikle desteklenmiş) → Sonraki maç için odak.
-- Yetersiz veri varsa söyler (minimum: oyuncu analizi için 5 maç, taktik deseni için 20 round).
+| Ajan | Rol |
+|---|---|
+| `professor` | Matematik profesörü; istatistik ekibinin başı. Raporları değerlendirir, ayrılıklarda karar verir, puanlama formülü değişikliklerini onaylar |
+| `statistician-rating` | Oyuncu puanı: canlı FACEIT ELO + küçültmeli stat puanı, ortalama rakip, aralıklar |
+| `statistician-duel` | Düello ve pozisyon: görüş, mesafe, peek / tutma, silah, pozisyona özgü güç |
+| `statistician-validation` | Sınama, kalibrasyon, sızıntı ve veri kalitesi denetimi (bağımsız yeniden ölçüm) |
+| `kawanagari` | Grafik tasarımcı Yushito Kawanagari (eski Japon oyun yapımcısı, modern tarz): görsel dil, sayfalar, animasyon |
+| `director` | Coach: oyuncu / takım yorumu, "neden" ve "ne yapmalı" |
+| `scout` | Rakip analizi |
+| `tactician` | Taktik / strat yazımı (arenadaki takım taktikleri için) |
 
-### `scout` (rakip analizi)
-- Rakip oyuncuların son 20 maçını Data API'den çeker: harita havuzu, harita kazanma oranları, oyuncu rolleri (istatistikten tahmini), silah tercihleri.
-- Rakip demosu varsa taktik desenlerini de çıkarır.
-- Çıktı: ban/pick önerisi, dikkat edilecek oyuncular, beklenen oyun tarzı.
+İstatistikçiler bulgularını profesöre raporlar; çelişkide kendi başlarına karar vermez, profesöre danışır.
+Yeni ajan tanımı ancak yeni oturumda adıyla çağrılabilir; aynı oturumda tanımın içeriği genel ajana verilir.
 
-### `tactician` (taktik yazan)
-- Girdi: harita, kendi takımın rolleri + silah tercihleri + güçlü bölgeleri, opsiyonel rakip profili.
-- Çıktı: T tarafı 3 strat (default, hızlı execute, split) + CT tarafı 2 setup; her stratta oyuncu adıyla pozisyon, utility görevi, zamanlama.
+## 8. Yol Haritası (23.10.2026'da yenilendi)
 
-## 8. Yol Haritası
-
-| Faz | Hedef | Bitti sayılır |
+| Adım | Hedef | Bitti sayılır |
 |---|---|---|
-| 0 | Proje iskeleti, `.env`, FACEIT istemcisi | `squadmind fetch-player <nick>` çalışıyor |
-| 1a | Maç geçmişi + istatistikleri DuckDB'ye | Son 30 maç DB'de |
-| 1b | Manuel demo inbox → parse → DB | Bir demo tüm tablolara yazılıyor |
-| 1c | Oyuncu metrikleri + rol sınıflandırma | `squadmind report player <nick>` Markdown rapor |
-| 1d | Claude Code subagent'ları | `director` ajanı rapordan yorum ve öneri üretiyor |
-| 2a | Takım taktik desenleri + ekonomi | `squadmind report team` |
-| 2b | Kendi oyununu doğrula: desen / rol etiketlerini demodan kontrol, öneri takibi (öneri → metrik → sonraki 5-10 maç), zayıf haritalar (Mirage, Inferno) | Etiket doğruluğu sayıyla biliniyor; öneriler önce / sonra raporlanıyor |
-| 2c | Takım yönetimi analizi: kim nerede iyi, nereleri tutmalı, güç farkımız, kime destek, oyuncu uyumu; tactician stratları | Takım raporu kadroya pozisyon / görev öneriyor |
-| 3a | **Web'de takım demo ekibi:** link ile katılım, FACEIT nickname, demo yükleme, hesabın analizi. Aynı demo bir kez: maç ID + boyut + içerik özeti; demo yükleyenin maçında olmalı | Premade kadro (4 kişi) web'den yükleyip raporunu görüyor ve yorumluyor |
-| 3b | İzinli veri paylaşımı (kim kimin verisini görür), takım kurma kriterleri | Paylaşım izinle açılıyor |
-| 3c | Rakip scout + maç öncesi yazılı brifing | `scout <match_id>` → brifing |
-| 4 | Downloads API ile otomatik demo (watch gereksiz), FACEIT ile giriş | Demolar elle yüklenmeden geliyor |
+| A1 | **Düello arenası (Dust2):** kendini yerleştir, karşına FACEIT seviyesinde ortalama rakip ya da oyuncu koy, görüş + olasılık, kazanan yeşil | Giriş yapan oyuncu canlı ELO'suyla düello sonucu görüyor |
+| A2 | Yeni görsel dil (Kawanagari): harita, jetonlar, animasyon | Arena ve giriş sayfaları yeni tarzda |
+| A3 | Pozisyona özgü güç (istatistik ekibi + profesör onayı) | Sınamada tabanı geçen pozisyon etkisi ya da "veri yetmiyor" kararı |
+| A4 | Takım taktiği simülasyonu (ör. A rush, 5'e 5): rotalar, sıralı düellolar, kazanan takım | Kurulan ekip bir taktiği oynatıp sonucu görüyor |
+| A5 | Katılmamış oyuncular: FACEIT geçmişinden ortalama puan (gizli profil), onay için demo izni | Arkadaş arama ve kıyaslama |
+| A6 | FACEIT ile giriş (çalışıyor ama dalgalı; kilit / secret notları bölüm 10), Downloads API ile otomatik demo | Demolar elle yüklenmeden geliyor |
+| A7 | Diğer haritalar (Mirage, Inferno ...): bölge ve peek tanımları | Harita seçimi açılıyor |
+
+Eski ekranlar (taktik tahtası `/taktik`, desen doğrulama, eski oluşturucu, Markdown rapor sayfaları) 23.10.2026'da siteden
+kaldırıldı; analiz modülleri ve CLI raporları arka planda sürüyor.
 
 ## 9. Kod Kuralları
 - Tüm kod tam, çalışır halde ve **satır içi yorumlu** (Türkçe yorum).

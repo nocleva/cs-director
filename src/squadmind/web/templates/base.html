@@ -87,13 +87,6 @@
       <a href="/ben"{% if path == "/ben" %} aria-current="page"{% endif %}>Genel bakış</a>
       <a href="/demolar"{% if path == "/demolar" %} aria-current="page"{% endif %}>Demo yönetimi</a>
       <a href="/takimlar"{% if path.startswith("/takimlar") %} aria-current="page"{% endif %}>Takımlarım</a>
-      <a href="/olustur"{% if path == "/olustur" %} aria-current="page"{% endif %}>Taktik oluştur</a>
-      <a href="/rapor/ben"{% if path == "/rapor/ben" %} aria-current="page"{% endif %}>Raporum</a>
-      {% if me.team_access %}
-      <a href="/rapor/takim"{% if path == "/rapor/takim" %} aria-current="page"{% endif %}>{{ owner or "Takım" }} kadrosu</a>
-      <a href="/taktik">Taktik tahtası</a>
-      <a href="/dogrulama"{% if path == "/dogrulama" %} aria-current="page"{% endif %}>Desen doğrulama</a>
-      {% endif %}
     </nav>
     <div class="acct"><span class="avatar" title="{{ me.nickname }}">{{ me.nickname[:2] | upper }}</span><a href="/cikis">Çıkış</a></div>
     {% endif %}

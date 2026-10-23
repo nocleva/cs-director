@@ -53,3 +53,6 @@ Bir oyuncunun demo verisi yoksa raporu sadece FACEIT bölümünü gösterir; o o
 3. **CT setup'ları** — 2 setup (ör. standart 2-1-2, agresif mid): pozisyon, utility, rotasyon kuralları, gerekçe.
 4. **Ekonomi notları** — force / eco round'larda neyin değiştiği.
 5. **Veri notu** — kimin verisi var, kimin yok.
+
+## Puanlama sistemi
+Oyuncu gücü ve düello olasılıkları `analysis/rating.py` (istatistik ekibi + profesör onaylı) ve `analysis/duels.py` / `analysis/geometry.py`'den gelir; ELO her zaman FACEIT'ten canlı alınır. Yeni sayısal iddian puanlama sistemiyle çelişirse kendi sayını değil, sistemi kullan ve farkı not et (istatistik ekibine iletilir).

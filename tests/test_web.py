@@ -85,7 +85,6 @@ def test_join_then_upload_and_ingest(web):
     # Genel bakış yükleme göstermez, toplam analiz sayısını gösterir
     overview = client.get("/ben").text
     assert 'data-count="1"' in overview and 'id="drop"' not in overview
-    assert client.get("/rapor/ben").status_code == 200
 
 
 def test_duplicate_upload_is_rejected(web):
@@ -115,12 +114,12 @@ def test_bad_file_type_and_auth(web):
     assert client.put("/api/yukleme/" + "0" * 32 + "/0", content=b"x").status_code == 404
 
 
-def test_report_escapes_html(web):
+def test_page_escapes_html(web):
     client, store = web
     _join(client)
-    # Rapora giren dış metin (oyuncu adı) HTML olarak çalışmamalı
+    # Sayfaya giren dış metin (oyuncu adı) HTML olarak çalışmamalı
     store.run(lambda con: con.execute("UPDATE web_users SET nickname = '<script>x</script>'"))
-    html = client.get("/rapor/ben").text
+    html = client.get("/ben").text
     assert "<script>x</script>" not in html
 
 
@@ -195,12 +194,10 @@ def test_faceit_login_rejects_bad_state(oauth_web):
 
 
 def test_faceit_login_without_invite_gets_in_but_not_owner_pages(oauth_web):
-    # FACEIT'le doğrulanan herkes girer (kendi takımını kurar); kadro sayfaları kapalı
+    # FACEIT'le doğrulanan herkes girer (kendi takımını kurar); kadro erişimi verilmez
     client, store, _ = oauth_web
     assert _faceit_login(client, davet="yanlis").headers["location"] == "/ben"
     assert store.users()[0].team_access is False
-    assert "kadrosuna özel" in client.get("/taktik").text
-    assert "kadrosuna özel" in client.get("/rapor/takim").text
 
 
 def test_faceit_login_known_user_needs_no_invite(oauth_web):
@@ -424,20 +421,3 @@ def test_login_link_signs_in_known_user_only(web):
     assert r.headers["location"] == "/ben" and "squadmind_oturum" in r.headers["set-cookie"]
     other = make_login_link("baska-secret", "http://x", SELF).split("?t=")[1]
     assert "süresi dolmuş" in client.get(f"/giris/link?t={other}").text
-
-
-def test_tactic_builder_saves_only_permitted_players(web):
-    client, store = web
-    _join(client)
-    assert client.get("/olustur").status_code == 200        # veri azsa açıklama sayfası
-    ok = client.post("/api/olustur", json={"name": "Deneme", "side": "CT",
-                                           "placements": [{"steam_id": SELF, "x": 1, "y": 2}]})
-    assert ok.status_code == 200
-    saved = store.tactics_of(SELF)
-    assert [(t["name"], t["side"]) for t in saved] == [("Deneme", "CT")]
-    # Takımına katılmamış birinin verisi kullanılamaz
-    bad = client.post("/api/olustur", json={"name": "x", "placements": [{"steam_id": "76561100000000099", "x": 0, "y": 0}]})
-    assert bad.status_code == 403
-    # Aynı kimlikle kaydetmek kendi taktiğini günceller (yeni kayıt açmaz)
-    again = client.post("/api/olustur", json={"id": saved[0]["id"], "name": "Yeni ad", "placements": []})
-    assert again.json()["id"] == saved[0]["id"] and store.tactics_of(SELF)[0]["name"] == "Yeni ad"

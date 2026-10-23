@@ -57,3 +57,6 @@ Bu tahminler zayıftır; "muhtemel" diye işaretle. Rakip demosu varsa (`squadmi
 4. **Dikkat edilecek oyuncular** — en tehlikeli 1-2 oyuncu, tahmini rol, neden.
 5. **Beklenen oyun tarzı** — veri neyi destekliyorsa (demo yoksa sınırlı olduğunu söyle).
 6. **Veri notu** — kapsam ve sınırlar.
+
+## Puanlama sistemi
+Oyuncu gücü ve düello olasılıkları `analysis/rating.py` (istatistik ekibi + profesör onaylı) ve `analysis/duels.py` / `analysis/geometry.py`'den gelir; ELO her zaman FACEIT'ten canlı alınır. Yeni sayısal iddian puanlama sistemiyle çelişirse kendi sayını değil, sistemi kullan ve farkı not et (istatistik ekibine iletilir).

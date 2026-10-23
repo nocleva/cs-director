@@ -28,14 +28,10 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from squadmind.faceit.client import FaceitAPIError, FaceitClient, FaceitNotFound
-from squadmind.analysis import label_review as lr
 from squadmind.analysis import tactic_builder as tbld
 from squadmind.analysis import team_builder as tb
 from squadmind.ingest import demos as demo_rules
 from squadmind.ingest.matches import profile_to_player_row, upsert_players
-from squadmind.reports.player_report import build_player_report
-from squadmind.reports.team_report import build_team_report
-from squadmind.viz import tactic as tactic_view
 from squadmind.web.faceit_auth import FaceitAuthError, FaceitOAuth, pkce_pair
 from squadmind.web.store import OPEN_STATES, QUEUED, UPLOADING, Store, WebUser
 from squadmind.web.worker import Job, Worker
@@ -73,7 +69,6 @@ class WebSettings:
     team_owner: str | None
     map_name: str | None
     uploads_dir: Path
-    strats_dir: Path = tactic_view.STRATS_DIR  # taktik tahtasının strat dosyaları
     oauth: FaceitOAuth | None = None            # FACEIT ile giriş (yoksa nickname ile katılım)
 
 
@@ -418,7 +413,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                              "uploads": [{k: u[k] for k in ("id", "file_name", "status", "message")}
                                          for u in store.uploads_of(user.steam_id)]})
 
-    # --- raporlar ----------------------------------------------------------------------
+    # --- bilgi sayfası (hata / boş durum mesajları) ------------------------------------
 
     def render_report(request: Request, title: str, markdown_text: str) -> HTMLResponse:
         # Raporda oyuncu adı gibi dışarıdan gelen metin var: ham HTML'e izin verme
@@ -426,156 +421,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         html = md.markdown(html_lib.escape(markdown_text, quote=False), extensions=["tables"])
         return page(request, "report.html", title=title, body=html)
 
-    def locked(request: Request, title: str) -> HTMLResponse:
-        owner = settings.team_owner or "takım sahibi"
-        return render_report(request, title, f"_Bu sayfa {owner} kadrosuna özel. Kendi takımını "
-                                             "Takımlarım sayfasından kurabilirsin._")
-
-    @app.get("/rapor/ben", response_class=HTMLResponse)
-    def my_report(request: Request, harita: str = ""):
-        user = require_user(request)
-        map_name = harita if harita in tb.MAP_POOL else settings.map_name
-        try:
-            rep = store.run(lambda con: build_player_report(con, user.nickname, map_name),
-                            lock=False)
-        except LookupError as exc:
-            return render_report(request, "Oyuncu raporu", f"_{exc}_")
-        return render_report(request, f"Oyuncu raporu: {user.nickname}", rep.markdown)
-
-    @app.get("/rapor/takim", response_class=HTMLResponse)
-    def team_report(request: Request):
-        user = require_user(request)
-        if not user.team_access:
-            return locked(request, "Takım raporu")
-        owner = settings.team_owner or user.nickname
-        try:
-            rep = store.run(lambda con: build_team_report(con, owner, settings.map_name),
-                            lock=False)
-        except LookupError as exc:
-            return render_report(request, "Takım raporu", f"_{exc}_")
-        return render_report(request, "Takım raporu", rep.markdown)
-
-    # --- taktik tahtası -------------------------------------------------------------------
-
-    @app.get("/taktik", response_class=HTMLResponse)
-    def tactic(request: Request, r: str = ""):
-        user = current_user(request)
-        if user is None:
-            return RedirectResponse("/", status_code=303)
-        if not user.team_access:
-            return locked(request, "Taktik tahtası")
-        strats = tactic_view.load_strats(settings.strats_dir, settings.map_name)
-        found = tactic_view.find_tab(strats, r)
-        if found is None:
-            return render_report(request, "Taktik tahtası", "_Bu harita için henüz strat yok._")
-        strat, tab = found
-        owner = settings.team_owner or user.nickname
-        try:
-            ctx = store.run(lambda con: tactic_view.tactic_page(con, owner, strat), lock=False)
-        except LookupError as exc:
-            return render_report(request, "Taktik tahtası", f"_{exc}_")
-        entry = int(strat.raw.get("entry", 0))
-        return page(request, "tactic.html", user=user, strat=strat, tab=tab,
-                    tabs=tactic_view.all_tabs(strats),
-                    map_label=strat.map_name.removeprefix("de_").capitalize(),
-                    stat=tactic_view.stat_line(tab, ctx["stats"], strat.side),
-                    entry_label=f"{entry // 60}:{entry % 60:02d}",
-                    spot_window=tactic_view.SPOT_WINDOW, **ctx)
-
-    # --- desen doğrulama (Faz 2b) ------------------------------------------------------
-
-    _review_cache: dict[tuple, dict] = {}
-
-    def review_data(owner: str) -> dict:
-        """Örnek round'lar + her birinin tekrarı; demo sayısı değişince yeniden hesaplanır."""
-        from squadmind.analysis.maps import BOARD_PLACES
-        from squadmind.analysis.player_metrics import load_demo_data
-        from squadmind.analysis.team_tactics import t_round_patterns
-        from squadmind.viz.board import TAKTIK, Board, _Projection, map_polygons, render_board
-
-        def build(con):
-            sid = con.execute("SELECT steam_id FROM players WHERE lower(nickname) = lower(?)",
-                              [owner]).fetchone()
-            if not sid:
-                raise LookupError(f"'{owner}' veritabanında yok.")
-            n = con.execute("SELECT count(*) FROM matches WHERE demo_status = 'processed' "
-                            "AND map = 'de_dust2'").fetchone()[0]
-            key = (sid[0], n)
-            if key in _review_cache:
-                return _review_cache[key]
-            d = load_demo_data(con, "de_dust2")
-            tp = t_round_patterns(d, sid[0])
-            width, pad = 560, 16
-            proj = _Projection(map_polygons("de_dust2"), width, pad)
-            rounds = []
-            for r in lr.sample_rounds(tp):
-                rep_ = lr.round_replay(d, r["match_id"], int(r["round_no"]), proj, "de_dust2")
-                rounds.append({
-                    "match_id": r["match_id"], "round_no": int(r["round_no"]),
-                    "label": r["pattern"], "target_site": r["target_site"],
-                    "commit_time": r["commit_time"], "plant_time": r["plant_time"],
-                    "bomb_site": r["bomb_site"], "lanes": r["lanes"] or [],
-                    "default": r["default"], "won": r["won"], "buy": r["own_buy"],
-                    "dt": lr.REPLAY_DT, **rep_})
-            board = render_board(Board("de_dust2", places=BOARD_PLACES["de_dust2"],
-                                       target_places=[]), width=width, pad=pad, theme=TAKTIK)
-            _review_cache.clear()
-            _review_cache[key] = {"rounds": rounds, "board": board, "w": width, "h": proj.height,
-                                  "total": tp.height}
-            return _review_cache[key]
-        return store.run(build, lock=False)
-
-    @app.get("/dogrulama", response_class=HTMLResponse)
-    def review_page(request: Request, i: int = 0):
-        user = current_user(request)
-        if user is None:
-            return RedirectResponse("/", status_code=303)
-        if not user.team_access:
-            return locked(request, "Desen doğrulama")
-        owner = settings.team_owner or user.nickname
-        try:
-            data = review_data(owner)
-        except LookupError as exc:
-            return render_report(request, "Desen doğrulama", f"_{exc}_")
-        rounds = data["rounds"]
-        if not rounds:
-            return render_report(request, "Desen doğrulama", "_İncelenecek round yok._")
-        i = max(0, min(i, len(rounds) - 1))
-        mine = {(r["match_id"], r["round_no"]): r for r in store.reviews(user.steam_id)}
-        done = [(r["match_id"], r["round_no"]) in mine for r in rounds]
-        return page(request, "review.html", user=user, i=i, n=len(rounds), current=rounds[i],
-                    done=done, prev=mine.get((rounds[i]["match_id"], rounds[i]["round_no"])),
-                    board=data["board"], w=data["w"], h=data["h"], total=data["total"],
-                    patterns=lr.PATTERNS, acc=lr.accuracy(store.reviews()),
-                    per_pattern=lr.PER_PATTERN)
-
-    @app.post("/dogrulama")
-    def review_save(request: Request, i: int = Form(...), verdict: str = Form(...),
-                    corrected: str = Form(""), note: str = Form("")):
-        user = require_user(request)
-        if not user.team_access:
-            raise HTTPException(403, "Bu sayfa kadroya özel.")
-        rounds = review_data(settings.team_owner or user.nickname)["rounds"]
-        if not 0 <= i < len(rounds) or verdict not in ("dogru", "yanlis", "emin_degil"):
-            raise HTTPException(400, "Geçersiz işaret.")
-        if corrected and corrected not in lr.PATTERNS:
-            raise HTTPException(400, "Geçersiz desen.")
-        r = rounds[i]
-        store.save_review(r["match_id"], r["round_no"], r["label"], r["target_site"], verdict,
-                          corrected if verdict == "yanlis" else None, note.strip()[:300] or None,
-                          user.steam_id)
-        return RedirectResponse(f"/dogrulama?i={min(i + 1, len(rounds) - 1)}", status_code=303)
-
-    @app.get("/dogrulama/sonuc.json")
-    def review_results(request: Request):
-        user = require_user(request)
-        if not user.team_access:
-            raise HTTPException(403, "Bu sayfa kadroya özel.")
-        reviews = store.reviews()
-        return JSONResponse({"accuracy": lr.accuracy(reviews),
-                             "reviews": [{**r, "reviewed_at": str(r["reviewed_at"])} for r in reviews]})
-
-    # --- taktik oluşturucu ------------------------------------------------------------
+    # --- arena: harita modeli, izinli oyuncular, canlı puanlar ---------------------------
 
     _builder_cache: dict[tuple, dict] = {}
 
@@ -690,55 +536,6 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                    for f, s, n, lv, dm in rows]
             return sorted(out, key=lambda r: (r["rank"], (r["nickname"] or "").lower()))
         return store.run(load, lock=False)
-
-    @app.get("/olustur", response_class=HTMLResponse)
-    def builder_page(request: Request, id: str = ""):
-        user = current_user(request)
-        if user is None:
-            return RedirectResponse("/", status_code=303)
-        map_name = "de_dust2"   # şimdilik peek hatları sadece Dust2'de tanımlı
-        try:
-            bm = builder_model(map_name)
-        except Exception:  # noqa: BLE001 - veri yoksa sayfa açıklama gösterir
-            log.exception("taktik oluşturucu modeli kurulamadı")
-            return render_report(request, "Taktik oluştur", "_Bu harita için henüz yeterli veri yok._")
-        players = builder_players(user, map_name)
-        cards = tbld.player_cards(bm["model"], map_name, [p["steam_id"] for p in players])
-        saved = store.tactics_of(user.steam_id)
-        current = next((t for t in saved if t["id"] == id), None)
-        payload = {
-            "map": map_name, "proj": bm["proj"], "grid": bm["grid"], "players": players, "cards": cards,
-            "lineNames": tbld.line_names(map_name), "linePlaces": tbld.line_places(map_name),
-            "base": {f"{ln}|{sd}": round(p, 3) for (ln, sd), p in bm["model"]["base"].items()},
-            "ratings": builder_ratings(map_name, players),
-            "current": None if current is None else {**current, "updated_at": str(current["updated_at"])},
-        }
-        return page(request, "builder.html", user=user, board=bm["board"], payload=payload,
-                    saved=saved, current=current, w=bm["proj"]["w"], h=bm["proj"]["h"])
-
-    @app.post("/api/olustur")
-    async def builder_save(request: Request):
-        user = require_user(request)
-        body = await request.json()
-        name = str(body.get("name", "")).strip()[:60] or "Adsız taktik"
-        side = body.get("side") if body.get("side") in ("T", "CT") else "T"
-        allowed = {p["steam_id"] for p in builder_players(user, "de_dust2")}
-        placements = []
-        for pl_ in (body.get("placements") or [])[:5]:
-            if pl_.get("steam_id") not in allowed:
-                raise HTTPException(403, "Bu oyuncunun verisini kullanma iznin yok.")
-            placements.append({"steam_id": pl_["steam_id"], "x": float(pl_["x"]), "y": float(pl_["y"]),
-                               "place": str(pl_.get("place") or "")[:40]})
-        import json as _json
-        tid = store.save_tactic(user.steam_id, name, "de_dust2", side, _json.dumps(placements),
-                                str(body.get("id") or "") or None)
-        return {"id": tid}
-
-    @app.post("/olustur/{tactic_id}/sil")
-    def builder_delete(request: Request, tactic_id: str):
-        user = require_user(request)
-        store.delete_tactic(user.steam_id, tactic_id)
-        return RedirectResponse("/olustur", status_code=303)
 
     # --- takım oluşturma ---------------------------------------------------------------
 
