@@ -408,9 +408,6 @@ def web(
     if not settings.oauth.configured:
         console.print("[yellow]FACEIT ile giriş ayarlı değil (FACEIT_CLIENT_ID): "
                       "nickname ile katılım açık.[/yellow]")
-    elif settings.oauth.client_secret:
-        # Açılışta secret'ı FACEIT'e sor: reddedilirse giriş zaten çalışamaz (günlükte görünsün)
-        console.print(f"FACEIT kimlik kontrolü: {settings.oauth.check_credentials()}")
     worker.start()
     console.print(f"[green]Web arayüzü:[/green] http://{host}:{port}/?davet=<WEB_INVITE_CODE>")
     try:

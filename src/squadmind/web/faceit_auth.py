@@ -101,23 +101,24 @@ class FaceitOAuth:
         if tok.status_code != 200:
             log.warning("FACEIT token yanıtı %s: %s (kod uzunluğu %d)", tok.status_code,
                         tok.headers.get("www-authenticate"), len(code))
-            if tok.status_code == 401:
-                # 401 iki şey olabilir: istemci kimliği / secret reddedildi ya da kod bu
-                # istemciye ait değil. Sahte kodlu kontrol isteği ikisini ayırır
-                log.warning("FACEIT kimlik kontrolü: %s", self.check_credentials(http))
         return tok
 
     def check_credentials(self, http: httpx.Client | None = None) -> str:
+        # Dikkat (23.10.2026): FACEIT kısa sürede birkaç başarısız token isteğinden sonra
+        # istemciyi bir süre kilitliyor (doğru istek de 401). Bu kontrolü seyrek çalıştır;
+        # sunucu açılışında ve giriş hatasında otomatik çalışmaz.
         """İstemci kimliği + secret FACEIT'te geçerli mi? Sahte kodla token isteği atar.
 
         FACEIT token uç noktası (Spring, realm "oauth2/client") kimliği kabul ederse sahte
-        kod için 400 (invalid_grant), kimliği reddederse 401 döner. 23.10.2026 ölçümü:
-        doğrulayıcısız istek doğru secret'la da 401, bu yüzden istekte PKCE doğrulayıcısı
-        da var. Dönen metin günlüğe yazılır (secret içermez).
+        kod için 400 (invalid_grant), kimliği reddederse 401 döner. Dönen metin günlüğe
+        yazılır (secret içermez).
         """
-        form = {"grant_type": "authorization_code", "code": "squadmind-kontrol",
-                "redirect_uri": self.redirect_uri,
-                "code_verifier": secrets.token_urlsafe(48)}
+        # 23.10.2026 (yeni secret ile): doğrulayıcı gönderilince FACEIT secret'a bakmadan PKCE
+        # yoluna sapıyor (sahte kodda doğru / yanlış secret ikisi de aynı yanıtı alıyordu); bu
+        # yüzden kontrol doğrulayıcısız: doğru secret → 400, yanlış → 401
+        # Sahte kod gerçek kodlar gibi kısa ve harf (tire içeren uzun kod kimlikten bağımsız 401 alıyor)
+        form = {"grant_type": "authorization_code", "code": "kontrl",
+                "redirect_uri": self.redirect_uri}
         try:
             if http is None:
                 with httpx.Client(timeout=self.timeout) as own:
@@ -129,7 +130,8 @@ class FaceitOAuth:
         if r.status_code == 400:
             return "400: kimlik geçerli (sahte kod reddedildi) → sorun gerçek kodda"
         if r.status_code == 401:
-            return "401: istemci kimliği / secret reddedildi → App Studio'da secret'ı yenileyip .env'ye yaz"
+            return ("401: secret reddedildi ya da FACEIT istemciyi geçici kilitledi (kısa sürede çok "
+                    "başarısız istek; bekleyip tekrar dene)")
         return f"{r.status_code}: beklenmeyen yanıt"
 
     def fetch_user(self, code: str, verifier: str) -> dict[str, Any]:

@@ -369,7 +369,7 @@ def test_faceit_check_credentials_separates_bad_secret_from_bad_code():
     for status, word in ((400, "kimlik geçerli"), (401, "secret reddedildi")):
         def handler(req: httpx.Request, status=status) -> httpx.Response:
             assert req.headers["authorization"].startswith("Basic ")
-            assert b"code_verifier=" in req.content
+            assert b"code_verifier=" not in req.content  # doğrulayıcı secret kontrolünü atlatır
             return httpx.Response(status)
         with httpx.Client(transport=httpx.MockTransport(handler)) as http:
             assert word in oauth.check_credentials(http)
