@@ -16,6 +16,8 @@ import httpx
 from squadmind.config import CACHE_DIR, get_api_key
 
 BASE_URL = "https://open.faceit.com/data/v4"
+# Downloads API (imzalı demo linki; tam adres, base_url dışında)
+DOWNLOADS_URL = "https://open.faceit.com/download/v2/demos/download"
 
 # Cache süreleri (saniye). None = kalıcı (biten maçın verisi değişmez)
 PROFILE_TTL: float | None = 3600  # oyuncu profili 1 saat geçerli
@@ -260,12 +262,33 @@ class FaceitClient:
     def get_demo_download_url(self, resource_url: str) -> str:
         """Maç detayındaki demo resource URL'si için imzalı, süreli indirme linki döner.
 
-        Beklenen akış (FACEIT dokümanına göre, onay gelince doğrulanacak):
-        POST https://open.faceit.com/download/v2/demos/download-url
-        gövde: {"resource_url": resource_url} → yanıt: payload.download_url
-        İmzalı link kısa süre geçerli olduğu için cache'lenmemeli.
+        FACEIT Downloads API (başvuru 23.10.2026'da onaylandı):
+        POST https://open.faceit.com/download/v2/demos/download, gövde {"resource_url": ...},
+        yanıt payload.download_url. Anahtar: .env'de FACEIT_DOWNLOADS_KEY varsa o (Downloads
+        yetkili server-side anahtar), yoksa Data API anahtarı. İmzalı link kısa süreli olduğu
+        için cache'lenmez. 429 / 5xx'te Data API isteklerindeki gibi üstel bekleme.
         """
-        raise NotImplementedError(
-            "FACEIT Downloads API henüz onaylanmadı; demoları elle indirip "
-            "`squadmind watch` ile işle."
-        )
+        import os
+        key = os.environ.get("FACEIT_DOWNLOADS_KEY") or self.api_key
+        response: httpx.Response | None = None
+        for attempt in range(self.max_retries + 1):
+            self._throttle()
+            self.request_count += 1
+            response = self._http.post(
+                DOWNLOADS_URL, json={"resource_url": resource_url},
+                headers={"Authorization": f"Bearer {key}"})
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt < self.max_retries:
+                    self._sleep(self._backoff_delay(response, attempt))
+                    continue
+                break
+            if response.status_code == 404:
+                raise FaceitNotFound(404, "demo bulunamadı (henüz yüklenmemiş ya da süresi geçmiş)")
+            if response.status_code >= 400:
+                raise FaceitAPIError(response.status_code, response.text[:300])
+            url = ((response.json() or {}).get("payload") or {}).get("download_url")
+            if not url:
+                raise FaceitAPIError(response.status_code, "yanıtta download_url yok")
+            return url
+        status = response.status_code if response is not None else -1
+        raise FaceitAPIError(status, f"Downloads API: {self.max_retries} denemeden sonra vazgeçildi")
