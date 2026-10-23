@@ -15,7 +15,8 @@ async function main() {
     console.error("kullanım: node node_pack.js <demo> <cikis.json.gz> [pkg-web]");
     process.exit(2);
   }
-  const pkgDir = path.resolve(pkgArg || path.join(__dirname, "pkg-web"));
+  // Varsayılan: repodaki derlenmiş kopya (pkg-web derleme çıktısı git'e girmez)
+  const pkgDir = path.resolve(pkgArg || path.join(__dirname, "..", "..", "src", "squadmind", "web", "static", "wasm"));
   const t0 = process.hrtime.bigint();
   const secs = (a, b) => Number(b - a) / 1e9;
 
