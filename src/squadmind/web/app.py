@@ -665,7 +665,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     _rating_cache: dict[str, Any] = {"key": None, "ctx": None, "feats": {}, "feats0": {}, "at": {},
                                      "weapon": None}
 
-    def fit_weapons(duel_df, roster: list[dict], ctx):
+    def fit_weapons(duel_df, roster: list[dict], ctx, simple: bool = True):
         """Silah etkisi (rating.fit_weapon_effect; profesör onayı: opsiyonel, Tüfek–Tüfek = kapalı).
 
         Ofset = silahsız modelin T lehine logit'i; düellodaki oyuncuların o maçtaki FACEIT
@@ -686,7 +686,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             cls_ct.append(r["loser_cls"] if t_is_winner else r["winner_cls"])
             dist.append(r["dist"]); won.append(1.0 if t_is_winner else 0.0)
             off.append(beta * (et - ec) / rt.ELO_UNIT)
-        return rt.fit_weapon_effect(cls_t, cls_ct, dist, won, off)
+        return rt.fit_weapon_effect(cls_t, cls_ct, dist, won, off, simple=simple)
 
     def builder_ratings(map_name: str, players: list[dict]) -> dict[str, dict]:
         """Doğrulanmış güç puanı (analysis/rating.py): ortalama rakibe karşı beklenen düello
@@ -712,7 +712,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                                                "finished_at": det["finished_at"]})
                     ctx = rt.build_context(bm["duels"], client, roster)
                     _rating_cache.update(key=key, ctx=ctx, feats={}, feats0={},
-                                         weapon=fit_weapons(bm["duels"], roster, ctx))
+                                         weapon=fit_weapons(bm["duels"], roster, ctx),
+                                         # Sınıf × mesafe modeli: YALNIZ betimleyici satır (profesör
+                                         # 23.10: ek kazancı sınamayı geçmedi, olasılığa girmez)
+                                         weapon_d=fit_weapons(bm["duels"], roster, ctx, simple=False))
                 ctx, feats, at = _rating_cache["ctx"], _rating_cache["feats"], _rating_cache["at"]
                 now = time.time()
                 for p in players:
@@ -894,7 +897,54 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                     "big_gap": abs(gap) > 800, "weapon": bool(wkw),
                     "a_combined": round(fa.combined_elo), "b_combined": round(fb.combined_elo),
                     "a_score": ratings.get(a["steam_id"], {}).get("score")})
+        out["desc"] = arena_descriptive(bm["duels"], a, b, wa, wb, dist, za, zb)
         return out
+
+    # Arena betimleyici satırları: olasılığı DEĞİŞTİRMEZ (profesör kararı 23.10)
+    _CLS_TR = {"rifle": "tüfek", "pistol": "tabanca", "awp": "AWP", "smg": "SMG", "scout": "Scout",
+               "heavy": "ağır silah"}
+
+    def arena_descriptive(duel_df, a: dict, b: dict, wa: str, wb: str, dist: float,
+                          za: float | None, zb: float | None) -> dict:
+        """Silah × mesafe kaydı (sınanmadı), oyuncuların kendi sınıf × mesafe kayıtları, yükseklik."""
+        from squadmind.analysis import duels as du
+        from squadmind.analysis import rating as rt
+        band = rt.WEAPON_BANDS[rt.weapon_band(dist)]
+        res: dict[str, Any] = {"band": band}
+        wd = _rating_cache.get("weapon_d")
+        if wd is not None and (wa, wb) != ("rifle", "rifle") and wa in _CLS_TR and wb in _CLS_TR:
+            # A − B sınıf farkı bu dilimde (kovaryans dahil)
+            wx = rt.weapon_x(wa, wb, dist, simple=False)
+            logit, se = float(wx @ wd.beta), max(float(wx @ wd.cov @ wx), 0.0) ** 0.5
+            sig = lambda v: 1 / (1 + 2.718281828459045 ** (-v))   # noqa: E731
+            # O hücredeki düello sayısı: iki yönde bu sınıf çifti, bu dilimde
+            pair = duel_df.filter(pl.col("band") == band) if duel_df.height else duel_df
+            n = pair.filter(((pl.col("winner_cls") == wa) & (pl.col("loser_cls") == wb))
+                            | ((pl.col("winner_cls") == wb) & (pl.col("loser_cls") == wa))).height if pair.height else 0
+            lo, hi = sig(logit - 1.645 * se), sig(logit + 1.645 * se)
+            if "heavy" in (wa, wb):
+                label = "veri yok"
+            elif "scout" in (wa, wb) or n < 100:
+                label = "az veri"
+            else:
+                label = "belirgin" if lo > 0.5 or hi < 0.5 else "belirsiz"
+            res["cell"] = {"a": _CLS_TR[wa], "b": _CLS_TR[wb], "p": round(sig(logit), 3),
+                           "lo": round(lo, 3), "hi": round(hi, 3), "n": n, "label": label}
+        rec = du.class_band_record(duel_df)
+        def _own(p: dict, cls: str) -> dict | None:
+            sid = p.get("steam_id")
+            if not sid:
+                return None
+            r = rec.filter((pl.col("player") == sid) & (pl.col("cls") == cls) & (pl.col("band") == band))
+            if r.height == 0:
+                return {"cls": _CLS_TR.get(cls, cls), "wins": 0, "losses": 0}
+            row = r.row(0, named=True)
+            return {"cls": _CLS_TR.get(cls, cls), "wins": int(row["wins"]), "losses": int(row["losses"])}
+        res["own_a"], res["own_b"] = _own(a, wa), _own(b, wb)
+        # Yükseklik: |dz| > 192'de yüksek olan %70 (n=43) — yalnız not, olasılığa girmez
+        if za is not None and zb is not None and abs(za - zb) > 192:
+            res["height"] = {"up": "a" if za > zb else "b", "dz": round(abs(za - zb))}
+        return res
 
     # --- takım oluşturma ---------------------------------------------------------------
 

@@ -197,12 +197,26 @@ async function refresh() {
     <p class="note" style="margin-top:8px">Stat düzeltmesiyle %${Math.round(r.p_stat * 100)} (kanıtı zayıf, fark en çok ±3 puan).</p>
     ${r.hp ? `<p class="note" style="margin-top:8px">Can eşitken: %${Math.round(r.hp.p_eq * 100)} [%${Math.round(r.hp.lo_eq * 100)}-%${Math.round(r.hp.hi_eq * 100)}] · Girdiğin canlarla (${r.hp.a} / ${r.hp.b}): %${Math.round(pa)} [%${Math.round(r.lo * 100)}-%${Math.round(r.hi * 100)}]</p>
     <p class="note">Can etkisi sınamada doğrulandı (2.607 düello, kill'le biten). Can senin girdiğin bir durumdur, oyuncu gücü değildir.</p>` : ""}
+    ${descHtml(r)}
     ${r.big_gap ? `<p class="note">Bu kadar büyük farkta az örneğimiz var; olasılık yaklaşık.</p>` : ""}
     ${r.weapon ? `<p class="note">Silah etkisi (Dust2, 2.853 düello): tabanca tüfeğe karşı ~−18 puan, AWP uzakta ~+20 puan, yakında fark yok. Silah ekonomiyle iç içe: tabanca roundları çoğunlukla eco; etki silah + ekonominin ortak etkisidir.</p>` : ""}`;
   out.querySelector(".big").textContent = `%${Math.round(pa)}`;
   out.querySelector("p b").textContent = winner;
   out.querySelector(".facts dd").textContent = `${r.place_a} ↔ ${r.place_b}`;
 }
+// Betimleyici satırlar (olasılığı değiştirmez): metin textContent ile değil şablonla; içerik
+// yalnız sunucunun ürettiği sayılar ve sabit sınıf adları (kullanıcı girdisi yok)
+function descHtml(r) {
+  const d = r.desc; if (!d) return "";
+  const nm = names(), out = [];
+  if (d.cell) out.push(`Silah × mesafe kaydı (sınanmadı, olasılığa katılmadı): ${d.band} mesafede ${d.cell.a} ${d.cell.b}'ya karşı %${Math.round(d.cell.p * 100)} [%${Math.round(d.cell.lo * 100)}-%${Math.round(d.cell.hi * 100)}], ${d.cell.n} düello · ${d.cell.label}.`);
+  const own = (o, who) => o ? `${who} ${o.cls} ile ${d.band} mesafede: ${o.wins}-${o.losses}${o.wins + o.losses < 20 ? " (az örnek)" : ""}` : null;
+  const ow = [own(d.own_a, esc(nm.a)), own(d.own_b, esc(nm.b))].filter(Boolean);
+  if (ow.length) out.push(`Bu demolardaki kayıt: ${ow.join(" · ")}.`);
+  if (d.height) out.push(`Yüksek zemin: ${esc(d.height.up === "a" ? nm.a : nm.b)} ~${d.height.dz} birim yukarıda. Dust2'de bu farkta yüksekteki 43 düellonun %70'ini kazandı; az örnek, olasılığa katılmadı.`);
+  return out.map((t) => `<p class="note">${t}</p>`).join("");
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
 // Can girdisi: 1-100 (boş / geçersiz → 100)
 function hpVal(id) { const v = Math.round(Number(document.getElementById(id).value)); return v >= 1 && v <= 100 ? v : 100; }
 ["wA", "wB", "hpA", "hpB"].forEach((id) => document.getElementById(id).addEventListener("change", refresh));
