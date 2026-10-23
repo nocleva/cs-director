@@ -130,6 +130,36 @@ def _participations(du: pl.DataFrame) -> pl.DataFrame:
     return pl.concat([w, l_])
 
 
+def class_band_record(du: pl.DataFrame, player: str | None = None,
+                      vs_cls: str | None = None) -> pl.DataFrame:
+    """Oyuncu × kendi silah sınıfı × mesafe dilimi düello kaydı (BETİMLEYİCİ; tahmine girmez).
+
+    Her düello iki oyuncuya sayılır (kazanan +1 galibiyet, kaybeden +1 yenilgi); sınıf =
+    o oyuncunun o round'daki ana silahı (`winner_cls` / `loser_cls`), dilim = düello mesafesi.
+    `player`: tek oyuncuya süz; `vs_cls`: sadece rakibin ana silahı bu sınıfsa say (ör. "rifle").
+    Kolonlar: player, cls, band, n, wins, losses, win_rate (n=0 satır yok). "senin AWP'n
+    yakında 14-14" gibi gösterimler içindir.
+    """
+    if du.height == 0:
+        return pl.DataFrame(schema={"player": pl.String, "cls": pl.String, "band": pl.String,
+                                    "n": pl.UInt32, "wins": pl.Int64, "losses": pl.Int64,
+                                    "win_rate": pl.Float64})
+    w = du.select(pl.col("winner").alias("player"), pl.col("winner_cls").alias("cls"),
+                  pl.col("loser_cls").alias("opp"), "band", pl.lit(1).alias("won"))
+    l_ = du.select(pl.col("loser").alias("player"), pl.col("loser_cls").alias("cls"),
+                   pl.col("winner_cls").alias("opp"), "band", pl.lit(0).alias("won"))
+    part = pl.concat([w, l_])
+    if player is not None:
+        part = part.filter(pl.col("player") == player)
+    if vs_cls is not None:
+        part = part.filter(pl.col("opp") == vs_cls)
+    return (part.group_by("player", "cls", "band")
+            .agg(pl.len().alias("n"), pl.col("won").sum().alias("wins"))
+            .with_columns((pl.col("n") - pl.col("wins")).alias("losses"),
+                          (pl.col("wins") / pl.col("n")).alias("win_rate"))
+            .sort("player", "cls", "band"))
+
+
 def strengths(du: pl.DataFrame) -> dict[str, Any]:
     """Model: hat + taraf tabanları, oyuncu genel oranı ve hat + taraf etkileri.
 

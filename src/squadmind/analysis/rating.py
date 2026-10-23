@@ -339,17 +339,19 @@ def _fit_logistic(X: np.ndarray, off: np.ndarray, y: np.ndarray, ridge: float
                   ) -> tuple[np.ndarray, np.ndarray]:
     """Ofsetli ridge lojistik regresyon (Newton-Raphson). Döner: β, kovaryans (ters Hessian)."""
     k = X.shape[1]
+    # ridge skaler ya da özellik başına vektör (hiyerarşik küçültme için)
+    R = np.diag(np.broadcast_to(np.asarray(ridge, dtype=float), (k,)))
     beta = np.zeros(k)
     for _ in range(50):
         p = 1 / (1 + np.exp(-(off + X @ beta)))
-        grad = X.T @ (y - p) - ridge * beta
-        H = (X * (p * (1 - p))[:, None]).T @ X + ridge * np.eye(k)
+        grad = X.T @ (y - p) - R @ beta
+        H = (X * (p * (1 - p))[:, None]).T @ X + R
         step = np.linalg.solve(H, grad)
         beta += step
         if np.max(np.abs(step)) < 1e-9:
             break
     p = 1 / (1 + np.exp(-(off + X @ beta)))
-    H = (X * (p * (1 - p))[:, None]).T @ X + ridge * np.eye(k)
+    H = (X * (p * (1 - p))[:, None]).T @ X + R
     return beta, np.linalg.inv(H)
 
 
@@ -425,16 +427,54 @@ def fit_model(du: pl.DataFrame, feats: Callable[[str, str], PlayerFeatures], *,
 # (+0,000 [−0,001; +0,001]) ve peek / tutma (−0,001 [−0,002; +0,001]) katkı vermedi → yok.
 # Girdi: iki oyuncunun O ROUND tuttuğu ana silahın sınıfı (konum kayıtlarından; kill'den ÖNCE
 # bilinir, sonuçtan sızmaz) ve düello mesafesi.
-WEAPON_FAR = 1100.0       # "uzak" dilim sınırı (duels.DIST_BANDS ile aynı)
-WEAPON_FEATURES = ("tabanca", "awp_uzak", "awp_yakın")
+#
+# Silah sınıfı × mesafe dilimi (genişletme; 2.607 düello, 18 maç, ELO'su bilinenler; ileriye
+# kayan pencere 12 test maçı / bir-maç-dışarıda, maç-kümeli %90): ELO tabanına göre log-kayıp
+# kazancı  eski 3 özellik +0,018 [+0,012; +0,023]; bu hiyerarşik model +0,020 [+0,013; +0,026];
+# eskiye göre ek kazanç +0,002 [−0,001; +0,006] (ileri), +0,0025 [−0,0002; +0,0049] (bir-maç-
+# dışarıda) → sıfırı dışlamıyor: ek yapı KANITLANMIŞ DEĞİL, küçültme sayesinde zararsız.
+# Alım tipi (eco / force) kontrolü hücre etkilerini ≤0,08 logit oynatır, sınama kazancı 0.
+# tüfek = referans; her sınıfın (tabanca, SMG, AWP, Scout, ağır) bir ANA etkisi ve her mesafe
+# diliminde (yakın <500 / orta <1.100 / uzak) bir SAPMASI var. Hücre etkisi = ana + sapma.
+# Hiyerarşik küçültme (ridge): sapma ~ N(0, 0,5²) → az örnekli hücre sınıfın ana etkisine,
+# ana etki ~ N(0, 1²) → 0'a (tüfek gibi) çekilir. Az örnekte uçmaz; örnek gelince açılır.
+WEAPON_NEAR = 500.0       # "yakın" dilim sınırı (duels.DIST_BANDS ile aynı)
+WEAPON_FAR = 1100.0       # "uzak" dilim sınırı
+WEAPON_CLASSES = ("rifle", "pistol", "smg", "awp", "scout", "heavy")   # ilki referans
+WEAPON_BANDS = ("yakın", "orta", "uzak")
+WEAPON_REF = WEAPON_CLASSES[0]
+_NONREF = WEAPON_CLASSES[1:]
+WEAPON_DEV_TAU = 0.5      # dilim sapmasının ön bilgi sapması (logit)
+WEAPON_FEATURES = (tuple(_NONREF) + tuple(f"{c}@{b}" for c in _NONREF for b in WEAPON_BANDS))
+# Eski (sade) model: yalnız [tabanca, AWP uzak, AWP yakın/orta]; simple=True ile seçilir
+WEAPON_FEATURES_SIMPLE = ("tabanca", "awp_uzak", "awp_yakın")
 
 
-def weapon_x(cls_a: str, cls_b: str, dist: float) -> np.ndarray:
-    """A için silah özellikleri (A − B farkı): [tabanca, AWP×uzak, AWP×yakın/orta]."""
-    far = 1.0 if dist >= WEAPON_FAR else 0.0
-    d_pistol = float(cls_a == "pistol") - float(cls_b == "pistol")
-    d_awp = float(cls_a == "awp") - float(cls_b == "awp")
-    return np.array([d_pistol, d_awp * far, d_awp * (1 - far)])
+def weapon_band(dist: float) -> int:
+    """Mesafe diliminin sırası: 0 yakın, 1 orta, 2 uzak."""
+    return 0 if dist < WEAPON_NEAR else (1 if dist < WEAPON_FAR else 2)
+
+
+def weapon_x(cls_a: str, cls_b: str, dist: float, simple: bool = False) -> np.ndarray:
+    """A için silah özellikleri (A − B farkı). Tanınmayan sınıf tüfek (referans) sayılır.
+
+    Tam model: [5 ana etki (tabanca, smg, awp, scout, heavy), 15 sınıf × dilim sapması].
+    `simple=True`: eski [tabanca, AWP×uzak, AWP×yakın/orta].
+    """
+    if simple:
+        far = 1.0 if dist >= WEAPON_FAR else 0.0
+        d_pistol = float(cls_a == "pistol") - float(cls_b == "pistol")
+        d_awp = float(cls_a == "awp") - float(cls_b == "awp")
+        return np.array([d_pistol, d_awp * far, d_awp * (1 - far)])
+    x = np.zeros(len(WEAPON_FEATURES))
+    band = weapon_band(dist)
+    k = len(_NONREF)
+    for cls, sign in ((cls_a, 1.0), (cls_b, -1.0)):
+        if cls in _NONREF:
+            i = _NONREF.index(cls)
+            x[i] += sign
+            x[k + i * len(WEAPON_BANDS) + band] += sign
+    return x
 
 
 @dataclass(frozen=True)
@@ -444,19 +484,49 @@ class WeaponEffect:
     beta: np.ndarray
     cov: np.ndarray
     n: int
+    simple: bool = False     # True: eski 3 özellikli model
+
+    def cell(self, cls: str, band: int | str) -> tuple[float, float]:
+        """Sınıfın (tüfeğe göre) bir dilimdeki logit etkisi ve standart hatası (A sınıfı, B tüfek).
+
+        Eski modelde sadece tabanca ve AWP için tanımlı, diğer sınıflar (0, 0).
+        """
+        b = WEAPON_BANDS.index(band) if isinstance(band, str) else band
+        dist = (250.0, 800.0, 1500.0)[b]
+        w = weapon_x(cls, WEAPON_REF, dist, self.simple)
+        return float(w @ self.beta), math.sqrt(max(float(w @ self.cov @ w), 0.0))
+
+
+def weapon_cells(we: WeaponEffect) -> dict[tuple[str, str], tuple[float, float, float, float]]:
+    """Her (sınıf, dilim) için (ELO eşitken kazanma olasılığı tüfeğe karşı, alt, üst, logit etkisi)."""
+    out = {}
+    for c in _NONREF:
+        for bi, bn in enumerate(WEAPON_BANDS):
+            e, se = we.cell(c, bi)
+            out[(c, bn)] = (_sigmoid(e), _sigmoid(e - Z90 * se), _sigmoid(e + Z90 * se), e)
+    return out
 
 
 def fit_weapon_effect(cls_t: Iterable[str], cls_ct: Iterable[str], dist: Iterable[float],
-                      t_won: Iterable[float], offset: Iterable[float], ridge: float = 1.0
-                      ) -> WeaponEffect:
-    """Silah etkisini öğrenir. `offset` = silahsız modelin T lehine logit'i (taban + β·Δ)."""
-    X = np.array([weapon_x(a, b, d) for a, b, d in zip(cls_t, cls_ct, dist, strict=True)],
-                 dtype=float).reshape(-1, len(WEAPON_FEATURES))
+                      t_won: Iterable[float], offset: Iterable[float], ridge: float = 1.0,
+                      simple: bool = False, dev_tau: float = WEAPON_DEV_TAU) -> WeaponEffect:
+    """Silah etkisini öğrenir. `offset` = silahsız modelin T lehine logit'i (taban + β·Δ).
+
+    `ridge`: ana etkilerin (ve eski modelde tüm özelliklerin) ceza ağırlığı; dilim sapmaları
+    1/dev_tau² ile cezalanır (hiyerarşik küçültme).
+    """
+    names = WEAPON_FEATURES_SIMPLE if simple else WEAPON_FEATURES
+    k = len(names)
+    pen = np.full(k, ridge)
+    if not simple:
+        pen[len(_NONREF):] = 1.0 / dev_tau ** 2
+    X = np.array([weapon_x(a, b, d, simple) for a, b, d in zip(cls_t, cls_ct, dist, strict=True)],
+                 dtype=float).reshape(-1, k)
     y, off = np.array(list(t_won), dtype=float), np.array(list(offset), dtype=float)
     if len(y) == 0:
-        return WeaponEffect(np.zeros(3), np.eye(3) / ridge, 0)
-    beta, cov = _fit_logistic(X, off, y, ridge)
-    return WeaponEffect(beta, cov, len(y))
+        return WeaponEffect(np.zeros(k), np.diag(1.0 / pen), 0, simple)
+    beta, cov = _fit_logistic(X, off, y, pen)
+    return WeaponEffect(beta, cov, len(y), simple)
 
 
 
@@ -513,7 +583,7 @@ def matchup(model: RatingModel, a: str, side_a: str, b: str, line: str | None,
     delta += ra - rb
     var += va + vb
     if weapon is not None and cls_a is not None and cls_b is not None and dist is not None:
-        wx = weapon_x(cls_a, cls_b, dist)
+        wx = weapon_x(cls_a, cls_b, dist, weapon.simple)
         delta += float(wx @ weapon.beta)
         var += float(wx @ weapon.cov @ wx)
     sd = math.sqrt(max(var, 0.0))
