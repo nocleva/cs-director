@@ -11,12 +11,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 from awpy import Demo, VisibilityChecker
 
 from squadmind.parse.damage import cap_damage
+
+if TYPE_CHECKING:  # yalnız tip ipucu için (döngüsel içe aktarma olmasın)
+    from squadmind.parse.package import PackageDemo
 
 # Parser sürümü: DB'deki hangi maçın hangi alanlara sahip olduğunu ayırt etmek için.
 # v1: ilk sürüm · v2: kill'de wallbang (penetrated) + hasar tablosu (duvar arkası tespiti)
@@ -405,7 +409,7 @@ def _no_effect_columns(df: pl.DataFrame, type_name: str) -> pl.DataFrame:
     )
 
 
-def build_utility(demo: Demo, proj: pl.DataFrame, windows: pl.DataFrame,
+def build_utility(demo: Demo | PackageDemo, proj: pl.DataFrame, windows: pl.DataFrame,
                   ref_points: np.ndarray, ref_places: list[str],
                   tick_rate: float) -> pl.DataFrame:
     """Smoke / flash / HE / molotof kullanımları: kim, nereye, ne etki."""
@@ -608,7 +612,16 @@ def build_player_stats(stats: pl.DataFrame) -> pl.DataFrame:
 
 def parse_demo(path: Path | str) -> DemoTables:
     """Açılmış bir .dem dosyasını okuyup tüm tabloları üretir."""
-    demo = Demo(Path(path))
+    return tables_from_demo(Demo(Path(path)))
+
+
+def tables_from_demo(demo: Demo | PackageDemo) -> DemoTables:
+    """awpy `Demo` (ya da aynı arayüzlü `PackageDemo`) nesnesinden tüm tabloları üretir.
+
+    Kullanılan arayüz: header, tick_rate, rounds, round_economy, bomb, kills, damages,
+    smokes, fires, blinds, grenades, shots, players, stats, events, snapshots(seconds=...),
+    ticks(["m_szLastPlaceName"], players_only=True).
+    """
     tick_rate = demo.tick_rate
     windows = round_windows(demo.rounds)
 
