@@ -91,7 +91,7 @@
       <a href="/demolar"{% if path == "/demolar" %} aria-current="page"{% endif %}>Demo yönetimi</a>
       <a href="/takimlar"{% if path.startswith("/takimlar") %} aria-current="page"{% endif %}>Takımlarım</a>
     </nav>
-    <div class="acct"><span class="avatar" title="{{ me.nickname }}">{{ me.nickname[:2] | upper }}</span><a href="/cikis">Çıkış</a></div>
+    <div class="acct"><span class="avatar" title="{{ me.nickname }}">{{ me.nickname[:2] | upper }}</span><a href="/hesap"{% if path == "/hesap" %} aria-current="page"{% endif %}>Hesabım</a><a href="/cikis">Çıkış</a></div>
     {% endif %}
   </div>
 </header>

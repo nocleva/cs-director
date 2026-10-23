@@ -36,7 +36,9 @@ from squadmind.analysis import tactic_builder as tbld
 from squadmind.analysis import team_builder as tb
 from squadmind.ingest import demos as demo_rules
 from squadmind.ingest.matches import profile_to_player_row, upsert_players
+from squadmind.web import accounts as acc
 from squadmind.web.faceit_auth import FaceitAuthError, FaceitOAuth, pkce_pair
+from squadmind.web.mailer import MailError, Mailer
 from squadmind.web.store import OPEN_STATES, QUEUED, UPLOADING, Store, WebUser
 from squadmind.web.worker import Job, Worker, demo_resource
 
@@ -57,6 +59,13 @@ TEAM_MIN_SHARED = 3
 MAX_TEAM_MEMBERS = 7
 _TEAM_ID = re.compile(r"[0-9a-f]{12}")
 SESSION_DAYS = 30
+# CSRF: çerezdeki rastgele değer + forma konan imzalı kopyası (çift gönderim)
+CSRF_COOKIE = "squadmind_csrf"
+CSRF_SECONDS = 12 * 3600
+# "E-posta ekle" ekranını bir süre erteleyen çerez (eski oturumlar için)
+SKIP_COOKIE = "squadmind_eposta_atla"
+VERIFY_SECONDS = 24 * 3600   # e-posta doğrulama bağlantısı
+RESET_SECONDS = 3600         # şifre sıfırlama bağlantısı
 # "FACEIT'ten getir": kullanıcı başı dakikada en fazla bu kadar imzalı link / sunucu işi isteği
 FACEIT_RATE_PER_MIN = 10
 # DEMO_READY olay adları (FACEIT belgesi: match_demo_ready; DEMO_READY de kabul edilir)
@@ -89,6 +98,9 @@ class WebSettings:
     faceit_downloads: bool = False
     webhook_secret: str = ""                    # DEMO_READY webhook gizli değeri (boşsa uç nokta 404)
     webhook_header: str = "X-Squadmind-Webhook"  # gizli değerin geldiği başlık adı
+    mailer: Mailer | None = None                # ayarlı değilse doğrulama / şifre sıfırlama kapalı
+    base_url: str = ""                          # e-postadaki bağlantılar için (boşsa istek adresi)
+    login_limiter: acc.LoginLimiter | None = None  # testler kendi sınırlayıcısını verebilir
 
 
 @lru_cache(maxsize=1)
@@ -122,6 +134,11 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-oturum")
     login_signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-giris")
     oauth = settings.oauth if settings.oauth and settings.oauth.configured else None
+    csrf_signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-csrf")
+    verify_signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-eposta-dogrula")
+    reset_signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-sifre-sifirla")
+    limiter = settings.login_limiter or acc.LoginLimiter()
+    mailer = settings.mailer if settings.mailer and settings.mailer.configured else None
     store.map_name = settings.map_name
     # WASM ayrıştırıcı ve zstd çözücü (kendi sunucumuzdan; CDN yok)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -173,7 +190,25 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             WHERE a.player_id = ? AND lower(p.nickname) = lower(?)
             """, [faceit_id, settings.team_owner]).fetchone()[0])
 
-    def enter(request: Request, profile: dict, invited: bool, davet: str, verified: bool = False):
+    def faceit_email(user: dict) -> str | None:
+        """FACEIT kullanıcı bilgisindeki e-posta (varsa, geçerliyse ve FACEIT doğrulanmamış demediyse)."""
+        if user.get("email_verified") is False:
+            return None
+        try:
+            return acc.normalize_email(str(user.get("email") or ""))
+        except acc.AccountError:
+            return None
+
+    def session_response(request: Request, steam_id: str, target: str = "/ben") -> RedirectResponse:
+        """Oturum çerezini kurup yönlendirir (eski çerezle aynı biçim: steam_id)."""
+        resp = RedirectResponse(target, status_code=303)
+        resp.set_cookie(COOKIE, signer.dumps(steam_id), max_age=SESSION_DAYS * 86400,
+                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
+        resp.delete_cookie(LOGIN_COOKIE)
+        return resp
+
+    def enter(request: Request, profile: dict, invited: bool, davet: str, verified: bool = False,
+              email: str | None = None):
         """FACEIT profiliyle oturum aç.
 
         FACEIT girişinde (kimlik doğrulanmış) herkes girer ve kendi takımını kurabilir.
@@ -192,12 +227,13 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         store.run(lambda con: upsert_players(con, [row]))
         store.add_user(row["steam_id"], row["faceit_id"], row["nickname"],
                        team_access=invited or teammate)
+        if verified:
+            # FACEIT kimliği kanıtlandı: bağlı hesabı hazırla (yoksa otomatik aç, 'doğrulanmış')
+            acct_id = acc.ensure_faceit_account(store, row["steam_id"], email)
+            if acct_id:
+                acc.touch_login(store, acct_id)
         worker.submit(Job("sync", row["steam_id"]))  # her girişte maç geçmişi tazelenir
-        resp = RedirectResponse("/ben", status_code=303)
-        resp.set_cookie(COOKIE, signer.dumps(row["steam_id"]), max_age=SESSION_DAYS * 86400,
-                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
-        resp.delete_cookie(LOGIN_COOKIE)
-        return resp
+        return session_response(request, row["steam_id"])
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, davet: str = ""):
@@ -258,7 +294,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, str(exc))
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
-        return enter(request, profile, invite_ok(davet), davet, verified=True)
+        return enter(request, profile, invite_ok(davet), davet, verified=True,
+                     email=faceit_email(user))
 
     @app.post("/giris/faceit/anahtar", response_class=HTMLResponse)
     def faceit_token(request: Request, access_token: str = Form(""), state: str = Form(""),
@@ -285,7 +322,335 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, str(exc))
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
-        return enter(request, profile, invite_ok(davet), davet, verified=True)
+        return enter(request, profile, invite_ok(davet), davet, verified=True,
+                     email=faceit_email(user))
+
+    # --- hesaplar: e-posta ile kayıt / giriş, hesap sayfası ---------------------------------
+
+    FLASH = {"eklendi": "E-posta eklendi.", "sifre": "Şifren güncellendi. Şimdi giriş yapabilirsin.",
+             "dogrulandi": "E-posta doğrulandı.", "gonderildi": "Doğrulama e-postası yollandı.",
+             "degisti": "Şifren değiştirildi."}
+    CSRF_MSG = "Form süresi doldu ya da doğrulanamadı; sayfayı yenileyip tekrar dene."
+    BAD_LINK = "Bağlantı geçersiz, süresi dolmuş ya da daha önce kullanılmış. Yenisini iste."
+
+    def client_ip(request: Request) -> str:
+        # Cloudflare tüneli gerçek IP'yi başlıkta taşır; yoksa doğrudan bağlantı adresi
+        return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
+
+    def base_link(request: Request) -> str:
+        return (settings.base_url or str(request.base_url)).rstrip("/")
+
+    def form_page(request: Request, name: str, status: int = 200, **ctx) -> HTMLResponse:
+        """Form içeren sayfa: CSRF çerezi yoksa kurar, forma imzalı kopyasını koyar."""
+        raw = request.cookies.get(CSRF_COOKIE, "")
+        new = not re.fullmatch(r"[A-Za-z0-9_-]{20,64}", raw)
+        if new:
+            raw = secrets.token_urlsafe(24)
+        ctx["csrf"] = csrf_signer.dumps(raw)
+        ctx.setdefault("mail_on", mailer is not None)
+        resp = page(request, name, **ctx)
+        resp.status_code = status
+        if new:
+            resp.set_cookie(CSRF_COOKIE, raw, max_age=CSRF_SECONDS, httponly=True, samesite="lax",
+                            secure=request.url.scheme == "https")
+        return resp
+
+    def csrf_ok(request: Request, token: str) -> bool:
+        raw = request.cookies.get(CSRF_COOKIE, "")
+        if not raw or not token:
+            return False
+        try:
+            return hmac.compare_digest(csrf_signer.loads(token, max_age=CSRF_SECONDS), raw)
+        except BadSignature:
+            return False
+
+    def need_mail() -> Mailer:
+        if mailer is None:
+            raise HTTPException(404, "E-posta gönderimi ayarlı değil.")
+        return mailer
+
+    def send_verification(request: Request, account: acc.Account) -> bool:
+        """Doğrulama bağlantısı yollar (e-posta ayarlıysa); bağlantı günlüğe yazılmaz."""
+        if mailer is None or not account.email:
+            return False
+        token = verify_signer.dumps({"a": account.account_id, "e": account.email})
+        body = ("SquadMind e-posta adresini doğrulamak için bağlantıya tıkla (24 saat geçerli):\n\n"
+                f"{base_link(request)}/hesap/dogrula?t={token}\n\n"
+                "Bu isteği sen yapmadıysan bu e-postayı yok say.")
+        try:
+            mailer.send(account.email, "SquadMind: e-postanı doğrula", body)
+        except MailError:
+            return False
+        return True
+
+    def cookie_account(request: Request) -> tuple[WebUser, acc.Account | None, str | None] | None:
+        """Oturumdaki kullanıcı, bağlı hesabı ve FACEIT bağlantı durumu."""
+        user = current_user(request)
+        if user is None:
+            return None
+        found = acc.account_of(store, user.steam_id)
+        return (user, found[0], found[1]) if found else (user, None, None)
+
+    @app.get("/kayit", response_class=HTMLResponse)
+    def register_form(request: Request, davet: str = ""):
+        if current_user(request):
+            return RedirectResponse("/ben", status_code=303)
+        return form_page(request, "auth.html", kind="kayit", davet=davet,
+                         closed=not settings.invite_code, faceit_login=oauth is not None)
+
+    @app.post("/kayit", response_class=HTMLResponse)
+    def register(request: Request, email: str = Form(""), password: str = Form(""),
+                 nickname: str = Form(""), davet: str = Form(""), csrf: str = Form("")):
+        ctx = {"kind": "kayit", "davet": davet, "email": email, "nickname": nickname,
+               "closed": not settings.invite_code, "faceit_login": oauth is not None}
+        if not csrf_ok(request, csrf):
+            return form_page(request, "auth.html", 400, error=CSRF_MSG, **ctx)
+        # Nickname kimliği kanıtlamaz: katılımla aynı kural, davet kodu her zaman şart
+        if not invite_ok(davet):
+            return form_page(request, "auth.html", 400, error="Davet kodu geçersiz. Linki takım arkadaşından tekrar iste.", **ctx)
+        try:
+            mail = acc.normalize_email(email)
+            acc.check_password_policy(password, mail)
+            if acc.by_email(store, mail):
+                raise acc.AccountError("Bu e-posta ile zaten bir hesap var. Giriş yapmayı dene.")
+        except acc.AccountError as exc:
+            return form_page(request, "auth.html", 400, error=str(exc), **ctx)
+        try:
+            with client_factory() as client:
+                profile = client.get_player_by_nickname(nickname.strip())
+        except FaceitNotFound:
+            return form_page(request, "auth.html", 400, error=f"FACEIT'te '{nickname.strip()}' bulunamadı. Büyük / küçük harfe dikkat et.", **ctx)
+        except FaceitAPIError as exc:
+            return form_page(request, "auth.html", 400, error=f"FACEIT'e ulaşılamadı: {exc}", **ctx)
+        row = profile_to_player_row(profile)
+        if not row.get("steam_id"):
+            return form_page(request, "auth.html", 400, error="Bu FACEIT hesabına bağlı CS2 / Steam hesabı bulunamadı.", **ctx)
+        if store.user(row["steam_id"]) is not None:
+            # Daha önce katılmış oyuncuyu e-postayla sahiplenmek, nickname bilen herkese açık olmasın
+            msg = ("Bu FACEIT hesabı zaten bir hesaba bağlı." if acc.account_of(store, row["steam_id"])
+                   else "Bu FACEIT hesabı sitede zaten kayıtlı. Eski oturumunla ya da FACEIT ile girip e-postanı orada ekle.")
+            return form_page(request, "auth.html", 400, error=msg, **ctx)
+        store.run(lambda con: upsert_players(con, [row]))
+        store.add_user(row["steam_id"], row["faceit_id"], row["nickname"], team_access=True)
+        try:
+            account_id = acc.create(store, mail, acc.hash_password(password), False)
+            acc.link_user(store, account_id, row["steam_id"], acc.UNVERIFIED)
+        except acc.AccountError as exc:
+            return form_page(request, "auth.html", 400, error=str(exc), **ctx)
+        created = acc.by_id(store, account_id)
+        if created:
+            send_verification(request, created)
+        acc.touch_login(store, account_id)
+        worker.submit(Job("sync", row["steam_id"]))
+        return session_response(request, row["steam_id"])
+
+    @app.get("/giris", response_class=HTMLResponse)
+    def login_form(request: Request, m: str = ""):
+        if current_user(request):
+            return RedirectResponse("/ben", status_code=303)
+        return form_page(request, "auth.html", kind="giris", flash=FLASH.get(m),
+                         faceit_login=oauth is not None)
+
+    @app.post("/giris", response_class=HTMLResponse)
+    def login(request: Request, email: str = Form(""), password: str = Form(""),
+              csrf: str = Form("")):
+        ctx = {"kind": "giris", "email": email, "faceit_login": oauth is not None}
+        if not csrf_ok(request, csrf):
+            return form_page(request, "auth.html", 400, error=CSRF_MSG, **ctx)
+        mail, ip = email.strip().lower()[:254], client_ip(request)
+        if limiter.blocked(mail, ip):
+            return form_page(request, "auth.html", 429, error="Çok fazla hatalı deneme. 15 dakika sonra tekrar dene.", **ctx)
+        account = acc.by_email(store, mail)
+        # Hesap yoksa da karma doğrulanır: süre farkından hesap varlığı anlaşılmasın
+        ok = acc.verify_password(password[: acc.MAX_PASSWORD],
+                                 account.password_hash if account and account.password_hash else acc.DUMMY_HASH)
+        steam_id = acc.steam_of(store, account.account_id) if account and ok else None
+        if not (account and account.password_hash and ok and steam_id):
+            limiter.fail(mail, ip)
+            return form_page(request, "auth.html", 400, error="E-posta ya da şifre hatalı.", **ctx)
+        limiter.reset(mail, ip)
+        acc.touch_login(store, account.account_id)
+        return session_response(request, steam_id)
+
+    @app.get("/hesap", response_class=HTMLResponse)
+    def account_page(request: Request, m: str = ""):
+        ctx = cookie_account(request)
+        if ctx is None:
+            return RedirectResponse("/giris", status_code=303)
+        user, account, link = ctx
+        if account is None:
+            return RedirectResponse("/hesap/eposta", status_code=303)
+        info = store.run(lambda con: con.execute(
+            "SELECT level, elo FROM players WHERE faceit_id = ?", [user.faceit_id]).fetchone())
+        return form_page(request, "account.html", user=user, account=account, link=link,
+                         has_password=bool(account.password_hash), flash=FLASH.get(m),
+                         level=info[0] if info else None, elo=info[1] if info else None,
+                         faceit_login=oauth is not None)
+
+    @app.get("/hesap/eposta", response_class=HTMLResponse)
+    def add_email_form(request: Request):
+        ctx = cookie_account(request)
+        if ctx is None:
+            return RedirectResponse("/", status_code=303)
+        if ctx[1] is not None and ctx[1].email:
+            return RedirectResponse("/hesap", status_code=303)
+        return form_page(request, "auth.html", kind="eposta")
+
+    @app.post("/hesap/eposta", response_class=HTMLResponse)
+    def add_email(request: Request, email: str = Form(""), password: str = Form(""),
+                  csrf: str = Form("")):
+        """Eski oturum (hesapsız) ya da e-postasız FACEIT hesabı: e-posta + şifre ekler."""
+        ctx = cookie_account(request)
+        if ctx is None:
+            return RedirectResponse("/", status_code=303)
+        user, account, _ = ctx
+        view = {"kind": "eposta", "email": email}
+        if not csrf_ok(request, csrf):
+            return form_page(request, "auth.html", 400, error=CSRF_MSG, **view)
+        if account is not None and account.email:
+            return RedirectResponse("/hesap", status_code=303)
+        try:
+            mail = acc.normalize_email(email)
+            acc.check_password_policy(password, mail)
+            pw_hash = acc.hash_password(password)
+            if account is None:
+                account_id = acc.create(store, mail, pw_hash, False)
+                acc.link_user(store, account_id, user.steam_id, acc.UNVERIFIED)
+            else:
+                account_id = account.account_id
+                acc.set_email(store, account_id, mail, False)
+                acc.set_password(store, account_id, pw_hash)
+        except acc.AccountError as exc:
+            return form_page(request, "auth.html", 400, error=str(exc), **view)
+        created = acc.by_id(store, account_id)
+        if created:
+            send_verification(request, created)
+        return RedirectResponse("/hesap?m=eklendi", status_code=303)
+
+    @app.get("/hesap/atla")
+    def skip_email():
+        """E-posta ekleme ekranını bir gün ertele (eski oturumlar zorlanmasın)."""
+        resp = RedirectResponse("/ben", status_code=303)
+        resp.set_cookie(SKIP_COOKIE, "1", max_age=86400, httponly=True, samesite="lax")
+        return resp
+
+    @app.post("/hesap/sifre", response_class=HTMLResponse)
+    def change_password(request: Request, current: str = Form(""), password: str = Form(""),
+                        csrf: str = Form("")):
+        ctx = cookie_account(request)
+        if ctx is None or ctx[1] is None:
+            return RedirectResponse("/giris", status_code=303)
+        user, account, link = ctx
+        view = {"user": user, "account": account, "link": link, "faceit_login": oauth is not None,
+                "has_password": bool(account.password_hash)}
+        if not csrf_ok(request, csrf):
+            return form_page(request, "account.html", 400, error=CSRF_MSG, **view)
+        key, ip = f"sifre:{account.account_id}", client_ip(request)
+        if limiter.blocked(key, ip):
+            return form_page(request, "account.html", 429, error="Çok fazla hatalı deneme. 15 dakika sonra tekrar dene.", **view)
+        if account.password_hash and not acc.verify_password(current[: acc.MAX_PASSWORD], account.password_hash):
+            limiter.fail(key, ip)
+            return form_page(request, "account.html", 400, error="Mevcut şifre hatalı.", **view)
+        try:
+            acc.check_password_policy(password, account.email)
+        except acc.AccountError as exc:
+            return form_page(request, "account.html", 400, error=str(exc), **view)
+        acc.set_password(store, account.account_id, acc.hash_password(password))
+        return RedirectResponse("/hesap?m=degisti", status_code=303)
+
+    @app.post("/hesap/dogrulama-gonder")
+    def resend_verification(request: Request, csrf: str = Form("")):
+        need_mail()
+        ctx = cookie_account(request)
+        if ctx is None or ctx[1] is None or not ctx[1].email:
+            return RedirectResponse("/giris", status_code=303)
+        if not csrf_ok(request, csrf):
+            raise HTTPException(400, CSRF_MSG)
+        key, ip = f"dogrulama:{ctx[1].account_id}", client_ip(request)
+        if limiter.blocked(key, ip):
+            raise HTTPException(429, "Çok sık istendi; biraz bekle.")
+        limiter.fail(key, ip)  # her istek sayılır: e-posta bombası olmasın
+        send_verification(request, ctx[1])
+        return RedirectResponse("/hesap?m=gonderildi", status_code=303)
+
+    @app.get("/hesap/dogrula")
+    def verify_email(request: Request, t: str = ""):
+        need_mail()
+        bad = "Doğrulama bağlantısı geçersiz ya da süresi dolmuş."
+        try:
+            data = verify_signer.loads(t, max_age=VERIFY_SECONDS)
+        except BadSignature:
+            return form_page(request, "auth.html", 400, kind="giris", error=bad, faceit_login=oauth is not None)
+        account = acc.by_id(store, str(data.get("a", "")))
+        if account is None or account.email != data.get("e"):
+            return form_page(request, "auth.html", 400, kind="giris", error=bad, faceit_login=oauth is not None)
+        acc.mark_verified(store, account.account_id)
+        return RedirectResponse("/hesap?m=dogrulandi" if current_user(request) else "/giris?m=dogrulandi",
+                                status_code=303)
+
+    @app.get("/sifre-unuttum", response_class=HTMLResponse)
+    def forgot_form(request: Request):
+        need_mail()
+        return form_page(request, "auth.html", kind="unuttum")
+
+    @app.post("/sifre-unuttum", response_class=HTMLResponse)
+    def forgot(request: Request, email: str = Form(""), csrf: str = Form("")):
+        need_mail()
+        if not csrf_ok(request, csrf):
+            return form_page(request, "auth.html", 400, kind="unuttum", error=CSRF_MSG)
+        mail, ip = email.strip().lower()[:254], client_ip(request)
+        key = f"unuttum:{mail}"
+        # Her durumda aynı yanıt: hesap var mı yok mu anlaşılmasın; istek sayısı sınırlı
+        if not limiter.blocked(key, ip):
+            limiter.fail(key, ip)
+            account = acc.by_email(store, mail)
+            if account and acc.steam_of(store, account.account_id):
+                token = reset_signer.dumps({"a": account.account_id, "e": account.email,
+                                            "h": acc.reset_fingerprint(account.password_hash)})
+                body = ("SquadMind şifreni yenilemek için bağlantıya tıkla (1 saat geçerli, bir kez kullanılır):\n\n"
+                        f"{base_link(request)}/sifre-sifirla?t={token}\n\n"
+                        "Bu isteği sen yapmadıysan bu e-postayı yok say; şifren değişmez.")
+                try:
+                    need_mail().send(account.email, "SquadMind: şifre sıfırlama", body)
+                except MailError:
+                    pass  # kullanıcıya hata sızdırma (hesap varlığı anlaşılmasın)
+        return form_page(request, "auth.html", kind="unuttum", sent=True)
+
+    def reset_account(t: str) -> acc.Account | None:
+        """Geçerli, süresi dolmamış ve kullanılmamış sıfırlama bağlantısının hesabı."""
+        try:
+            data = reset_signer.loads(t, max_age=RESET_SECONDS)
+        except BadSignature:
+            return None
+        account = acc.by_id(store, str(data.get("a", "")))
+        if (account is None or account.email != data.get("e")
+                or not hmac.compare_digest(acc.reset_fingerprint(account.password_hash),
+                                           str(data.get("h", "")))):
+            return None
+        return account
+
+    @app.get("/sifre-sifirla", response_class=HTMLResponse)
+    def reset_form(request: Request, t: str = ""):
+        need_mail()
+        if reset_account(t) is None:
+            return form_page(request, "auth.html", 400, kind="unuttum", error=BAD_LINK)
+        return form_page(request, "auth.html", kind="sifirla", token=t)
+
+    @app.post("/sifre-sifirla", response_class=HTMLResponse)
+    def reset(request: Request, t: str = Form(""), password: str = Form(""), csrf: str = Form("")):
+        need_mail()
+        if not csrf_ok(request, csrf):
+            return form_page(request, "auth.html", 400, kind="sifirla", token=t, error=CSRF_MSG)
+        account = reset_account(t)
+        if account is None:
+            return form_page(request, "auth.html", 400, kind="unuttum", error=BAD_LINK)
+        try:
+            acc.check_password_policy(password, account.email)
+        except acc.AccountError as exc:
+            return form_page(request, "auth.html", 400, kind="sifirla", token=t, error=str(exc))
+        acc.set_password(store, account.account_id, acc.hash_password(password))
+        acc.mark_verified(store, account.account_id)  # bağlantı e-postaya gitti: sahiplik kanıtı
+        return RedirectResponse("/giris?m=sifre", status_code=303)
 
     # --- gizlilik / kullanım şartları (FACEIT onay ekranı bu adreslere bağlanır) ---------
 
@@ -341,9 +706,13 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         user = current_user(request)
         if user is None:
             return RedirectResponse("/", status_code=303)
+        found = acc.account_of(store, user.steam_id)
+        if found is None and not request.cookies.get(SKIP_COOKIE):
+            return RedirectResponse("/hesap/eposta", status_code=303)  # eski oturum: hesap burada açılır
         uploads = store.uploads_of(user.steam_id)
         cards = map_cards(user)
-        return page(request, "overview.html", user=user, cards=cards, totals=store.totals(user.steam_id),
+        return page(request, "overview.html", acct=found[0] if found else None,
+                    acct_link=found[1] if found else None, user=user, cards=cards, totals=store.totals(user.steam_id),
                     ready=sum(c["level"] == "ok" for c in cards if c["pool"]), pool_size=len(tb.MAP_POOL),
                     min_demos=tb.MIN_DEMOS, teams=store.teams_of(user.faceit_id),
                     recent=uploads[:5], pending=busy(user, uploads))

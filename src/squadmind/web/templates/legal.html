@@ -45,7 +45,8 @@ a { color: var(--accent); }
   <p>SquadMind, CS2 oyuncularının FACEIT maçlarını ve demolarını analiz edip takım kurmasına yardım eden küçük bir araçtır. Burada hangi veriyi neden tuttuğumuzu yazıyoruz.</p>
   <h2>Hangi veriler</h2>
   <ul>
-    <li><strong>FACEIT ile girişte:</strong> sadece FACEIT oyuncu kimliğin (ID). Şifren bize hiç gelmez; giriş FACEIT'in kendi sayfasında yapılır. E-posta adresini kullanmıyoruz.</li>
+    <li><strong>FACEIT ile girişte:</strong> sadece FACEIT oyuncu kimliğin (ID). Şifren bize hiç gelmez; giriş FACEIT'in kendi sayfasında yapılır. FACEIT hesabına bağlı e-posta adresini verirse hesabını açmak için kullanırız.</li>
+    <li><strong>Hesap (e-posta ile kayıt):</strong> e-posta adresin ve şifrenin <strong>karması</strong> (argon2; şifrenin kendisi saklanmaz, okunamaz). FACEIT hesabın hesabına bağlanır; nickname ile kayıtta bağlantı "doğrulanmadı", FACEIT ile girince "FACEIT doğrulandı" olur. E-postanı yalnızca giriş, doğrulama ve şifre sıfırlama için kullanırız; reklam göndermeyiz.</li>
     <li><strong>FACEIT'in herkese açık verisi:</strong> nickname, seviye / ELO, bağlı Steam ID, maç geçmişin ve maç skor tabloların (FACEIT Data API'den).</li>
     <li><strong>Yüklediğin demolar:</strong> demo dosyası ve ondan çıkarılan maç verisi (round'lar, kill'ler, utility, oyuncu konumları). Bir demo, o maçtaki 10 oyuncunun oyun içi verisini içerir.</li>
     <li><strong>Çerez:</strong> oturumunu açık tutan imzalı bir çerez (30 gün) ve giriş sırasında 10 dakikalık bir doğrulama çerezi. Reklam ya da izleme çerezi yok.</li>
@@ -55,10 +56,10 @@ a { color: var(--accent); }
   <h2>Nerede tutuluyor</h2>
   <p>Veriler, SquadMind işletmecisinin bilgisayarındaki bir veritabanında ve demo klasöründe tutulur; site Cloudflare tüneli üzerinden yayınlanır.</p>
   <h2>Silme</h2>
-  <p>Hesabının ve yüklediğin demoların silinmesini istersen <a href="mailto:support@squadmind.info">support@squadmind.info</a> adresine yaz; elle silinir. FACEIT bağlantısını FACEIT hesap ayarlarından da kaldırabilirsin.</p>
+  <p>Hesabının ve yüklediğin demoların silinmesini istersen (e-posta ve şifre karman dahil) <a href="mailto:support@squadmind.info">support@squadmind.info</a> adresine yaz; elle silinir. FACEIT bağlantısını FACEIT hesap ayarlarından da kaldırabilirsin.</p>
   <div class="en">
     <h2>In English</h2>
-    <p>SquadMind is a small tool that helps CS2 players analyse their FACEIT matches and demos and build teams. With FACEIT login we receive only your FACEIT player ID (never your password or e-mail); nickname, level, Steam ID and match history come from the public FACEIT Data API. Uploaded demos and the match data parsed from them are stored on the operator's computer. Your statistics and demo coverage are shared only with teams whose invitation you accept; other users may see your public FACEIT nickname and level in search. We use one signed session cookie and a short-lived login cookie, no tracking. Data is never sold or shared. To have your data deleted, e-mail <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
+    <p>SquadMind is a small tool that helps CS2 players analyse their FACEIT matches and demos and build teams. With FACEIT login we receive your FACEIT player ID and, if FACEIT provides it, your e-mail address to create your account (never your FACEIT password). If you register by e-mail we store your e-mail and a salted hash of your password (argon2), and link your FACEIT account to it (shown as "verified" only after FACEIT login); nickname, level, Steam ID and match history come from the public FACEIT Data API. Uploaded demos and the match data parsed from them are stored on the operator's computer. Your statistics and demo coverage are shared only with teams whose invitation you accept; other users may see your public FACEIT nickname and level in search. We use one signed session cookie and a short-lived login cookie, no tracking. Data is never sold or shared. To have your data deleted, e-mail <a href="mailto:support@squadmind.info">support@squadmind.info</a>.</p>
   </div>
 {% else %}
   <div class="eyebrow">Terms of service</div>

@@ -23,6 +23,7 @@ dependencies = [
     "markdown>=3.11.2",
     "itsdangerous>=2.2.0",
     "python-multipart>=0.0.32",
+    "argon2-cffi>=25.1.0",
 ]
 
 [project.scripts]

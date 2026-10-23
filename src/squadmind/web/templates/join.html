@@ -118,6 +118,8 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
         {% endif %}
       </div>
 
+      <p class="note" style="margin-top:14px">E-posta ile de girebilirsin: <a href="/giris" style="color:var(--accent)">giriş yap</a> · <a href="/kayit{% if davet %}?davet={{ davet | urlencode }}{% endif %}" style="color:var(--accent)">kayıt ol</a></p>
+
       <ol class="steps">
         <li><span class="n">01</span><div><b>{% if faceit_login %}FACEIT ile gir{% else %}Nickname'inle katıl{% endif %}</b><span>Hesabın ve maç geçmişin FACEIT'ten otomatik gelir.</span></div></li>
         <li><span class="n">02</span><div><b>Demolarını yükle</b><span>Aynı maç bir kez yüklenir; takım arkadaşının yüklediği senin için de sayılır.</span></div></li>

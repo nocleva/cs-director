@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from squadmind.web.app import WebSettings, create_app, safe_file_name
 from squadmind.web.store import Store
 from squadmind.web.worker import Worker
+from tests.conftest import skip_email
 from tests.test_ingest_demos import M1, SELF, make_tables
 
 INVITE = "takim-davet-123"
@@ -35,7 +36,7 @@ def web(tmp_path, make_client):
                            team_owner=None, map_name=None, uploads_dir=tmp_path / "uploads")
     app = create_app(settings, store, worker, client_factory=make_client)
     app.state.worker = worker  # testler takım sahibini değiştirebilsin
-    client = TestClient(app)
+    client = skip_email(TestClient(app))
     yield client, store
     store.close()
 
@@ -166,7 +167,7 @@ def oauth_web(tmp_path, make_client):
     settings = WebSettings(invite_code=INVITE, secret="test-secret", required_demos=10,
                            team_owner="Sahip", map_name=None, uploads_dir=tmp_path / "uploads",
                            oauth=oauth)
-    client = TestClient(create_app(settings, store, worker, client_factory=make_client))
+    client = skip_email(TestClient(create_app(settings, store, worker, client_factory=make_client)))
     yield client, store, oauth
     store.close()
 
@@ -288,7 +289,7 @@ def test_team_flow_invite_accept_share(oauth_web, make_client):
     store.add_user("s-mate", "p-mate", "Mate")
     from squadmind.web.app import COOKIE
     from itsdangerous import URLSafeTimedSerializer
-    mate = TestClient(client.app)
+    mate = skip_email(TestClient(client.app))
     mate.cookies.set(COOKIE, URLSafeTimedSerializer("test-secret", salt="squadmind-oturum").dumps("s-mate"))
     assert "Kabul et" in mate.get(team_url).text
     mate.post(f"/takimlar/{team_id}/kabul")
@@ -391,7 +392,7 @@ def test_faceit_implicit_flow(tmp_path, make_client, monkeypatch):
     worker.submit = lambda job: None
     settings = WebSettings(invite_code=INVITE, secret="s", required_demos=10, team_owner=None,
                            map_name=None, uploads_dir=tmp_path / "u", oauth=oauth)
-    client = TestClient(create_app(settings, store, worker, client_factory=make_client))
+    client = skip_email(TestClient(create_app(settings, store, worker, client_factory=make_client)))
     try:
         r = client.get("/giris/faceit", follow_redirects=False)
         state = r.headers["location"].split("state=")[1].split("&")[0]

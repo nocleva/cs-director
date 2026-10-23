@@ -14,7 +14,7 @@ from squadmind.db import connect, init_db
 from squadmind.web.app import FACEIT_RATE_PER_MIN, WebSettings, create_app
 from squadmind.web.store import Store
 from squadmind.web.worker import Worker
-from tests.conftest import fake_faceit_handler
+from tests.conftest import fake_faceit_handler, skip_email
 from tests.test_ingest_demos import M1, SELF, make_tables
 
 INVITE = "takim-davet-123"
@@ -57,7 +57,7 @@ def build(tmp_path, make_client, *, enabled: bool, secret: str = SECRET, handler
                            faceit_downloads=enabled, webhook_secret=secret, webhook_header=HEADER)
     app = create_app(settings, store, worker, client_factory=lambda: make_client(handler))
     app.state.worker = worker
-    return TestClient(app), store, downloaded
+    return skip_email(TestClient(app)), store, downloaded
 
 
 @pytest.fixture
@@ -292,7 +292,7 @@ def test_schema_v10_migration_is_idempotent():
     con.execute("DELETE FROM schema_version")
     con.execute("INSERT INTO schema_version VALUES (9)")
     init_db(con)
-    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 10
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 11
     cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
                                       "WHERE table_name = 'web_users'").fetchall()}
     assert "auto_demo" in cols

@@ -215,7 +215,20 @@ CREATE TABLE IF NOT EXISTS web_users (
     sync_status  VARCHAR,                -- bekliyor / alınıyor / tamam / hata: <mesaj>
     joined_at    TIMESTAMP DEFAULT current_timestamp,
     team_access  BOOLEAN DEFAULT false,  -- (v6) takım sahibinin kadro sayfalarını görebilir
-    auto_demo    BOOLEAN DEFAULT false   -- (v10) maçının demosu hazır olunca otomatik işlensin
+    auto_demo    BOOLEAN DEFAULT false,  -- (v10) maçının demosu hazır olunca otomatik işlensin
+    account_id   VARCHAR,                -- (v11) bağlı hesap (accounts.account_id); bir hesapta en fazla bir FACEIT
+    faceit_link  VARCHAR                 -- (v11) 'dogrulanmis' (FACEIT girişi) / 'dogrulanmamis' (nickname)
+);
+
+-- Hesaplar (şema v11): e-posta + şifre karması; FACEIT hesabı web_users satırıyla bağlanır.
+-- E-posta küçük harf + kırpılmış saklanır; FACEIT'ten e-postasız gelen hesapta boş olabilir.
+CREATE TABLE IF NOT EXISTS accounts (
+    account_id     VARCHAR PRIMARY KEY,
+    email          VARCHAR UNIQUE,
+    password_hash  VARCHAR,              -- argon2 (yedek: scrypt); FACEIT'le açılan hesapta boş olabilir
+    email_verified BOOLEAN DEFAULT false,
+    created_at     TIMESTAMP DEFAULT current_timestamp,
+    last_login_at  TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS web_uploads (
