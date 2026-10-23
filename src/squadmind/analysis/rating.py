@@ -27,7 +27,8 @@ Yöntem (formüller; sabitlerin gerekçesi aşağıda, sayılar 18 Dust2 demosun
 
 Sınamada (bkz. tests/ ve rapor) katkısı görülmeyen ve bu yüzden varsayılanda KAPALI olanlar:
 ADR, demo düello artığı, hat × taraf artığı, mesafe dilimi tabanı. Arayüzde açılabilirler.
-Sınırlar: düello = kill'le biten temas; peek / tutma ve silah (AWP / tüfek) modelde yok; aralık
+Sınırlar: düello = kill'le biten temas; peek / tutma modelde yok (ölçülemedi); silah etkisi
+opsiyonel ve varsayılan kapalı (bölüm 3b); aralık
 güç tahmininin belirsizliğidir, tek düellonun şansı değil (olasılıklar çoğunlukla %40-60).
 """
 
@@ -414,6 +415,48 @@ def fit_model(du: pl.DataFrame, feats: Callable[[str, str], PlayerFeatures], *,
     return model
 
 
+# --- 3b. Silah etkisi (OPSİYONEL, varsayılan KAPALI: profesör onayı bekliyor) -----------------
+# 18 Dust2 demosu, ileri-yönlü sınama (6/9/12/15 maç eğitim, sonraki 3 maç test; 1.999 test
+# düellosu, maç-kümeli %90): ELO tabanına göre log-kayıp farkı  tabanca-vs-tüfek −0,013
+# [−0,017; −0,008], + AWP uzak/yakın ayrımı −0,017 [−0,022; −0,011]. Mesafe dilimi tek başına
+# (+0,000 [−0,001; +0,001]) ve peek / tutma (−0,001 [−0,002; +0,001]) katkı vermedi → yok.
+# Girdi: iki oyuncunun O ROUND tuttuğu ana silahın sınıfı (konum kayıtlarından; kill'den ÖNCE
+# bilinir, sonuçtan sızmaz) ve düello mesafesi.
+WEAPON_FAR = 1100.0       # "uzak" dilim sınırı (duels.DIST_BANDS ile aynı)
+WEAPON_FEATURES = ("tabanca", "awp_uzak", "awp_yakın")
+
+
+def weapon_x(cls_a: str, cls_b: str, dist: float) -> np.ndarray:
+    """A için silah özellikleri (A − B farkı): [tabanca, AWP×uzak, AWP×yakın/orta]."""
+    far = 1.0 if dist >= WEAPON_FAR else 0.0
+    d_pistol = float(cls_a == "pistol") - float(cls_b == "pistol")
+    d_awp = float(cls_a == "awp") - float(cls_b == "awp")
+    return np.array([d_pistol, d_awp * far, d_awp * (1 - far)])
+
+
+@dataclass(frozen=True)
+class WeaponEffect:
+    """Silah sınıfı farkının logit etkisi: katsayılar (WEAPON_FEATURES sırası), kovaryans, n."""
+
+    beta: np.ndarray
+    cov: np.ndarray
+    n: int
+
+
+def fit_weapon_effect(cls_t: Iterable[str], cls_ct: Iterable[str], dist: Iterable[float],
+                      t_won: Iterable[float], offset: Iterable[float], ridge: float = 1.0
+                      ) -> WeaponEffect:
+    """Silah etkisini öğrenir. `offset` = silahsız modelin T lehine logit'i (taban + β·Δ)."""
+    X = np.array([weapon_x(a, b, d) for a, b, d in zip(cls_t, cls_ct, dist, strict=True)],
+                 dtype=float).reshape(-1, len(WEAPON_FEATURES))
+    y, off = np.array(list(t_won), dtype=float), np.array(list(offset), dtype=float)
+    if len(y) == 0:
+        return WeaponEffect(np.zeros(3), np.eye(3) / ridge, 0)
+    beta, cov = _fit_logistic(X, off, y, ridge)
+    return WeaponEffect(beta, cov, len(y))
+
+
+
 # --- 4. Tahmin --------------------------------------------------------------------------------
 
 
@@ -442,10 +485,14 @@ def _residual_part(model: RatingModel, steam_id: str, line: str | None, side: st
 
 
 def matchup(model: RatingModel, a: str, side_a: str, b: str, line: str | None,
-            fa: PlayerFeatures, fb: PlayerFeatures, band: str | None = None) -> Matchup:
+            fa: PlayerFeatures, fb: PlayerFeatures, band: str | None = None, *,
+            weapon: WeaponEffect | None = None, cls_a: str | None = None,
+            cls_b: str | None = None, dist: float | None = None) -> Matchup:
     """P(A, B'yi yener): A `side_a` tarafında, `line` hattında (None = hat dışı).
 
     `band` sadece model base="line" ile kurulduysa ve o hat × dilim varsa tabanı değiştirir.
+    `weapon` (opsiyonel, varsayılan kapalı): silah sınıfları (`cls_a`, `cls_b`) ve mesafe
+    (`dist`) da verilirse silah etkisi eklenir; biri eksikse hiç eklenmez.
     """
     key = _line_key(line)
     base_t = model.base_band.get((key, band)) if band else None
@@ -462,6 +509,10 @@ def matchup(model: RatingModel, a: str, side_a: str, b: str, line: str | None,
     rb, vb, dnb, lnb = _residual_part(model, b, line, side_b)
     delta += ra - rb
     var += va + vb
+    if weapon is not None and cls_a is not None and cls_b is not None and dist is not None:
+        wx = weapon_x(cls_a, cls_b, dist)
+        delta += float(wx @ weapon.beta)
+        var += float(wx @ weapon.cov @ wx)
     sd = math.sqrt(max(var, 0.0))
     p = _sigmoid(base + bound(delta))
     lo = _sigmoid(base + bound(delta - Z90 * sd))
