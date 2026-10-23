@@ -143,6 +143,18 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     # WASM ayrıştırıcı ve zstd çözücü (kendi sunucumuzdan; CDN yok)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+    # Site simgesi: koyu zemin üstünde turuncu nişangâh (ARENA teması), tek SVG
+    _FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+                '<rect width="32" height="32" rx="7" fill="#0d0f12"/>'
+                '<circle cx="16" cy="16" r="8.5" fill="none" stroke="#ff6a2b" stroke-width="2.5"/>'
+                '<circle cx="16" cy="16" r="2.6" fill="#ff6a2b"/></svg>')
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    @app.get("/favicon.svg", include_in_schema=False)
+    def favicon():
+        return Response(_FAVICON, media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
     # --- oturum ---------------------------------------------------------------------
 
     def current_user(request: Request) -> WebUser | None:

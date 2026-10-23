@@ -159,10 +159,10 @@ def _duplicate_reason(con: duckdb.DuckDBPyConnection, digests: list[str],
             "WHERE list_contains(?, sha256) OR list_contains(?, dem_sha256)",
             [digests, digests]).fetchone()
         if row:
-            return f"bu dosya daha önce eklendi (maç {row[0]}, {row[1]})"
+            return "bu demo daha önce eklendi (sen ya da bir takım arkadaşın yükledi)"
     mid = match_id_from_filename(file_name)
     if mid and match_already_processed(con, mid):
-        return f"bu maçın demosu zaten işlendi ({mid})"
+        return "bu maçın demosu zaten işlendi"
     return None
 
 
