@@ -38,19 +38,19 @@ def test_weapon_x_simple_orientation_and_distance_split():
 
 def test_weapon_x_class_by_band_layout():
     k = len(rt.WEAPON_FEATURES)
-    assert k == 5 + 15 and rt.weapon_x("rifle", "rifle", 300).tolist() == [0.0] * k
+    assert k == 5 + 15 and rt.weapon_x("rifle", "rifle", 300, simple=False).tolist() == [0.0] * k
     # tanınmayan sınıf (ör. "other") tüfek sayılır
-    assert rt.weapon_x("other", "rifle", 300).tolist() == [0.0] * k
-    x = rt.weapon_x("awp", "rifle", 300)
+    assert rt.weapon_x("other", "rifle", 300, simple=False).tolist() == [0.0] * k
+    x = rt.weapon_x("awp", "rifle", 300, simple=False)
     names = rt.WEAPON_FEATURES
     assert x[names.index("awp")] == 1 and x[names.index("awp@yakın")] == 1 and x.sum() == 2
-    assert rt.weapon_x("awp", "rifle", 800)[names.index("awp@orta")] == 1
-    assert rt.weapon_x("awp", "rifle", 1100)[names.index("awp@uzak")] == 1
+    assert rt.weapon_x("awp", "rifle", 800, simple=False)[names.index("awp@orta")] == 1
+    assert rt.weapon_x("awp", "rifle", 1100, simple=False)[names.index("awp@uzak")] == 1
     # yön: B'nin silahı ters işaret; aynı sınıf aynı dilimde birbirini götürür
-    assert rt.weapon_x("rifle", "smg", 300)[names.index("smg@yakın")] == -1
-    assert rt.weapon_x("awp", "awp", 300).tolist() == [0.0] * k
+    assert rt.weapon_x("rifle", "smg", 300, simple=False)[names.index("smg@yakın")] == -1
+    assert rt.weapon_x("awp", "awp", 300, simple=False).tolist() == [0.0] * k
     # farklı sınıflar: AWP (A) - Scout (B)
-    x2 = rt.weapon_x("awp", "scout", 1500)
+    x2 = rt.weapon_x("awp", "scout", 1500, simple=False)
     assert x2[names.index("awp@uzak")] == 1 and x2[names.index("scout@uzak")] == -1
 
 
@@ -102,7 +102,7 @@ def _synthetic(n: int, seed: int, true: dict[tuple[str, str], float]):
 def test_fit_weapon_effect_class_by_band_recovers_cells_and_shrinks_small_samples():
     true = {("awp", "uzak"): 0.9, ("awp", "yakın"): -0.4, ("smg", "uzak"): -0.6, ("pistol", "yakın"): -0.8,
             ("pistol", "orta"): -0.8, ("pistol", "uzak"): -0.8}
-    big = rt.fit_weapon_effect(*_synthetic(8000, 1, true), [0.0] * 8000)
+    big = rt.fit_weapon_effect(*_synthetic(8000, 1, true), [0.0] * 8000, simple=False)
     assert big.n == 8000 and not big.simple and len(big.beta) == len(rt.WEAPON_FEATURES)
     for (c, bn), e in true.items():
         est, se = big.cell(c, bn)
@@ -116,19 +116,19 @@ def test_fit_weapon_effect_class_by_band_recovers_cells_and_shrinks_small_sample
     assert lo < p < hi and p > 0.6 and e == pytest.approx(big.cell("awp", "uzak")[0])
 
     # çok az veri: küçültme etkileri 0'a yakın tutar (uçmaz); örnek artınca açılır
-    small = rt.fit_weapon_effect(*_synthetic(40, 2, true), [0.0] * 40)
+    small = rt.fit_weapon_effect(*_synthetic(40, 2, true), [0.0] * 40, simple=False)
     data = _synthetic(40, 2, true)
-    loose = rt.fit_weapon_effect(*data, [0.0] * 40, ridge=1e-3, dev_tau=100.0)
+    loose = rt.fit_weapon_effect(*data, [0.0] * 40, ridge=1e-3, dev_tau=100.0, simple=False)
     assert (small.beta ** 2).sum() < 0.2 * (loose.beta ** 2).sum()
     assert all(abs(small.cell(c, bn)[0]) < 1.5 for c in ("awp", "smg", "scout", "pistol", "heavy")
                for bn in rt.WEAPON_BANDS)
-    empty = rt.fit_weapon_effect([], [], [], [], [])
+    empty = rt.fit_weapon_effect([], [], [], [], [], simple=False)
     assert empty.n == 0 and not empty.beta.any()
 
 
 def test_matchup_weapon_class_by_band_symmetry_and_rifle_rifle_is_neutral():
     true = {("awp", "yakın"): -0.6, ("awp", "uzak"): 0.9}
-    we = rt.fit_weapon_effect(*_synthetic(6000, 3, true), [0.0] * 6000)
+    we = rt.fit_weapon_effect(*_synthetic(6000, 3, true), [0.0] * 6000, simple=False)
     pop = rt.fit_population([])
     f = rt.player_features(rt.History((), ()), pop, elo=1500)
     model = rt.RatingModel({rt.OTHER: 0.0}, rt.np.zeros(1), rt.np.eye(1), rt.DEFAULT_USE)

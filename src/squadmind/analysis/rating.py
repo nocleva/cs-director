@@ -455,7 +455,7 @@ def weapon_band(dist: float) -> int:
     return 0 if dist < WEAPON_NEAR else (1 if dist < WEAPON_FAR else 2)
 
 
-def weapon_x(cls_a: str, cls_b: str, dist: float, simple: bool = False) -> np.ndarray:
+def weapon_x(cls_a: str, cls_b: str, dist: float, simple: bool = True) -> np.ndarray:
     """A için silah özellikleri (A − B farkı). Tanınmayan sınıf tüfek (referans) sayılır.
 
     Tam model: [5 ana etki (tabanca, smg, awp, scout, heavy), 15 sınıf × dilim sapması].
@@ -484,7 +484,7 @@ class WeaponEffect:
     beta: np.ndarray
     cov: np.ndarray
     n: int
-    simple: bool = False     # True: eski 3 özellikli model
+    simple: bool = True      # True: 3 özellikli model (profesör kararı 23.10: varsayılan; sınıf × mesafe ek kazancı sınamayı geçmedi)
 
     def cell(self, cls: str, band: int | str) -> tuple[float, float]:
         """Sınıfın (tüfeğe göre) bir dilimdeki logit etkisi ve standart hatası (A sınıfı, B tüfek).
@@ -509,7 +509,7 @@ def weapon_cells(we: WeaponEffect) -> dict[tuple[str, str], tuple[float, float, 
 
 def fit_weapon_effect(cls_t: Iterable[str], cls_ct: Iterable[str], dist: Iterable[float],
                       t_won: Iterable[float], offset: Iterable[float], ridge: float = 1.0,
-                      simple: bool = False, dev_tau: float = WEAPON_DEV_TAU) -> WeaponEffect:
+                      simple: bool = True, dev_tau: float = WEAPON_DEV_TAU) -> WeaponEffect:
     """Silah etkisini öğrenir. `offset` = silahsız modelin T lehine logit'i (taban + β·Δ).
 
     `ridge`: ana etkilerin (ve eski modelde tüm özelliklerin) ceza ağırlığı; dilim sapmaları
