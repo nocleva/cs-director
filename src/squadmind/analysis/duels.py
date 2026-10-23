@@ -27,7 +27,12 @@ from typing import Any
 import polars as pl
 
 from squadmind.analysis.maps import PEEK_LINES
-from squadmind.analysis.player_metrics import WEAPON_CATEGORIES, DemoData
+from squadmind.analysis.player_metrics import (
+    PRIMARY_CATEGORIES,
+    WEAPON_CATEGORIES,
+    DemoData,
+    _weapon_category,
+)
 
 # Küçültme ağırlıkları (düello sayısı cinsinden)
 OVERALL_PRIOR = 20.0
@@ -67,7 +72,9 @@ def duels(d: DemoData, map_name: str) -> pl.DataFrame:
     """Haritadaki silahlı rakip kill'leri, hat ve mesafe dilimiyle.
 
     Kolonlar: match_id, round_no, winner, loser, winner_side, loser_side, winner_place,
-    loser_place, weapon, dist, band, line (hatta değilse boş)
+    loser_place, weapon, dist, band, line (hatta değilse boş), winner_cls, loser_cls
+    (iki oyuncunun O ROUND kill anına kadar en çok tuttuğu birincil silahın sınıfı; konum
+    kaydı yoksa "pistol". Kill'den önce bilinen bilgi: `rating.fit_weapon_effect` girdisi)
     """
     ids = d.match_maps.filter(pl.col("map") == map_name)["match_id"].to_list()
     k = d.kills.filter(pl.col("match_id").is_in(ids)
@@ -84,12 +91,34 @@ def duels(d: DemoData, map_name: str) -> pl.DataFrame:
             "winner_place": r["attacker_place"], "loser_place": r["victim_place"],
             "weapon": r["weapon"], "dist": round(dist, 1), "band": band_of(dist),
             "line": line_of(map_name, r["attacker_place"], r["victim_place"]),
+            "_t": r["time_in_round"], "_i": len(rows),
         })
     schema = {"match_id": pl.String, "round_no": pl.Int64, "winner": pl.String, "loser": pl.String,
               "winner_side": pl.String, "loser_side": pl.String, "winner_place": pl.String,
               "loser_place": pl.String, "weapon": pl.String, "dist": pl.Float64, "band": pl.String,
-              "line": pl.String}
-    return pl.DataFrame(rows, schema=schema)
+              "line": pl.String, "_t": pl.Float64, "_i": pl.Int64}
+    out = pl.DataFrame(rows, schema=schema)
+    out = out.with_columns(_main_class(d, out, "winner").alias("winner_cls"),
+                           _main_class(d, out, "loser").alias("loser_cls"))
+    return out.drop("_t", "_i")
+
+
+def _main_class(d: DemoData, du: pl.DataFrame, who: str) -> pl.Series:
+    """Düellodaki `who` ("winner" / "loser") oyuncusunun kill anına kadarki ana silah sınıfı."""
+    if du.height == 0 or "active_weapon" not in d.positions.columns:
+        return pl.Series([ "pistol"] * du.height, dtype=pl.String)
+    pos = d.positions.select(
+        "match_id", pl.col("round_no").cast(pl.Int64), pl.col("player").alias(who),
+        pl.col("time_in_round").alias("_ts"), _weapon_category("active_weapon").alias("_cat"),
+    ).filter(pl.col("_cat").is_in(PRIMARY_CATEGORIES))
+    held = (
+        du.select("_i", "match_id", "round_no", who, "_t").join(pos, on=["match_id", "round_no", who])
+        .filter(pl.col("_ts") <= pl.col("_t") + 0.01)
+        .group_by("_i", "_cat").agg(pl.len().alias("_n"))
+        .sort(["_n", "_cat"], descending=[True, False])
+        .group_by("_i", maintain_order=True).first()
+    )
+    return du.select("_i").join(held, on="_i", how="left")["_cat"].fill_null("pistol")
 
 
 def _participations(du: pl.DataFrame) -> pl.DataFrame:
