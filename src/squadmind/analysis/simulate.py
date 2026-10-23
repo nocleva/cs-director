@@ -1,5 +1,12 @@
 """Round simülasyonu (A4 prototipi): 5'e 5, rotalar, sıralı düellolar, kazanan takım.
 
+SINAMAYI GEÇMEDİ (profesör kararı 24.10.2026): 398 Dust2 round'unda silah sınıfı sayıları
+tabanından kötü (−0,024 [−0,040; −0,006] log-kayıp, ileri sınama); rota / geometri katkısı
+kanıtlanamadı. Bu yüzden `simulate()` çıktısındaki kazanma oranı / yüzde HİÇBİR arayüze ya da
+rapora gitmez; yalnız `scripts/eval_simulate.py` sınamasında kullanılır. Arenada izin verilen tek
+kullanım: tek bir örnek akışın animasyonu, sayısız ve kazanan vurgusuz, "Örnek akış: tahmin değil,
+betimleme. Sınamayı geçmedi." etiketiyle. Olasılığa açma ölçütü CLAUDE.md bölüm 10'da.
+
 Amaç: "ekip kur, taktik çiz (ör. A rush), düellolar sırayla oynansın, kazanan takım görünsün".
 Bu modül yalnız MODEL; arayüz yok. Düello olasılığı yeni bir şey öğrenmez: onaylı modelin
 (analysis/rating.py) parçalarını aynen kullanır, simülasyon sadece "kim kimle ne zaman
