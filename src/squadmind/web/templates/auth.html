@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{% if kind == "kayit" %}Kayıt ol{% elif kind == "giris" %}Giriş yap{% elif kind == "eposta" %}E-posta ekle{% else %}Şifre{% endif %} · SquadMind{% endblock %}
+{% block head %}
+<style>
+  /* Hesap formları: tek sütun, koyu kart; alanlar base.html ile aynı tokenlar */
+  .authwrap { max-width: 440px; margin: 24px auto 0; }
+  .authwrap h1 { margin: 6px 0 6px; }
+  .authwrap .card { margin-top: 18px; }
+  .authwrap label { display: block; font-size: 12px; font-weight: 600; margin: 0 0 6px; }
+  .authwrap input[type=text], .authwrap input[type=email], .authwrap input[type=password] {
+    width: 100%; height: 44px; padding: 0 12px; margin-bottom: 14px; border: 1px solid var(--bg-3);
+    border-radius: 10px; background: var(--bg-0); color: var(--line); font: 14px var(--font); }
+  .authwrap input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .authwrap .btn, .authwrap button { width: 100%; height: 46px; }
+  .authwrap .hint { font-size: 12px; color: var(--muted); margin: -6px 0 14px; }
+  .authwrap .alt { margin-top: 16px; font-size: 13px; color: var(--text-2); display: flex; gap: 14px; flex-wrap: wrap; }
+  .msg { margin: 0 0 14px; padding: 10px 12px; border-left: 2px solid var(--enemy); background: rgba(255, 92, 98, .08); border-radius: 0 6px 6px 0; font-size: 13px; }
+  .msg.ok { border-left-color: var(--ok); background: rgba(63, 208, 122, .08); }
+</style>
+{% endblock %}
+{% block body %}
+<div class="authwrap">
+  <div class="eyebrow">Hesap</div>
+  {% if kind == "kayit" %}
+    <h1>Kayıt ol</h1>
+    <p class="sub">E-posta ve şifreyle hesap aç, FACEIT hesabını bağla.</p>
+  {% elif kind == "giris" %}
+    <h1>Giriş yap</h1>
+    <p class="sub">E-posta ve şifrenle gir.</p>
+  {% elif kind == "eposta" %}
+    <h1>E-posta ekle</h1>
+    <p class="sub">Hesabın e-posta ve şifreyle korunsun: oturumun düşse de verilerin kaybolmaz.</p>
+  {% elif kind == "sifirla" %}
+    <h1>Yeni şifre</h1>
+  {% else %}
+    <h1>Şifremi unuttum</h1>
+  {% endif %}
+
+  <div class="card">
+    {% if error %}<p class="msg" role="alert">{{ error }}</p>{% endif %}
+    {% if flash %}<p class="msg ok" role="status">{{ flash }}</p>{% endif %}
+
+    {% if kind == "kayit" and closed %}
+      <p class="muted" style="margin:0">Kayıt şu an kapalı.</p>
+    {% elif kind == "kayit" %}
+      <form method="post" action="/kayit" autocomplete="on">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="email">E-posta</label>
+        <input type="email" id="email" name="email" value="{{ email or '' }}" required autocomplete="email" maxlength="254">
+        <label for="password">Şifre</label>
+        <input type="password" id="password" name="password" required minlength="10" maxlength="200" autocomplete="new-password">
+        <p class="hint">En az 10 karakter.</p>
+        <label for="nickname">FACEIT nickname</label>
+        <input type="text" id="nickname" name="nickname" value="{{ nickname or '' }}" required autocomplete="off" placeholder="ör. _squ1rtle_">
+        <p class="hint">Büyük / küçük harf ve alt çizgi önemli. Nickname sahipliği kanıtlamaz: FACEIT ile girince bağlantı "doğrulandı" olur.</p>
+        <label for="davet">Davet kodu</label>
+        <input type="text" id="davet" name="davet" value="{{ davet or '' }}" required autocomplete="off">
+        <button class="btn" type="submit">Hesap aç</button>
+      </form>
+    {% elif kind == "giris" %}
+      <form method="post" action="/giris">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="email">E-posta</label>
+        <input type="email" id="email" name="email" value="{{ email or '' }}" required autocomplete="username" maxlength="254">
+        <label for="password">Şifre</label>
+        <input type="password" id="password" name="password" required maxlength="200" autocomplete="current-password">
+        <button class="btn" type="submit">Giriş yap</button>
+      </form>
+    {% elif kind == "eposta" %}
+      <form method="post" action="/hesap/eposta">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="email">E-posta</label>
+        <input type="email" id="email" name="email" value="{{ email or '' }}" required autocomplete="email" maxlength="254">
+        <label for="password">Şifre</label>
+        <input type="password" id="password" name="password" required minlength="10" maxlength="200" autocomplete="new-password">
+        <p class="hint">En az 10 karakter.</p>
+        <button class="btn" type="submit">Kaydet</button>
+      </form>
+    {% elif kind == "sifirla" %}
+      <form method="post" action="/sifre-sifirla">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="t" value="{{ token }}">
+        <label for="password">Yeni şifre</label>
+        <input type="password" id="password" name="password" required minlength="10" maxlength="200" autocomplete="new-password">
+        <p class="hint">En az 10 karakter.</p>
+        <button class="btn" type="submit">Şifreyi güncelle</button>
+      </form>
+    {% elif kind == "unuttum" %}
+      {% if sent %}
+        <p class="msg ok" role="status">Bu e-postayla bir hesap varsa sıfırlama bağlantısı yollandı (1 saat geçerli).</p>
+      {% else %}
+      <form method="post" action="/sifre-unuttum">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="email">E-posta</label>
+        <input type="email" id="email" name="email" required autocomplete="email" maxlength="254">
+        <button class="btn" type="submit">Bağlantı yolla</button>
+      </form>
+      {% endif %}
+    {% endif %}
+
+    <div class="alt">
+      {% if kind == "giris" %}
+        <a href="/kayit">Hesabın yok mu? Kayıt ol</a>
+        {% if mail_on %}<a href="/sifre-unuttum">Şifremi unuttum</a>{% endif %}
+        {% if faceit_login %}<a href="/giris/faceit">FACEIT ile giriş</a>{% endif %}
+      {% elif kind == "kayit" %}
+        <a href="/giris">Zaten hesabın var mı? Giriş yap</a>
+        {% if faceit_login %}<a href="/giris/faceit">FACEIT ile giriş</a>{% endif %}
+      {% elif kind == "eposta" %}
+        <a href="/hesap/atla">Şimdilik geç</a>
+      {% else %}
+        <a href="/giris">Girişe dön</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -56,6 +56,8 @@ class FaceitOAuth:
     # yok) ya da "code" (yetki kodu + token adımı). 23.10.2026: code akışında token adımı her
     # biçimde 401 verdiği için varsayılan implicit; FACEIT_FLOW ile değişir
     flow: str = "implicit"
+    # İstenen kapsam: "email" ile hesap FACEIT e-postasıyla açılır (portalda izin gerekebilir)
+    scope: str = "openid profile email"
 
     @property
     def configured(self) -> bool:
@@ -73,7 +75,7 @@ class FaceitOAuth:
             "redirect_uri": self.redirect_uri,
             # FACEIT: true = giriş sonrası açılan sayfayı dönüş adresine yönlendir (false hata verir)
             "redirect_popup": "true",
-            "scope": "openid profile",
+            "scope": self.scope,
             "state": state,
         }
         if self.flow == "code" and self.pkce:

@@ -100,3 +100,9 @@ def tiny_demos_allowed(monkeypatch):
     import squadmind.ingest.demos as demos
 
     monkeypatch.setattr(demos, "MIN_DEMO_BYTES", 1)
+
+
+def skip_email(client):
+    """Eski testler hesapsız (nickname) oturumla çalışır: "e-posta ekle" yönlendirmesini ertele."""
+    client.cookies.set("squadmind_eposta_atla", "1")
+    return client

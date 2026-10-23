@@ -378,6 +378,12 @@ def web(
         FACEIT_CLIENT_ID,
         FACEIT_CLIENT_SECRET,
         FACEIT_FLOW,
+        FACEIT_SCOPE,
+        MAIL_FROM,
+        SMTP_HOST,
+        SMTP_PASSWORD,
+        SMTP_PORT,
+        SMTP_USER,
         FACEIT_AUTHORIZE_URL,
         FACEIT_PKCE,
         WEB_BASE_URL,
@@ -393,6 +399,7 @@ def web(
     )
     from squadmind.web.app import WebSettings, create_app, default_secret
     from squadmind.web.faceit_auth import FaceitOAuth
+    from squadmind.web.mailer import Mailer
     from squadmind.web.store import Store
     from squadmind.web.worker import Worker
 
@@ -407,10 +414,15 @@ def web(
                            faceit_downloads=FACEIT_DOWNLOADS_ENABLED,
                            webhook_secret=FACEIT_WEBHOOK_SECRET,
                            webhook_header=FACEIT_WEBHOOK_HEADER,
+                           base_url=WEB_BASE_URL,
+                           mailer=Mailer(SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, MAIL_FROM),
                            oauth=FaceitOAuth(FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL,
                                              pkce=FACEIT_PKCE,
                                              authorize_base=FACEIT_AUTHORIZE_URL,
-                                             flow=FACEIT_FLOW))
+                                             flow=FACEIT_FLOW, scope=FACEIT_SCOPE))
+    if not settings.mailer.configured:
+        console.print("[yellow]SMTP ayarlı değil (SMTP_HOST / MAIL_FROM): e-posta doğrulama ve "
+                      "şifre sıfırlama kapalı.[/yellow]")
     if not settings.oauth.configured:
         console.print("[yellow]FACEIT ile giriş ayarlı değil (FACEIT_CLIENT_ID): "
                       "nickname ile katılım açık.[/yellow]")
@@ -422,6 +434,36 @@ def web(
     finally:
         worker.stop()
         store.close()
+
+
+@app.command()
+def accounts(db: Path = DbOption) -> None:
+    """Hesap listesi (salt-okunur): e-posta, FACEIT nickname, bağlantı durumu, son giriş.
+
+    DuckDB tek süreçli: `squadmind web` (sunucu) açıkken bu komut DB'yi açamaz. Sunucuda önce
+    web hizmetini durdur, ya da DB dosyasının bir kopyasını `--db` ile ver.
+    """
+    from squadmind.web.accounts import list_accounts
+
+    try:
+        con = connect(db, read_only=True)
+    except Exception as exc:  # noqa: BLE001 - kilit hatası kullanıcıya anlaşılır söylenir
+        console.print(f"[red]DB açılamadı (web açık olabilir):[/red] {exc}")
+        raise typer.Exit(1) from exc
+    with con:
+        try:
+            rows = list_accounts(con)
+        except Exception:  # noqa: BLE001 - tablo henüz yok (şema v11 öncesi)
+            console.print("[yellow]accounts tablosu yok: web bir kez başlatılınca şema güncellenir.[/yellow]")
+            return
+    t = Table(title=f"{len(rows)} hesap")
+    for col in ("E-posta", "Doğrulandı", "FACEIT", "Bağlantı", "Son giriş"):
+        t.add_column(col)
+    for email, verified, nick, link, _created, last in rows:
+        t.add_row(email or "-", "evet" if verified else "hayır", nick or "-",
+                  {"dogrulanmis": "doğrulandı", "dogrulanmamis": "doğrulanmadı"}.get(link or "", "-"),
+                  str(last)[:16] if last else "-")
+    console.print(t)
 
 
 @app.command("login-link")

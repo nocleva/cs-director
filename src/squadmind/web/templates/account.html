@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Hesabım · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .acc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 860px) { .acc-grid { grid-template-columns: minmax(0, 1fr); } }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--bg-3); font-size: 13px; }
+  .row:last-child { border-bottom: 0; }
+  .row .k { color: var(--muted); }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 100px; background: var(--bg-3); color: var(--text-2); }
+  .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .badge.ok { color: var(--ok); } .badge.ok::before { background: var(--ok); }
+  .badge.warn { color: var(--mid); } .badge.warn::before { background: var(--mid); }
+  .acc-form label { display: block; font-size: 12px; font-weight: 600; margin: 0 0 6px; }
+  .acc-form input[type=password] { width: 100%; height: 42px; padding: 0 12px; margin-bottom: 12px; border: 1px solid var(--bg-3); border-radius: 10px; background: var(--bg-0); color: var(--line); font: 14px var(--font); }
+  .acc-form input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .msg { margin: 0 0 14px; padding: 10px 12px; border-left: 2px solid var(--enemy); background: rgba(255, 92, 98, .08); border-radius: 0 6px 6px 0; font-size: 13px; }
+  .msg.ok { border-left-color: var(--ok); background: rgba(63, 208, 122, .08); }
+  .note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="eyebrow">Hesap</div>
+<h1>Hesabım</h1>
+<p class="sub">E-posta girişin ve bağlı FACEIT hesabın.</p>
+{% if error %}<p class="msg" role="alert">{{ error }}</p>{% endif %}
+{% if flash %}<p class="msg ok" role="status">{{ flash }}</p>{% endif %}
+
+<div class="acc-grid" style="margin-top:18px">
+  <section class="card" aria-labelledby="h-acc">
+    <h2 id="h-acc">E-posta</h2>
+    <div class="row"><span class="k">Adres</span><span>{{ account.email or "yok" }}</span></div>
+    <div class="row"><span class="k">Doğrulama</span>
+      {% if not account.email %}<a href="/hesap/eposta">E-posta ekle</a>
+      {% elif account.email_verified %}<span class="badge ok">E-posta doğrulandı</span>
+      {% else %}<span class="badge warn">Doğrulanmadı</span>{% endif %}
+    </div>
+    {% if account.email and not account.email_verified and mail_on %}
+    <form method="post" action="/hesap/dogrulama-gonder" style="margin-top:10px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="small ghost" type="submit">Doğrulama e-postasını yeniden yolla</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="h-faceit">
+    <h2 id="h-faceit">Bağlı FACEIT hesabı</h2>
+    <div class="row"><span class="k">Nickname</span><span>{{ user.nickname }}</span></div>
+    <div class="row"><span class="k">Seviye</span><span class="tnum">{% if level %}{{ level }}{% if elo %} · {{ elo }} ELO{% endif %}{% else %}-{% endif %}</span></div>
+    <div class="row"><span class="k">Bağlantı</span>
+      {% if link == "dogrulanmis" %}<span class="badge ok">FACEIT doğrulandı</span>
+      {% else %}<span class="badge warn">Doğrulanmadı</span>{% endif %}
+    </div>
+    {% if link != "dogrulanmis" %}
+      <p class="note">Bu bağlantı nickname yazılarak kuruldu; hesabın senin olduğu FACEIT tarafından doğrulanmadı.
+        {% if faceit_login %}<a href="/giris/faceit">FACEIT ile giriş yaparak doğrula.</a>{% else %}FACEIT ile giriş açılınca buradan doğrulayabilirsin.{% endif %}</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card acc-form" aria-labelledby="h-pw" style="margin-top:16px; max-width:480px">
+  <h2 id="h-pw">{% if has_password %}Şifre değiştir{% else %}Şifre belirle{% endif %}</h2>
+  <form method="post" action="/hesap/sifre">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if has_password %}
+    <label for="current">Mevcut şifre</label>
+    <input type="password" id="current" name="current" required maxlength="200" autocomplete="current-password">
+    {% endif %}
+    <label for="password">Yeni şifre</label>
+    <input type="password" id="password" name="password" required minlength="10" maxlength="200" autocomplete="new-password">
+    <p class="note" style="margin:-4px 0 12px">En az 10 karakter.</p>
+    <button type="submit">Kaydet</button>
+  </form>
+</section>
+{% endblock %}
