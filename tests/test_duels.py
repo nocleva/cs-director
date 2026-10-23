@@ -52,3 +52,16 @@ def test_can_see_matches_known_kill_pair():
     # Aynı noktadan kendine bakmak görür; site'lar arası (B ↔ A) duvarlar görüşü keser
     assert can_see("de_dust2", (1300, 1500, 0), (1300, 1500, 0))
     assert not can_see("de_dust2", (-1750, 2400, 30), (1097, 2649, 100))
+
+
+def test_can_see_xy_uses_navmesh_floors():
+    # (x, y) noktaları: yükseklik navmesh'ten bulunur; aynı nokta kendini görür, uzak site'lar görmez
+    import pytest
+    from awpy import data
+    if not data.mesh_path("de_dust2").exists() or not data.nav_path("de_dust2").exists():
+        pytest.skip("Dust2 geometrisi / navmesh yerelde yok")
+    from squadmind.analysis.geometry import can_see_xy, floor_zs
+    assert floor_zs("de_dust2", 1300, 1500)                       # yürünebilir alan: en az bir kat
+    assert floor_zs("de_dust2", 90000, 90000) == []                # haritanın çok dışı: kat yok
+    assert can_see_xy("de_dust2", (1300, 1500), (1300, 1500))
+    assert not can_see_xy("de_dust2", (-1750, 2400), (1097, 2649), 30, 100)
