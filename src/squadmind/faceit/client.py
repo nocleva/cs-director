@@ -216,6 +216,22 @@ class FaceitClient:
             offset += len(batch)
         return items[:limit]
 
+    def get_player_match_stats(
+        self, player_id: str, *, to_ms: int | None = None, limit: int = 100, game: str = "cs2",
+    ) -> list[dict[str, Any]]:
+        """Oyuncunun maç başı istatistikleri (en yeni önce; K, D, ADR, HS%, sonuç, harita).
+
+        `to_ms` (unix MİLİSANİYE; bu uç nokta saniye verilince boş döner) verilirse sadece o
+        andan önce biten maçlar gelir: geçmiş bir maçın tahmininde geleceğin verisi kullanılmasın
+        diye. `to_ms`'li yanıt değişmez → kalıcı cache; `to_ms`'siz (bugüne kadar) 10 dk.
+        """
+        data = self._get(
+            f"/players/{player_id}/games/{game}/stats",
+            {"limit": max(1, min(limit, 100)), "to": to_ms},
+            ttl=PERMANENT if to_ms is not None else HISTORY_TTL,
+        )
+        return [it.get("stats", it) for it in data.get("items") or []]
+
     def get_match_details(self, match_id: str) -> dict[str, Any]:
         """Maç detayı (takımlar, kadro, skor, harita, demo URL'si)."""
         data = self._get(f"/matches/{match_id}", ttl=PERMANENT)

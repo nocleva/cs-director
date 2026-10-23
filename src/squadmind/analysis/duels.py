@@ -12,6 +12,11 @@ etkisi − B'nin etkisi.
 
 Sınırlar (dürüstlük): sadece kill'le biten düellolar görülür (hasar alıp kaçmak sayılmaz);
 "peeker / tutan" ayrımı yok; mesafe dilimi raporlanır ama modele girmez (örnek az).
+
+Sınama (23.10.2026, ileriye kayan pencere, 12 test maçı): bu modelin `matchup`'ı yazı-turayı
+geçemiyor (log-kayıp farkı −0,003); hat × taraf tabanı da yazı-turadan kötü. Karşılaşma
+olasılığı için `analysis/rating.py` (FACEIT ELO + stat puanı) kullanılır; bu modül düello
+çıkarma (`duels`, `line_of`) ve betimleyici hat sayıları için kalır.
 """
 
 from __future__ import annotations
