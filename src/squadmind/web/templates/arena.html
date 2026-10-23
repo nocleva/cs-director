@@ -62,6 +62,8 @@
   <div><label>Taraf</label><div class="seg" id="sideSeg"><button type="button" data-side="T" aria-pressed="true">T</button><button type="button" data-side="CT" aria-pressed="false">CT</button></div></div>
   <div><label>Rakip: FACEIT seviyesi (ortalama oyuncu)</label><div class="seg levels" id="levels"></div></div>
   <div><label for="oppSel">ya da oyuncu</label><select id="oppSel"><option value="">— seviye seçili —</option></select></div>
+  <div><label for="wA">Silahın</label><select id="wA"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
+  <div><label for="wB">Rakibin silahı</label><select id="wB"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
 </div>
 
 <div class="layout">
@@ -80,7 +82,7 @@
       <div class="side"><div class="nm" id="bName"></div><div class="el" id="bElo"></div></div>
     </div>
     <div id="out"></div>
-    <p class="note">Model: güncel FACEIT ELO + son 100 maçın istatistikleri (küçültmeli, sınırlı). Sınamada kimin favori olduğunu bilmede yazı-turadan küçük ama gerçek kazanç, iyi kalibre. Tek düello büyük ölçüde şans; peek / tutma ve silah henüz modelde yok.</p>
+    <p class="note">Olasılık canlı FACEIT ELO'dan: 100 ELO fark ≈ 1,2 puan. Tek düello büyük ölçüde şanstır; olasılıklar çoğunlukla %40-60 arasında. Aralık oyuncu gücünün belirsizliğidir, tek düellonun sonucunun değil. Peek atma / tutma ve "bu oyuncu şu pozisyonda güçlü" bilgisi gösterilmiyor: 18 Dust2 maçıyla gürültüden ayrılamıyor.</p>
   </aside>
 </div>
 
@@ -172,7 +174,8 @@ async function refresh() {
   document.getElementById("aElo").textContent = ra ? `FACEIT ELO ${ra.elo ?? "?"} · güç ${ra.score.toFixed(0)}` : "";
   const rb = state.b.sid ? P.ratings[state.b.sid] : null;
   document.getElementById("bElo").textContent = rb ? `FACEIT ELO ${rb.elo ?? "?"} · güç ${rb.score.toFixed(0)}` : `ELO ${state.b.elo} (seviyenin ortalaması)`;
-  const my = ++seq, body = { side_a: state.side, a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y },
+  const my = ++seq, body = { side_a: state.side, weapon_a: document.getElementById("wA").value, weapon_b: document.getElementById("wB").value,
+    a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y },
     b: state.b.sid ? { steam_id: state.b.sid, x: state.b.x, y: state.b.y } : { elo: state.b.elo, x: state.b.x, y: state.b.y } };
   const out = document.getElementById("out");
   let r;
@@ -188,11 +191,15 @@ async function refresh() {
   out.innerHTML = `<div class="big" style="color:${r.p >= .5 ? C.ok : C.b}"></div>
     <div class="pbar"><div class="a" style="width:${pa}%"></div><div class="ci" style="left:${r.lo * 100}%;width:${(r.hi - r.lo) * 100}%"></div><div class="mid"></div></div>
     <p style="text-align:center;margin:0;font-size:13px"><b></b> favori · güven: ${r.conf}</p>
-    <dl class="facts"><dt>Konumlar</dt><dd></dd><dt>Mesafe</dt><dd>${r.dist} birim (${r.band})</dd><dt>Hat</dt><dd>${r.line || "tanımlı peek hattı değil"}</dd><dt>%90 aralık</dt><dd>%${Math.round(r.lo * 100)} - %${Math.round(r.hi * 100)}</dd><dt>Birleşik ELO</dt><dd>${r.a_combined} vs ${r.b_combined}</dd></dl>`;
+    <dl class="facts"><dt>Konumlar</dt><dd></dd><dt>Mesafe</dt><dd>${r.dist} birim (${r.band})</dd><dt>Hat</dt><dd>${r.line || "tanımlı peek hattı değil"}</dd><dt>%90 aralık</dt><dd>%${Math.round(r.lo * 100)} - %${Math.round(r.hi * 100)}</dd><dt>ELO</dt><dd>${r.a_elo} vs ${r.b_elo} (fark ${r.gap > 0 ? "+" : ""}${r.gap})</dd></dl>
+    <p class="note" style="margin-top:8px">Stat düzeltmesiyle %${Math.round(r.p_stat * 100)} (kanıtı zayıf, fark en çok ±3 puan).</p>
+    ${r.big_gap ? `<p class="note">Bu kadar büyük farkta az örneğimiz var; olasılık yaklaşık.</p>` : ""}
+    ${r.weapon ? `<p class="note">Silah etkisi (Dust2, 2.853 düello): tabanca tüfeğe karşı ~−18 puan, AWP uzakta ~+20 puan, yakında fark yok. Silah ekonomiyle iç içe: tabanca roundları çoğunlukla eco; etki silah + ekonominin ortak etkisidir.</p>` : ""}`;
   out.querySelector(".big").textContent = `%${Math.round(pa)}`;
   out.querySelector("p b").textContent = winner;
   out.querySelector(".facts dd").textContent = `${r.place_a} ↔ ${r.place_b}`;
 }
+["wA", "wB"].forEach((id) => document.getElementById(id).addEventListener("change", refresh));
 renderLevels(); refresh();
 </script>
 {% endblock %}

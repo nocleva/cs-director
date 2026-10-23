@@ -455,7 +455,33 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return _builder_cache[key]
         return store.run(build, lock=False)
 
-    _rating_cache: dict[str, Any] = {"key": None, "ctx": None, "feats": {}, "at": {}}
+    # feats: stat ekli (κ=0,25), feats0: yalnız ELO (κ=0; profesör kararı: ana olasılık bu),
+    # weapon: silah etkisi (opsiyonel, kullanıcı silah seçerse)
+    _rating_cache: dict[str, Any] = {"key": None, "ctx": None, "feats": {}, "feats0": {}, "at": {},
+                                     "weapon": None}
+
+    def fit_weapons(duel_df, roster: list[dict], ctx):
+        """Silah etkisi (rating.fit_weapon_effect; profesör onayı: opsiyonel, Tüfek–Tüfek = kapalı).
+
+        Ofset = silahsız modelin T lehine logit'i; düellodaki oyuncuların o maçtaki FACEIT
+        seviyesinin ELO karşılığıyla (eğitimdeki ELO da seviye ortası; birleşik ELO ile korelasyon
+        0,97). Seviyesi bilinmeyen oyuncunun düellosu atlanır.
+        """
+        from squadmind.analysis import rating as rt
+        lv = {(r["match_id"], r["steam_id"]): rt.level_elo(r["level"])[0] for r in roster}
+        beta = float(ctx.model.beta[0]) if len(ctx.model.beta) else 0.0
+        cls_t, cls_ct, dist, won, off = [], [], [], [], []
+        for r in duel_df.iter_rows(named=True):
+            t_is_winner = r["winner_side"] == "T"
+            t, ct = (r["winner"], r["loser"]) if t_is_winner else (r["loser"], r["winner"])
+            et, ec = lv.get((r["match_id"], t)), lv.get((r["match_id"], ct))
+            if et is None or ec is None or r.get("winner_cls") is None:
+                continue
+            cls_t.append(r["winner_cls"] if t_is_winner else r["loser_cls"])
+            cls_ct.append(r["loser_cls"] if t_is_winner else r["winner_cls"])
+            dist.append(r["dist"]); won.append(1.0 if t_is_winner else 0.0)
+            off.append(beta * (et - ec) / rt.ELO_UNIT)
+        return rt.fit_weapon_effect(cls_t, cls_ct, dist, won, off)
 
     def builder_ratings(map_name: str, players: list[dict]) -> dict[str, dict]:
         """Doğrulanmış güç puanı (analysis/rating.py): ortalama rakibe karşı beklenen düello
@@ -479,8 +505,9 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                                                "level": p.get("game_skill_level"),
                                                "started_at": det["started_at"],
                                                "finished_at": det["finished_at"]})
-                    _rating_cache.update(key=key, ctx=rt.build_context(bm["duels"], client, roster),
-                                         feats={})
+                    ctx = rt.build_context(bm["duels"], client, roster)
+                    _rating_cache.update(key=key, ctx=ctx, feats={}, feats0={},
+                                         weapon=fit_weapons(bm["duels"], roster, ctx))
                 ctx, feats, at = _rating_cache["ctx"], _rating_cache["feats"], _rating_cache["at"]
                 now = time.time()
                 for p in players:
@@ -490,9 +517,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                             game = (prof.get("games") or {}).get("cs2") or {}
                             hist = rt.summarize_history(client.get_player_match_stats(p["faceit_id"]))
                             elo = rt._num(game.get("faceit_elo"))
-                            feats[p["steam_id"]] = rt.player_features(
-                                hist, ctx.pop, elo=elo if elo and elo > 0 else None,
-                                level=game.get("skill_level"))
+                            kw = {"elo": elo if elo and elo > 0 else None, "level": game.get("skill_level")}
+                            feats[p["steam_id"]] = rt.player_features(hist, ctx.pop, **kw)
+                            _rating_cache["feats0"][p["steam_id"]] = rt.player_features(
+                                hist, ctx.pop, kappa=0.0, **kw)
                             at[p["steam_id"]] = now   # sadece başarıda: hata olunca bir sonraki istekte yeniden dene
                         except Exception:  # noqa: BLE001 - tek oyuncu başarısız olursa diğerleri puanlı kalsın
                             log.exception("oyuncu puanı alınamadı: %s", p.get("nickname"))
@@ -551,7 +579,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     def level_options() -> list[dict]:
         """Rakip seçimi: her FACEIT seviyesinde ortalama rakip (aralığın ortası ELO)."""
         from squadmind.analysis import rating as rt
-        return [{"level": lv, "elo": round((lo + hi) / 2), "range": f"{int(lo)}-{int(hi)}"}
+        # Seviye 10 açık uçlu: aralık ortası (2200) yerine bu lobilerde ölçülen ortalama 2300
+        # (535 takımın maç ELO'sundan; profesör kararı, yalnız arenadaki ortalama rakip için)
+        return [{"level": lv, "elo": 2300 if lv == 10 else round((lo + hi) / 2),
+                 "range": "2001+" if lv == 10 else f"{int(lo)}-{int(hi)}"}
                 for lv, (lo, hi) in rt.LEVEL_ELO_RANGE.items()]
 
     @app.get("/arena", response_class=HTMLResponse)
@@ -612,24 +643,39 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return out
         ratings = builder_ratings(map_name, players)
         ctx = _rating_cache["ctx"]
-        fa = _rating_cache["feats"].get(a["steam_id"])
-        if ctx is None or fa is None:
+        fa, fa0 = _rating_cache["feats"].get(a["steam_id"]), _rating_cache["feats0"].get(a["steam_id"])
+        if ctx is None or fa is None or fa0 is None:
             raise HTTPException(503, "Güç puanı şu an hesaplanamadı (FACEIT).")
         if b.get("steam_id"):
-            fb, b_key = _rating_cache["feats"].get(b["steam_id"]), b["steam_id"]
+            fb, fb0, b_key = (_rating_cache["feats"].get(b["steam_id"]),
+                              _rating_cache["feats0"].get(b["steam_id"]), b["steam_id"])
         else:
             elo = max(100.0, min(4000.0, float(b.get("elo") or 1000)))
-            fb, b_key = rt.player_features(rt.History((), ()), ctx.pop, elo=elo), "ortalama"
-        if fb is None:
+            # Ortalama rakip: boş geçmiş → o ELO'nun beklentisi; stat eki 0 (iki model aynı)
+            fb = fb0 = rt.player_features(rt.History((), ()), ctx.pop, elo=elo)
+            b_key = "ortalama"
+        if fb is None or fb0 is None:
             raise HTTPException(503, "Rakibin puanı hesaplanamadı.")
-        m = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa, fb)
-        conf = m.conf
+        # Silah (profesör kararı: opsiyonel; Tüfek–Tüfek = etki yok)
+        wa, wb = body.get("weapon_a", "rifle"), body.get("weapon_b", "rifle")
+        wkw = {}
+        if wa in ("pistol", "rifle", "awp") and wb in ("pistol", "rifle", "awp") and (wa, wb) != ("rifle", "rifle") \
+                and _rating_cache["weapon"] is not None:
+            wkw = {"weapon": _rating_cache["weapon"], "cls_a": wa, "cls_b": wb, "dist": dist}
+        # Ana olasılık: yalnız canlı ELO (κ=0). Stat düzeltmeli olasılık ayrı satır (kanıtı zayıf)
+        m0 = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa0, fb0, **wkw)
+        m = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa, fb, **wkw)
+        conf = m0.conf
         if b_key == "ortalama":
             # Ortalama rakip bir tanım (verilen ELO'da popülasyon ortalaması), eksik veri değil:
             # güven yalnızca A'nın verisine ve aralığın %50'yi dışlayıp dışlamadığına bakar
-            few = (not fa.elo_exact) or fa.n_matches < rt.MIN_MATCHES
-            conf = "az veri" if few else ("belirgin" if m.lo > 0.5 or m.hi < 0.5 else "belirsiz")
-        out.update({"p": round(m.p, 3), "lo": round(m.lo, 3), "hi": round(m.hi, 3), "conf": conf,
+            few = (not fa0.elo_exact) or fa0.n_matches < rt.MIN_MATCHES
+            conf = "az veri" if few else ("belirgin" if m0.lo > 0.5 or m0.hi < 0.5 else "belirsiz")
+        gap = fa0.combined_elo - fb0.combined_elo
+        out.update({"p": round(m0.p, 3), "lo": round(m0.lo, 3), "hi": round(m0.hi, 3), "conf": conf,
+                    "p_stat": round(m.p, 3), "a_elo": round(fa0.combined_elo),
+                    "b_elo": round(fb0.combined_elo), "gap": round(gap),
+                    "big_gap": abs(gap) > 800, "weapon": bool(wkw),
                     "a_combined": round(fa.combined_elo), "b_combined": round(fb.combined_elo),
                     "a_score": ratings.get(a["steam_id"], {}).get("score")})
         return out
