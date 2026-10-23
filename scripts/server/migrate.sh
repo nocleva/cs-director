@@ -25,7 +25,8 @@ echo "== .env (yollar sunucuya göre; DOWNLOADS_DIR sunucuda yok)"
 sed -e 's|^SQUADMIND_DATA_DIR=.*|SQUADMIND_DATA_DIR=/var/lib/squadmind|' -e '/^DOWNLOADS_DIR=/d' -e 's/\r$//' .env > /tmp/squadmind.env
 
 echo "== veri, önbellek, .env"
-tar -C "$DATA" -c squadmind.duckdb cache | ssh "${SSHO[@]}" "squadmind@$HOST" 'tar -x -C /var/lib/squadmind'
+# DuckDB son yazımları .wal dosyasında tutabilir: ikisi birlikte taşınır
+tar -C "$DATA" -c squadmind.duckdb $( [ -f "$DATA/squadmind.duckdb.wal" ] && echo squadmind.duckdb.wal ) cache | ssh "${SSHO[@]}" "squadmind@$HOST" 'tar -x -C /var/lib/squadmind'
 scp "${SSHO[@]}" -q /tmp/squadmind.env "squadmind@$HOST:/opt/squadmind/.env"
 rm -f /tmp/squadmind.env
 ssh "${SSHO[@]}" "squadmind@$HOST" 'chmod 600 /opt/squadmind/.env'

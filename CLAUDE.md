@@ -188,6 +188,14 @@ kaldırıldı; analiz modülleri ve CLI raporları arka planda sürüyor.
 | 3a | 🟡 Web arayüzü çalışıyor (yerel + tünel); takım arkadaşlarıyla deneme bekleniyor |
 | 2c | ✅ Takım raporunda "Takım yönetimi" (`analysis/team_management.py`, sadece Dust2): çekirdek kadro, kim nerede iyi (CT alanı / T koridoru sıralaması), güç farkı (takım vs rakip), kime destek, trade matrisi, yakın oynama. tactician çekirdek kadro planını yazdı (pozisyon, CT 2 setup, T 3 strat, kurallar); takip `squadmind track` ile |
 
+### Sunucu (23.10.2026'dan itibaren canlı site burada)
+- OVH VPS-1 (2 vCPU, 4 GB, 40 GB NVMe, 12 ay, OVH günlük yedeği açık), `vps-ab5e968e.vps.ovh.net` / 213.32.17.246, Ubuntu 26.04.
+- Giriş yalnız SSH anahtarıyla: `ssh -i ~/.ssh/squadmind_vps ubuntu@213.32.17.246` (sudo şifresiz) ya da `squadmind@…` (uygulama kullanıcısı; yalnız squadmind-web için systemctl izni). Şifreyle giriş kapalı; `ubuntu` şifresi (yalnız OVH KVM acil durum için) yerelde `~/.ssh/squadmind_vps_ubuntu_sifre.txt`. Güvenlik duvarı: yalnız SSH; site Cloudflare tüneliyle gelir.
+- Kod `/opt/squadmind` (+`.env`), veri `/var/lib/squadmind` (DuckDB + .wal, cache, logs, backups). Servisler: `squadmind-web`, `squadmind-tunnel`, `squadmind-backup.timer` (her gece 04:17 UTC, `.duckdb` + `.wal` tar.gz, son 14).
+- Güncelleme: commit → `scripts/server/deploy.sh 213.32.17.246`. Kurulum / taşıma betikleri ve geri dönüş adımları `scripts/server/README.md`.
+- Bu bilgisayardaki yerel sunucu ve Görev Zamanlayıcı `SquadMind` görevi KAPALI (aynı tünel iki yerde çalışmasın). Yerelde DB'ye CLI ile çalışmak için sunucudan kopya al; yerel `squadmind-data/squadmind.duckdb` artık eski.
+- DuckDB taşırken/yedeklerken `.wal` dosyası da alınmalı (ilk taşımada unutuldu, son yazımlar eksik kaldı; düzeltildi).
+
 ### Veri ve ortam
 - Veri OneDrive DIŞINDA: `C:\Users\furka\squadmind-data` (`.env` → `SQUADMIND_DATA_DIR`). İçinde `squadmind.duckdb`, `cache/`, `demos/{inbox,processed,tmp}`.
 - `.env`: `FACEIT_API_KEY`, `SQUADMIND_DATA_DIR`, `SQUADMIND_AUTO_DELETE=0`.
