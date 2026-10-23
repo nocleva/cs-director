@@ -94,6 +94,19 @@ TAKTIK = Theme(
     wall_width=3.0, wall_opacity=0.7, label_size=9.5,
 )
 
+# Arena: yumuşak, sade harita (refrag tarzı okunaklı callout, kopya değil). Mavimsi koyu
+# zemin, üç yükseklik tonu birbirinden net ayrılır, duvar ince açık çizgi, etiketler küçük
+# harf karışık ve kalın (kuş bakışında bir bakışta okunur).
+ARENA = Theme(
+    bg="#0F1319", floor_low="#1A212B", floor_mid="#232C38", floor_high="#2E3948",
+    wall="#9FB3C8", target_floor="#3A3230", label="#B4C0CE", text="#F2F5F8",
+    t="#FF8A3D", support="#4FD1C5", t_ink="#111214", support_ink="#111214",
+    enemy="#FF5C62", smoke="#E9EBEE", flash="#E9EBEE", molly="#FF8A3D",
+    grid=None, route_width=2.0, label_font="Inter, Segoe UI, Helvetica, Arial, sans-serif",
+    label_upper=False, mono_font="Inter, Segoe UI, sans-serif",
+    wall_width=3.0, wall_opacity=0.5, label_size=11.5,
+)
+
 # Oyuncu rolleri (renk temadan gelir); eski adlar geriye uyumluluk için
 T, SUPPORT = "t", "support"
 T_COLOR, SUPPORT_COLOR = T, SUPPORT

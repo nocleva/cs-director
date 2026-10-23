@@ -5,34 +5,44 @@
   .pagehead { margin-bottom: 14px; }
   .controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-end; margin-bottom: 14px; }
   .controls label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .6px; }
-  .seg { display: inline-flex; border: 1px solid var(--bg-3); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
-  .seg button { height: 36px; border-radius: 0; background: transparent; color: var(--text-2); padding: 0 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--bg-3); border-radius: 999px; padding: 3px; gap: 2px; background: var(--bg-1); flex-wrap: wrap; }
+  .seg button { height: 32px; border-radius: 999px; background: transparent; color: var(--text-2); padding: 0 14px; transition: background 180ms var(--ease), color 180ms var(--ease); }
+  .seg button:hover { background: var(--bg-3); }
   .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg-0); }
-  .levels button { padding: 0 9px; min-width: 36px; }
+  .levels button { padding: 0 6px; min-width: 32px; }
+  .controls > div { min-width: 0; max-width: 100%; }
+  @media (max-width: 560px) { .controls > div, .controls select { width: 100%; } .boardwrap { padding: 8px; border-radius: 16px; } h1 { font-size: 24px; } .big { font-size: 34px; } }
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
   @media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } }
-  .boardwrap { background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 14px; padding: 12px; }
-  .board { position: relative; width: 100%; max-width: 720px; margin: 0 auto; touch-action: none; }
+  .boardwrap { background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 20px; padding: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  .legend { display: flex; justify-content: center; gap: 16px; font-size: 12px; color: var(--text-2); margin-top: 10px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .board { position: relative; width: 100%; max-width: 760px; margin: 0 auto; touch-action: none; }
   .board svg { display: block; width: 100%; height: auto; }
   .board svg.ov { position: absolute; inset: 0; }
-  .tok { cursor: grab; }
+  .tok { cursor: grab; filter: drop-shadow(0 3px 5px rgba(0,0,0,.55)); transition: opacity 300ms cubic-bezier(.2,.7,.2,1); }
+  .tok:active { cursor: grabbing; }
+  .tok circle.body { transition: fill 300ms cubic-bezier(.2,.7,.2,1); }
+  .tok.win { filter: drop-shadow(0 0 10px rgba(63,208,122,.85)); }
+  #sight { transition: opacity 250ms cubic-bezier(.2,.7,.2,1), stroke 250ms cubic-bezier(.2,.7,.2,1); }
   .tok.win circle.body { fill: var(--ok); }
   .tok.win circle.halo { opacity: 1; animation: halo 1600ms ease-out infinite; }
-  .tok.lose { opacity: .55; }
+  .tok.lose { opacity: .6; }
   .tok circle.halo { opacity: 0; transform-box: fill-box; transform-origin: center; }
-  @keyframes halo { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(2.1); opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .tok.win circle.halo { animation: none; opacity: .5; } }
-  .result { background: var(--bg-2); border-radius: 14px; padding: 16px; }
+  @keyframes halo { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(1.9); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .tok.win circle.halo { animation: none; opacity: .5; } .tok, .tok circle.body, #sight, .pbar .a { transition: none; } }
+  .result { background: var(--bg-2); border: 1px solid var(--bg-3); border-radius: 20px; padding: 18px; }
+  @media (min-width: 1001px) { .result { position: sticky; top: 80px; } }
   .vs { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
   .side { text-align: center; flex: 1; }
   .side .nm { font-weight: 700; font-size: 15px; word-break: break-all; }
   .side .el { font-size: 11px; color: var(--muted); }
   .vsx { font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: 1px; }
-  .pbar { position: relative; height: 12px; border-radius: 6px; background: var(--bg-3); overflow: hidden; margin: 8px 0; }
+  .pbar { position: relative; height: 14px; border-radius: 7px; background: var(--bg-3); overflow: hidden; margin: 8px 0; }
   .pbar .a { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); transition: width 400ms cubic-bezier(.2,.7,.2,1); }
   .pbar .ci { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.18); }
   .pbar .mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line); opacity: .6; }
-  .big { font-size: 34px; font-weight: 800; letter-spacing: -1px; text-align: center; margin: 4px 0; }
+  .big { font-size: 40px; font-weight: 800; letter-spacing: -1px; text-align: center; margin: 4px 0; }
   .facts { font-size: 12px; color: var(--text-2); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin-top: 10px; }
   .facts dt { color: var(--muted); } .facts dd { margin: 0; }
   .note { font-size: 11px; color: var(--muted); margin: 12px 0 0; }
@@ -60,7 +70,8 @@
       {{ board | safe }}
       <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-label="Oyuncular"></svg>
     </div>
-    <p class="note" style="text-align:center">Jetonları sürükle. Turuncu: sen · Kırmızı: rakip.</p>
+    <div class="legend"><span><i style="background:#FF8A3D"></i>Sen</span><span><i style="background:#FF5C62"></i>Rakip</span><span><i style="background:#3FD07A"></i>Kazanan</span></div>
+    <p class="note" style="text-align:center">Jetonları sürükle; görüş çizgisi ve olasılık anında güncellenir.</p>
   </section>
   <aside class="result" aria-live="polite">
     <div class="vs">
@@ -77,7 +88,7 @@
 <script>
 const P = JSON.parse(document.getElementById("payload").textContent);
 const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
-const C = { a: "#F37321", b: "#E5484D", ok: "#3FB950", line: "#E9EBEE", bg0: "#111214", muted: "#8B9198" };
+const C = { a: "#FF8A3D", b: "#FF5C62", ok: "#3FD07A", line: "#F2F5F8", bg0: "#0F1319", muted: "#8E9AA8" };
 const el = (tag, at, p = ov) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); p.appendChild(e); return e; };
 const toPx = (x, y) => [(x - P.proj.minx) * P.proj.s + P.proj.pad, (P.proj.maxy - y) * P.proj.s + P.proj.pad];
 const toWorld = (px, py) => [(px - P.proj.pad) / P.proj.s + P.proj.minx, P.proj.maxy - (py - P.proj.pad) / P.proj.s];
@@ -111,14 +122,14 @@ document.querySelectorAll("#sideSeg button").forEach((b) => b.onclick = () => {
 });
 
 // Tahta: görüş çizgisi + iki jeton
-const sight = el("line", { stroke: C.muted, "stroke-width": 1.5, "stroke-dasharray": "4 5", opacity: 0 });
+const sight = el("line", { id: "sight", stroke: C.muted, "stroke-width": 2.2, "stroke-dasharray": "2 6", "stroke-linecap": "round", opacity: 0 });
 function token(key, color) {
   const g = el("g", { class: "tok" });
-  el("circle", { class: "halo", r: 11, fill: "none", stroke: C.ok, "stroke-width": 2 }, g);
-  el("circle", { class: "body", r: 11, fill: color, stroke: C.bg0, "stroke-width": 2 }, g);
-  const t = el("text", { y: 3.8, "text-anchor": "middle", "font-size": 10, "font-weight": 800, fill: C.bg0, "font-family": "Inter, sans-serif" }, g);
-  const n = el("text", { x: 15, y: -12, "font-size": 10, "font-weight": 700, fill: C.line, "paint-order": "stroke", stroke: C.bg0, "stroke-width": 3, "font-family": "Inter, sans-serif" }, g);
-  g.addEventListener("pointerdown", (e) => { drag = key; ov.setPointerCapture(e.pointerId); g.style.cursor = "grabbing"; });
+  el("circle", { class: "halo", r: 21, fill: "none", stroke: C.ok, "stroke-width": 2.5 }, g);
+  el("circle", { class: "body", r: 21, fill: color, stroke: "#FFFFFF", "stroke-width": 3 }, g);
+  const t = el("text", { y: 5, "text-anchor": "middle", "font-size": 14, "font-weight": 800, fill: C.bg0, "font-family": "Inter, sans-serif" }, g);
+  const n = el("text", { y: 38, "text-anchor": "middle", "font-size": 12, "font-weight": 700, fill: C.line, "paint-order": "stroke", stroke: C.bg0, "stroke-width": 4, "stroke-linejoin": "round", "font-family": "Inter, sans-serif" }, g);
+  g.addEventListener("pointerdown", (e) => { drag = key; ov.setPointerCapture(e.pointerId); });
   return { g, t, n };
 }
 const tokA = token("a", C.a), tokB = token("b", C.b);
