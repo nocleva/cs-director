@@ -63,6 +63,28 @@ echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudf
 apt-get update -q && apt-get -yq install cloudflared
 mkdir -p /etc/cloudflared
 
+# --- bakım: günlük döndürme, takas alanı, gece otomatik yeniden başlatma --------------------
+cat > /etc/logrotate.d/squadmind <<'EOF'
+/var/lib/squadmind/logs/*.log {
+  weekly
+  rotate 8
+  compress
+  missingok
+  notifempty
+  copytruncate
+}
+EOF
+if ! swapon --show | grep -q /swapfile; then
+  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+echo 'vm.swappiness=10' > /etc/sysctl.d/90-squadmind.conf && sysctl -q -p /etc/sysctl.d/90-squadmind.conf
+# Çekirdek güncellemesi gerektirirse yedekten (04:17) sonra yeniden başlat
+cat > /etc/apt/apt.conf.d/52squadmind-reboot <<'EOF'
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:47";
+EOF
+
 # --- systemd servisleri -------------------------------------------------------------------
 install -m 644 "$(dirname "$0")/squadmind-web.service" /etc/systemd/system/squadmind-web.service
 install -m 644 "$(dirname "$0")/squadmind-tunnel.service" /etc/systemd/system/squadmind-tunnel.service
