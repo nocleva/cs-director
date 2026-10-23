@@ -32,6 +32,14 @@ except ImportError:  # pragma: no cover - argon2-cffi bağımlılıktır, yedek 
 
 VERIFIED, UNVERIFIED = "dogrulanmis", "dogrulanmamis"
 MIN_PASSWORD = 10
+# En yaygın şifreler (10+ karakterlik olanlar ve kökleri); küçük harfle karşılaştırılır
+COMMON_PASSWORDS = frozenset({
+    "1234567890", "12345678910", "123456789", "qwertyuiop", "qwerty123", "password", "password1",
+    "passw0rd", "iloveyou", "1q2w3e4r5t", "qwertyuiop123", "asdfghjkl", "zxcvbnm123", "abcdefghij",
+    "0987654321", "1111111111", "football", "princess", "sunshine", "welcome", "superman", "monkey",
+    "dragon", "starwars", "counterstrike", "counter-strike", "faceit", "squadmind", "sifre", "parola",
+    "galatasaray", "fenerbahce", "besiktas", "trabzonspor", "qwerty",
+})
 MAX_PASSWORD = 200  # çok uzun girişle işlemciyi yormayı engeller
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -70,6 +78,12 @@ def check_password_policy(password: str, email: str | None = None) -> None:
         raise AccountError(f"Şifre en fazla {MAX_PASSWORD} karakter olabilir.")
     if email and password.strip().lower() == email:
         raise AccountError("Şifre e-posta adresinle aynı olamaz.")
+    # Tahmini kolay şifreler: tek / çok az farklı karakter (ör. "aaaaaaaaaa") ya da yaygın şifre
+    low = password.strip().lower()
+    if len(set(low)) < 4:
+        raise AccountError("Şifre çok tahmin edilebilir: en az 4 farklı karakter kullan.")
+    if low in COMMON_PASSWORDS or low.rstrip("0123456789!.") in COMMON_PASSWORDS:
+        raise AccountError("Bu çok yaygın bir şifre; başka bir şifre seç.")
 
 
 def _scrypt(password: str, salt: bytes) -> bytes:

@@ -157,13 +157,28 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     # --- oturum ---------------------------------------------------------------------
 
+    def _session_fp(steam_id: str) -> str:
+        """Oturumun bağlı olduğu şifre parmak izi: şifre değişince eski oturumlar geçersizleşir."""
+        found = acc.account_of(store, steam_id)
+        return acc.reset_fingerprint(found[0].password_hash) if found and found[0].password_hash else ""
+
+    def session_token(steam_id: str) -> str:
+        return signer.dumps(f"{steam_id}|{_session_fp(steam_id)}")
+
     def current_user(request: Request) -> WebUser | None:
         token = request.cookies.get(COOKIE)
         if not token:
             return None
         try:
-            steam_id = signer.loads(token, max_age=SESSION_DAYS * 86400)
+            payload = signer.loads(token, max_age=SESSION_DAYS * 86400)
         except BadSignature:
+            return None
+        steam_id, sep, fp = str(payload).partition("|")
+        # Yeni biçim "steam_id|parmak izi": şifre değiştiyse eşleşmez. Eski biçim (yalnız steam_id)
+        # yalnızca şifresi olmayan hesaplar için geçerli (geçiş; şifreli hesap yeni biçim ister)
+        if not hmac.compare_digest(fp, _session_fp(steam_id)):
+            return None
+        if not sep and _session_fp(steam_id):
             return None
         return store.user(steam_id)
 
@@ -214,7 +229,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     def session_response(request: Request, steam_id: str, target: str = "/ben") -> RedirectResponse:
         """Oturum çerezini kurup yönlendirir (eski çerezle aynı biçim: steam_id)."""
         resp = RedirectResponse(target, status_code=303)
-        resp.set_cookie(COOKIE, signer.dumps(steam_id), max_age=SESSION_DAYS * 86400,
+        resp.set_cookie(COOKIE, session_token(steam_id), max_age=SESSION_DAYS * 86400,
                         httponly=True, samesite="lax", secure=request.url.scheme == "https")
         resp.delete_cookie(LOGIN_COOKIE)
         return resp
@@ -537,7 +552,11 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         created = acc.by_id(store, account_id)
         if created:
             send_verification(request, created)
-        return RedirectResponse("/hesap?m=eklendi", status_code=303)
+        # Şifre yeni kondu: oturum çerezi yeni parmak iziyle yenilenir (yoksa kullanıcı düşer)
+        resp = RedirectResponse("/hesap?m=eklendi", status_code=303)
+        resp.set_cookie(COOKIE, session_token(user.steam_id), max_age=SESSION_DAYS * 86400,
+                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
+        return resp
 
     @app.get("/hesap/atla")
     def skip_email():
@@ -568,7 +587,11 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         except acc.AccountError as exc:
             return form_page(request, "account.html", 400, error=str(exc), **view)
         acc.set_password(store, account.account_id, acc.hash_password(password))
-        return RedirectResponse("/hesap?m=degisti", status_code=303)
+        # Diğer cihazlardaki oturumlar düşer (parmak izi değişti); bu oturuma yeni çerez
+        resp = RedirectResponse("/hesap?m=degisti", status_code=303)
+        resp.set_cookie(COOKIE, session_token(user.steam_id), max_age=SESSION_DAYS * 86400,
+                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
+        return resp
 
     @app.post("/hesap/dogrulama-gonder")
     def resend_verification(request: Request, csrf: str = Form("")):
@@ -689,7 +712,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         if store.user(steam_id) is None:
             return join_page(request, "", "Bu hesap siteye kayıtlı değil.")
         resp = RedirectResponse("/ben", status_code=303)
-        resp.set_cookie(COOKIE, signer.dumps(steam_id), max_age=SESSION_DAYS * 86400,
+        resp.set_cookie(COOKIE, session_token(steam_id), max_age=SESSION_DAYS * 86400,
                         httponly=True, samesite="lax", secure=request.url.scheme == "https")
         return resp
 

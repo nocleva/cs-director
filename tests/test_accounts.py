@@ -440,3 +440,29 @@ def test_list_accounts_for_cli(site):
     register(client)
     rows = store.run(lambda con: acc.list_accounts(con))
     assert rows[0][0] == "oyuncu@example.com" and rows[0][2] == "TestNick" and rows[0][3] == acc.UNVERIFIED
+
+
+# --- şifre değişince eski oturumlar düşer; zayıf şifreler reddedilir ---------------------------
+
+def test_password_change_logs_out_other_sessions(site):
+    client, store, *_ = site
+    r = client.post("/katil", data={"nickname": "TestNick", "davet": INVITE}, follow_redirects=False)
+    token = csrf_of(client, "/hesap/eposta")
+    client.post("/hesap/eposta", data={"email": "s@example.com", "password": PW, "csrf": token})
+    assert client.get("/ben", follow_redirects=False).status_code == 200
+    other = TestClient(client.app)                       # aynı çerezle ikinci cihaz
+    other.cookies.set("squadmind_oturum", client.cookies.get("squadmind_oturum"))
+    assert other.get("/ben", follow_redirects=False).status_code == 200
+    token = csrf_of(client, "/hesap")
+    r = client.post("/hesap/sifre", data={"current": PW, "password": "yeni-Sifre-2026x", "csrf": token},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert client.get("/ben", follow_redirects=False).status_code == 200      # bu cihaz kalır
+    assert other.get("/ben", follow_redirects=False).status_code == 303       # diğeri düşer
+
+
+@pytest.mark.parametrize("weak", ["aaaaaaaaaaaa", "abababababab", "1234567890", "Qwertyuiop123",
+                                  "counterstrike1", "Galatasaray!"])
+def test_weak_passwords_rejected(weak):
+    with pytest.raises(acc.AccountError):
+        acc.check_password_policy(weak, "x@example.com")
