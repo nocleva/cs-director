@@ -25,9 +25,12 @@
   const q = new URLSearchParams(location.search);
   history.replaceState(null, "", location.pathname);
   const f = document.getElementById("f");
-  f.access_token.value = h.get("access_token") || "";
+  // FACEIT Connect anahtarı "token" adıyla verir (standart ad "access_token"); force_qs ile
+  // # yerine sorgu kısmında da gelebilir
+  const token = h.get("token") || h.get("access_token") || q.get("token") || q.get("access_token") || "";
+  f.access_token.value = token;
   f.state.value = h.get("state") || q.get("state") || "";
-  f.error.value = h.get("error_description") || h.get("error") || q.get("error") || (h.get("access_token") ? "" : "anahtar gelmedi");
+  f.error.value = h.get("error_description") || h.get("error") || q.get("error_description") || q.get("error") || (token ? "" : "anahtar gelmedi");
   f.submit();
 </script>
 </body>

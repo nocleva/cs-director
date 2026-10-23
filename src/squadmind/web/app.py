@@ -219,7 +219,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         except BadSignature:
             return join_page(request, "", "Giriş süresi doldu; tekrar dene.")
         davet = str(pending.get("d", ""))
-        if not code and not error and oauth.flow == "implicit":
+        if not code and not error and (oauth.flow == "implicit" or request.query_params.get("token")):
             # Anahtar adresin # kısmında: sunucuya gelmez, küçük sayfa okuyup POST eder
             return page(request, "faceit_return.html")
         if error or not code:
