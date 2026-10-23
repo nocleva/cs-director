@@ -101,6 +101,15 @@
   {% endfor %}
 </div>
 
+{% if faceit_downloads %}
+<section class="panel" id="fcPanel" style="margin-bottom:18px">
+  <div class="head"><h2>FACEIT maçlarım</h2>
+    <button type="button" class="qbtn" id="fcLoad">Maçlarımı getir</button></div>
+  <p class="rule">Son maçların listelenir; demosu hazır ve henüz işlenmemiş olanları seçip getir. Demo FACEIT'ten tarayıcına iner ve burada işlenir; tarayıcı indiremezse sunucu indirir, işler ve dosyayı siler.</p>
+  <ul id="fcList" class="queue"></ul>
+  <button type="button" class="qbtn" id="fcGo" hidden>Seçilenleri getir</button>
+</section>
+{% endif %}
 <div id="panelHost">
   <div class="empty" id="emptyPanel"{% if selected %} hidden{% endif %}>Bir harita seç: demolarını o haritanın alanına yükle.</div>
   <section class="panel" id="panel"{% if not selected %} hidden{% endif %} aria-live="polite">
@@ -138,7 +147,7 @@
 </div>
 
 <script type="module">
-import { fileSource } from "/static/pack/sources.js";
+import { fileSource, urlSource } from "/static/pack/sources.js";
 import { packSource, uploadPackage } from "/static/pack/pack.js";
 const CHUNK = {{ chunk }}, MIN = {{ sizes[0] }}, MAX = {{ sizes[1] }}, NEED = {{ min_demos }};
 const cards = [...document.querySelectorAll(".mcard")];
@@ -239,7 +248,17 @@ async function waitResult(it, id) {
   if (!it.done) finish(it, "durduruldu", "bad", "Sonuç beklenirken durduruldu; sonucu aşağıdaki listeden izle.");
 }
 
+// FACEIT sunucu yedeği: tarayıcı indiremezse sunucu indirir, işler, dosyayı siler
+async function serverFallback(it) {
+  setState(it, "sunucu indiriyor", "run");
+  const r = await fetch("/api/faceit/sunucu-isle", {method: "POST", headers: {"Content-Type": "application/json"},
+                                                    body: JSON.stringify({match_id: it.source.matchId})});
+  if (!r.ok) { finish(it, "hata", "bad", (await r.json()).detail || "reddedildi"); return; }
+  await waitResult(it, (await r.json()).id);
+}
+
 async function processOne(it, map, seen) {
+  map = it.source.map || map;
   const task = packSource(it.source, {
     onStage: (s) => setState(it, STAGES[s] || s, "run"),
     onSha: (sha) => { if (seen.has(sha)) return true; seen.add(sha); return false; },
@@ -252,6 +271,7 @@ async function processOne(it, map, seen) {
     if (e.kind === "duplicate") finish(it, "reddedildi", "bad", "Aynı demoyu iki kez seçtin; ikincisi atlandı.");
     else if (e.kind === "cancelled") finish(it, "durduruldu", "bad");
     else if (e.kind === "format") finish(it, "reddedildi", "bad", e.message);
+    else if (e.kind === "fetch" && it.source.origin === "faceit") await serverFallback(it);
     else { finish(it, "tarayıcıda işlenemedi", "bad", (e.message || "") + " Tam demoyu yüklemeyi dene.");
            addFallback(it, map); }
     return;
@@ -289,23 +309,70 @@ async function uploadAll(files) {
     for (const f of files) { await send(f, map); }
     uploading = false; location.href = "/demolar?harita=" + map; return;
   }
+  await runSources(files.map(fileSource), map);
+}
+
+// Kaynak listesini sırayla işler (dosya ya da FACEIT); FACEIT kaynağı kendi haritasını taşır
+async function runSources(sources, map) {
+  uploading = true; stopped = false; box.innerHTML = ""; list.innerHTML = "";
+  const seen = new Set();
   bar.hidden = false; document.getElementById("qStop").disabled = false;
-  items = files.map(fileSource).map((s) => {
+  items = sources.map((s) => {
     const it = addRow(s);
-    if (s.size < MIN || s.size > MAX) finish(it, "reddedildi", "bad", "Boyut demo için şüpheli.");
+    if (!s.origin && (s.size < MIN || s.size > MAX)) finish(it, "reddedildi", "bad", "Boyut demo için şüpheli.");
     return it;
   });
   updateTotal();
   for (const it of items) {
     if (it.done) continue;
     if (stopped) { finish(it, "durduruldu", "bad"); continue; }
+    if (!wasmOk && it.source.origin) { await serverFallback(it); continue; }  // WASM yoksa FACEIT sunucu yolu
     await processOne(it, map, seen);         // bir demonun hatası sıradakini durdurmaz
   }
   uploading = false;
   document.getElementById("qStop").disabled = true;
   // Yedek düğmesi çıkan satır varsa sayfa yenilenmez (kullanıcı basabilsin)
-  if (!list.querySelector("button")) setTimeout(() => { location.href = "/demolar?harita=" + map; }, 2500);
+  if (!list.querySelector("button")) setTimeout(() => { location.href = "/demolar" + (map ? "?harita=" + map : ""); }, 2500);
 }
+
+{% if faceit_downloads %}
+// --- FACEIT'ten getir: liste, çoklu seçim, kuyruğa UrlSource olarak ekleme ------------------
+const fcList = document.getElementById("fcList"), fcGo = document.getElementById("fcGo");
+async function fcLink(matchId) {
+  // Dakikada 10 link sınırı: 429 gelirse bekleyip tekrar dene
+  for (let n = 0; n < 12; n++) {
+    const r = await fetch("/api/faceit/demo-link", {method: "POST", headers: {"Content-Type": "application/json"},
+                                                    body: JSON.stringify({match_id: matchId})});
+    if (r.status === 429) { await new Promise((res) => setTimeout(res, 6000)); continue; }
+    if (!r.ok) { const e = new Error((await r.json()).detail || "link alınamadı"); e.kind = "fetch"; throw e; }
+    return (await r.json()).url;
+  }
+  const e = new Error("link sınırı: sonra tekrar dene"); e.kind = "fetch"; throw e;
+}
+document.getElementById("fcLoad").addEventListener("click", async () => {
+  fcList.innerHTML = "";
+  const r = await fetch("/api/faceit/maclar");
+  if (!r.ok) { fcList.innerHTML = "<li>Liste alınamadı.</li>"; return; }
+  for (const m of (await r.json()).matches) {
+    const ok = m.has_demo && !m.processed && m.supported;
+    const li = document.createElement("li");
+    const label = document.createElement("label"); label.className = "nm";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.disabled = !ok; cb.dataset.id = m.match_id; cb.dataset.map = m.map;
+    label.append(cb, ` ${m.label || m.map} · ${(m.date || "").slice(0, 10)} · ${m.score || ""}`);
+    const st = document.createElement("span"); st.className = "st";
+    st.textContent = m.processed ? "bizde işlenmiş" : !m.has_demo ? "demo yok" : !m.supported ? "harita desteklenmiyor" : "hazır";
+    li.append(label, st); fcList.appendChild(li);
+  }
+  fcGo.hidden = false;
+});
+fcGo.addEventListener("click", () => {
+  if (uploading) return;
+  const picked = [...fcList.querySelectorAll("input:checked")];
+  if (!picked.length) return;
+  const sources = picked.map((c) => urlSource(c.dataset.id + ".dem.zst", c.dataset.map, () => fcLink(c.dataset.id)));
+  runSources(sources, "");
+});
+{% endif %}
 document.getElementById("qStop").addEventListener("click", () => { stopped = true; if (active) active.cancel(); });
 const drop = document.getElementById("drop"), input = document.getElementById("files");
 input.addEventListener("change", () => uploadAll([...input.files]));

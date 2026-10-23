@@ -17,3 +17,18 @@ Sunucuda: kod `/opt/squadmind`, veri `/var/lib/squadmind` (günlükler `logs/`, 
 Dışarıya açık tek port SSH; site Cloudflare tünelinden gelir.
 Geri dönüş: `ssh root@<ip> systemctl stop squadmind-tunnel` → bu bilgisayarda
 `Enable-ScheduledTask SquadMind` + `scripts/start-squadmind.ps1` (DB'yi sunucudan geri kopyala).
+
+## FACEIT Downloads: "FACEIT'ten getir" ve DEMO_READY webhook
+
+Yetki açılana kadar her şey kapalı. Hazırlık (bir kez):
+
+1. developers.faceit.com -> App Studio -> Webhooks -> yeni abonelik:
+   - Adres: `https://app.squadmind.info/api/faceit/webhook`
+   - Olay: DEMO_READY (FACEIT belgesindeki adı `match_demo_ready`)
+   - Callback kimlik doğrulama: Header Name `X-Squadmind-Webhook`, Header Value = `.env` FACEIT_WEBHOOK_SECRET
+     (başlık adı değişirse `.env` FACEIT_WEBHOOK_HEADER; alternatif sorgu parametresi `?gizli=<değer>`).
+2. Sunucu `.env`: `FACEIT_WEBHOOK_SECRET=<uzun rastgele>` (olaylar bununla kaydedilir, yetki kapalıyken işlenmez).
+3. Downloads yetkisi açılınca `.env`: `FACEIT_DOWNLOADS_ENABLED=1` (+ gerekirse `FACEIT_DOWNLOADS_KEY`), sonra
+   `systemctl restart squadmind-web`. Demolarım sayfasında "FACEIT maçlarım", /ben sayfasında "Otomatik demo" belirir.
+
+Sunucu yolu (tarayıcı indiremezse ya da otomatik demo) demoyu indirir, işler ve dosyayı siler; kayıt `demo_files.source` = `faceit-sunucu` (tarayıcı yolu: `faceit-tarayici`).

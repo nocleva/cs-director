@@ -33,6 +33,7 @@ class WebUser:
     nickname: str
     sync_status: str
     team_access: bool = False   # takım sahibinin kadro sayfaları (takım raporu, taktik tahtası)
+    auto_demo: bool = False     # maçının demosu hazır olunca otomatik işlensin (FACEIT webhook)
 
 
 class Store:
@@ -89,15 +90,19 @@ class Store:
 
     def user(self, steam_id: str) -> WebUser | None:
         with self.cursor() as cur:
-            row = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status, coalesce(team_access, false) FROM web_users "
+            row = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status, coalesce(team_access, false), coalesce(auto_demo, false) FROM web_users "
                               "WHERE steam_id = ?", [steam_id]).fetchone()
         return WebUser(*row) if row else None
 
     def users(self) -> list[WebUser]:
         with self.cursor() as cur:
-            rows = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status, coalesce(team_access, false) FROM web_users "
+            rows = cur.execute("SELECT steam_id, faceit_id, nickname, sync_status, coalesce(team_access, false), coalesce(auto_demo, false) FROM web_users "
                                "ORDER BY joined_at").fetchall()
         return [WebUser(*r) for r in rows]
+
+    def set_auto_demo(self, steam_id: str, on: bool) -> None:
+        with self.cursor() as cur:
+            cur.execute("UPDATE web_users SET auto_demo = ? WHERE steam_id = ?", [on, steam_id])
 
     def set_sync_status(self, steam_id: str, status: str) -> None:
         with self.cursor() as cur:
@@ -326,3 +331,71 @@ class Store:
     def delete_tactic(self, owner: str, tactic_id: str) -> None:
         with self.cursor() as cur:
             cur.execute("DELETE FROM user_tactics WHERE id = ? AND owner = ?", [tactic_id, owner])
+
+    # --- FACEIT'ten getir / DEMO_READY webhook ---------------------------------------
+
+    def faceit_matches(self, faceit_id: str, limit: int = 30) -> list[dict[str, Any]]:
+        """Oyuncunun son maçları: harita, tarih, skor, demo var mı, bizde işlenmiş mi."""
+        with self.cursor() as cur:
+            rows = cur.execute(
+                """
+                SELECT m.match_id, m.map, m.date, m.score, m.demo_url IS NOT NULL AND m.demo_url <> '',
+                       m.demo_status IN ('processed', 'mismatch')
+                       OR EXISTS (SELECT 1 FROM demo_files d WHERE d.match_id = m.match_id)
+                FROM matches m JOIN match_player_stats s USING (match_id)
+                WHERE s.player_id = ? ORDER BY m.date DESC LIMIT ?
+                """, [faceit_id, limit]).fetchall()
+        keys = ("match_id", "map", "date", "score", "has_demo", "processed")
+        return [dict(zip(keys, r, strict=True)) for r in rows]
+
+    def played(self, faceit_id: str, match_id: str) -> dict[str, Any] | None:
+        """Oyuncu bu maçta oynadıysa maç satırı (map, demo_url, işlenmiş mi), yoksa None."""
+        with self.cursor() as cur:
+            row = cur.execute(
+                """
+                SELECT m.map, m.demo_url,
+                       m.demo_status IN ('processed', 'mismatch')
+                       OR EXISTS (SELECT 1 FROM demo_files d WHERE d.match_id = m.match_id)
+                FROM matches m JOIN match_player_stats s USING (match_id)
+                WHERE s.player_id = ? AND m.match_id = ?
+                """, [faceit_id, match_id]).fetchone()
+        return dict(zip(("map", "demo_url", "processed"), row, strict=True)) if row else None
+
+    def record_demo_event(self, match_id: str, resource_url: str | None,
+                          transaction_id: str | None) -> bool:
+        """Webhook olayını yazar; aynı maç ikinci kez gelirse False (tekil)."""
+        with self.cursor() as cur:
+            if cur.execute("SELECT 1 FROM faceit_demo_events WHERE match_id = ?",
+                           [match_id]).fetchone():
+                return False
+            cur.execute("INSERT INTO faceit_demo_events (match_id, resource_url, transaction_id, "
+                        "status) VALUES (?, ?, ?, 'kaydedildi')",
+                        [match_id, resource_url, transaction_id])
+        return True
+
+    def set_event_status(self, match_id: str, status: str, detail: str | None = None,
+                         processed_for: str | None = None) -> None:
+        with self.cursor() as cur:
+            cur.execute("UPDATE faceit_demo_events SET status = ?, detail = coalesce(?, detail), "
+                        "processed_for = coalesce(?, processed_for) WHERE match_id = ?",
+                        [status, detail, processed_for, match_id])
+
+    def demo_event(self, match_id: str) -> dict[str, Any] | None:
+        with self.cursor() as cur:
+            row = cur.execute("SELECT match_id, resource_url, transaction_id, status, detail, "
+                              "processed_for FROM faceit_demo_events WHERE match_id = ?",
+                              [match_id]).fetchone()
+        keys = ("match_id", "resource_url", "transaction_id", "status", "detail", "processed_for")
+        return dict(zip(keys, row, strict=True)) if row else None
+
+    def auto_demo_users(self, match_id: str) -> list[WebUser]:
+        """Bu maçta oynayan ve otomatik demo iznini açmış web kullanıcıları."""
+        with self.cursor() as cur:
+            rows = cur.execute(
+                """
+                SELECT w.steam_id, w.faceit_id, w.nickname, w.sync_status,
+                       coalesce(w.team_access, false), coalesce(w.auto_demo, false)
+                FROM web_users w JOIN match_player_stats s ON s.player_id = w.faceit_id
+                WHERE s.match_id = ? AND coalesce(w.auto_demo, false) ORDER BY w.joined_at
+                """, [match_id]).fetchall()
+        return [WebUser(*r) for r in rows]

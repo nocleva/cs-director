@@ -390,6 +390,7 @@ def ingest_demo(
     uploader: str | None = None,
     allow_known: bool = False,
     expected_map: str | None = None,
+    source: str = "demo",
 ) -> DemoIngestResult:
     """Tek bir demoyu işler. Hata olursa dosya inbox'ta kalır, sonuçta hata yazar.
 
@@ -449,7 +450,8 @@ def ingest_demo(
             discard_demo_data(con, match_id)
         # Sonuç ne olursa olsun bu dosya artık bilinir: aynısı tekrar eklenemez
         register_demo_file(con, digest, match_id, demo_file, demo_file.stat().st_size,
-                           uploader, "mismatch" if result.validated is False else "processed")
+                           uploader, "mismatch" if result.validated is False else "processed",
+                           source=source)
 
         if delete_after:
             reason = keep_reason(result)
@@ -522,6 +524,7 @@ def ingest_package(
     parser: Callable[[bytes], DemoTables] | None = None,
     uploader: str | None = None,
     expected_map: str | None = None,
+    source: str = "paket",
 ) -> DemoIngestResult:
     """Tarayıcıda üretilen paketi işler; kurallar `ingest_demo` ile aynı, dosya yok.
 
@@ -572,7 +575,7 @@ def ingest_package(
 
         def register(status: str) -> None:
             register_demo_file(con, sha256, match_id, Path(file_name), orig_size, uploader,
-                               status, source="paket", dem_sha256=dem_sha256 or None)
+                               status, source=source, dem_sha256=dem_sha256 or None)
 
         problems = package_problems(con, match_id, tables)
         if problems:

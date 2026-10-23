@@ -9,6 +9,7 @@ raporunu görür. Kullanıcıdan bilgi istenmez: kimlik FACEIT girişinden, geri
 
 from __future__ import annotations
 
+import collections
 import hmac
 import mimetypes
 import html as html_lib
@@ -20,7 +21,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import markdown as md
 import polars as pl
@@ -37,7 +38,7 @@ from squadmind.ingest import demos as demo_rules
 from squadmind.ingest.matches import profile_to_player_row, upsert_players
 from squadmind.web.faceit_auth import FaceitAuthError, FaceitOAuth, pkce_pair
 from squadmind.web.store import OPEN_STATES, QUEUED, UPLOADING, Store, WebUser
-from squadmind.web.worker import Job, Worker
+from squadmind.web.worker import Job, Worker, demo_resource
 
 log = logging.getLogger("squadmind.web")
 
@@ -56,6 +57,10 @@ TEAM_MIN_SHARED = 3
 MAX_TEAM_MEMBERS = 7
 _TEAM_ID = re.compile(r"[0-9a-f]{12}")
 SESSION_DAYS = 30
+# "FACEIT'ten getir": kullanıcı başı dakikada en fazla bu kadar imzalı link / sunucu işi isteği
+FACEIT_RATE_PER_MIN = 10
+# DEMO_READY olay adları (FACEIT belgesi: match_demo_ready; DEMO_READY de kabul edilir)
+DEMO_READY_EVENTS = ("match_demo_ready", "demo_ready")
 # Parça boyutu: Cloudflare ücretsiz tüneli tek istekte ~100 MB'a izin verir
 CHUNK_BYTES = 32 * 1024 * 1024
 # Bir oyuncunun aynı anda açık (yüklenen / sırada / işlenen) en fazla demo sayısı
@@ -80,6 +85,10 @@ class WebSettings:
     map_name: str | None
     uploads_dir: Path
     oauth: FaceitOAuth | None = None            # FACEIT ile giriş (yoksa nickname ile katılım)
+    # FACEIT Downloads API (yetki açılana kadar kapalı): "FACEIT'ten getir" + otomatik demo
+    faceit_downloads: bool = False
+    webhook_secret: str = ""                    # DEMO_READY webhook gizli değeri (boşsa uç nokta 404)
+    webhook_header: str = "X-Squadmind-Webhook"  # gizli değerin geldiği başlık adı
 
 
 @lru_cache(maxsize=1)
@@ -138,6 +147,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         ctx.setdefault("me", current_user(request))
         ctx.setdefault("owner", settings.team_owner)
+        ctx.setdefault("faceit_downloads", settings.faceit_downloads)
         return TEMPLATES.TemplateResponse(request, name, ctx)
 
     # --- katılım --------------------------------------------------------------------
@@ -422,7 +432,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.post("/api/paket")
     async def package_upload(request: Request, name: str = "", sha256: str = "",
-                             dem_sha256: str = "", size: int = 0, map: str = ""):
+                             dem_sha256: str = "", size: int = 0, map: str = "",
+                             kaynak: str = ""):
         """Tarayıcıda WASM ile üretilen gzip'li paketi alır; işçi kuyruğuna koyar.
 
         Gövde = ham gzip baytları. Sorgu: name (orijinal dosya adı), sha256 (seçilen dosyanın
@@ -455,8 +466,151 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         path.write_bytes(data)
         store.set_upload(upload_id, QUEUED)
         worker.submit(Job("package", upload_id, path, {
-            "sha256": sha256, "dem_sha256": dem_sha256, "orig_size": size, "file_name": name}))
+            "sha256": sha256, "dem_sha256": dem_sha256, "orig_size": size, "file_name": name,
+            "source": "faceit-tarayici" if kaynak == "faceit" and settings.faceit_downloads
+                      else "paket"}))
         return {"id": upload_id}
+
+    # --- FACEIT'ten getir (Downloads API; FACEIT_DOWNLOADS_ENABLED=1 olmadan kapalı) ------------
+
+    rate_log: dict[str, collections.deque] = {}
+
+    def downloads_user(request: Request) -> WebUser:
+        """Bayrak kapalıysa 404 (uç nokta yokmuş gibi); sonra oturum şart."""
+        if not settings.faceit_downloads:
+            raise HTTPException(404, "Bulunamadı.")
+        return require_user(request)
+
+    def rate_limit(user: WebUser) -> None:
+        """Kullanıcı başı kayan 60 sn pencere: imzalı link / sunucu işi istekleri."""
+        now = time.monotonic()
+        q = rate_log.setdefault(user.steam_id, collections.deque())
+        while q and now - q[0] > 60:
+            q.popleft()
+        if len(q) >= FACEIT_RATE_PER_MIN:
+            raise HTTPException(429, "Çok sık istek; biraz bekle.")
+        q.append(now)
+
+    def checked_match(user: WebUser, match_id: str) -> dict:
+        """Kullanıcı o maçta oynamış ve maç bizde işlenmemiş olmalı; harita havuzda olmalı."""
+        if not re.fullmatch(r"1-[0-9a-f-]{36}", match_id):
+            raise HTTPException(400, "Maç kimliği geçersiz.")
+        row = store.played(user.faceit_id, match_id)
+        if row is None:
+            raise HTTPException(403, "Bu maçta oynamamışsın.")
+        if row["processed"]:
+            raise HTTPException(409, "Bu maçın demosu zaten işlendi.")
+        if row["map"] not in tb.MAP_POOL:
+            raise HTTPException(400, "Bu harita henüz desteklenmiyor.")
+        return row
+
+    async def match_id_of(request: Request) -> str:
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "Gövde JSON olmalı.") from None
+        return str(body.get("match_id", "")) if isinstance(body, dict) else ""
+
+    @app.get("/api/faceit/maclar")
+    def faceit_matches(request: Request):
+        user = downloads_user(request)
+        return JSONResponse({"matches": [
+            {**m, "date": m["date"].isoformat() if m["date"] else None,
+             "label": tb.map_label(m["map"]) if m["map"] else "",
+             "supported": m["map"] in tb.MAP_POOL}
+            for m in store.faceit_matches(user.faceit_id)]})
+
+    @app.post("/api/faceit/demo-link")
+    async def faceit_demo_link(request: Request):
+        """İmzalı indirme linki (cache yok): tarayıcı demoyu kendisi indirip paketler."""
+        user = downloads_user(request)
+        match_id = await match_id_of(request)
+        row = checked_match(user, match_id)
+        rate_limit(user)
+        try:
+            with client_factory() as client:
+                resource = demo_resource(store, client, match_id)
+                if not resource:
+                    raise HTTPException(404, "Bu maçın demosu henüz yok.")
+                url = client.get_demo_download_url(resource)
+        except FaceitNotFound:
+            raise HTTPException(404, "Demo bulunamadı (süresi geçmiş olabilir).") from None
+        except FaceitAPIError as exc:
+            log.warning("demo-link: %s", exc)
+            raise HTTPException(502, "FACEIT demo linki vermedi; sunucu yolunu dene.") from None
+        ext = ".dem.gz" if urlsplit(url).path.endswith(".gz") else ".dem.zst"
+        return JSONResponse({"url": url, "name": f"{match_id}{ext}", "map": row["map"]},
+                            headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/faceit/sunucu-isle")
+    async def faceit_server_ingest(request: Request):
+        """Yedek: CORS yüzünden tarayıcı indiremezse sunucu indirir, işler, dosyayı siler."""
+        user = downloads_user(request)
+        match_id = await match_id_of(request)
+        row = checked_match(user, match_id)
+        rate_limit(user)
+        if store.open_uploads(user.steam_id) >= MAX_OPEN_UPLOADS:
+            raise HTTPException(429, "Önceki yüklemelerin işlenmesini bekle.")
+        upload_id = store.new_upload(user.steam_id, f"{match_id}.dem.zst", 0, row["map"])
+        store.set_upload(upload_id, QUEUED)
+        worker.submit(Job("faceit", upload_id, meta={"match_id": match_id}))
+        return {"id": upload_id}
+
+    @app.post("/ben/otomatik-demo")
+    def auto_demo_toggle(request: Request, acik: str = Form("")):
+        """Otomatik demo izni: maçının demosu hazır olunca sunucu getirip işler."""
+        user = downloads_user(request)
+        store.set_auto_demo(user.steam_id, acik == "1")
+        return RedirectResponse("/ben", status_code=303)
+
+    @app.post("/api/faceit/webhook")
+    async def faceit_webhook(request: Request, gizli: str = ""):
+        """FACEIT DEMO_READY (match_demo_ready) olayı.
+
+        Doğrulama: App Studio'da tanımlanan başlık adı/değeri (ya da ?gizli=) FACEIT_WEBHOOK_SECRET
+        ile sabit zamanlı karşılaştırılır. Aynı maç bir kez kaydedilir. İşleme yalnızca
+        FACEIT_DOWNLOADS_ENABLED=1 iken ve maçta "otomatik demo" izni açık kullanıcı varsa olur.
+        """
+        if not settings.webhook_secret:
+            raise HTTPException(404, "Bulunamadı.")
+        given = request.headers.get(settings.webhook_header) or gizli
+        if not given or not hmac.compare_digest(given.encode(), settings.webhook_secret.encode()):
+            raise HTTPException(401, "Gizli değer geçersiz.")
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "Gövde JSON olmalı.") from None
+        if not isinstance(body, dict):
+            raise HTTPException(400, "Gövde JSON nesnesi olmalı.")
+        event = str(body.get("event", "")).lower()
+        if event not in DEMO_READY_EVENTS:
+            return {"ok": True, "ignored": event}   # başka olay: 200 (FACEIT yeniden denemesin)
+        payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+        match_id = str(payload.get("id") or payload.get("match_id") or "")
+        if not re.fullmatch(r"1-[0-9a-f-]{36}", match_id):
+            raise HTTPException(400, "Maç kimliği yok ya da geçersiz.")
+        urls = payload.get("demo_url") or payload.get("demo_urls") or payload.get("resource_url")
+        resource = (urls[0] if isinstance(urls, list) and urls else urls) or None
+        resource = resource if isinstance(resource, str) else None
+        if not store.record_demo_event(match_id, resource, str(body.get("transaction_id") or "") or None):
+            return {"ok": True, "duplicate": True}  # tekrar gönderim: yeniden işleme yok
+        if not settings.faceit_downloads:
+            return {"ok": True, "recorded": True}   # yetki kapalı: kaydet, işleme
+        # Maç zaten işlenmişse ya da iznini açmış kullanıcı yoksa yalnız kayıt
+        done = store.run(lambda con: demo_rules.match_already_processed(con, match_id))
+        users = [] if done else store.auto_demo_users(match_id)
+        if not users:
+            store.set_event_status(match_id, "atlandı",
+                                   "demo zaten işlendi" if done else "otomatik demo izni olan kullanıcı yok")
+            return {"ok": True, "recorded": True}
+        owner = users[0]   # aynı demo bir kez: tek kullanıcı adına
+        played = store.played(owner.faceit_id, match_id)
+        upload_id = store.new_upload(owner.steam_id, f"{match_id}.dem.zst", 0,
+                                     (played or {}).get("map"))
+        store.set_upload(upload_id, QUEUED)
+        store.set_event_status(match_id, "kuyrukta", processed_for=owner.steam_id)
+        worker.submit(Job("faceit", upload_id, meta={"match_id": match_id}))
+        return {"ok": True, "queued": True}
 
     @app.get("/api/durum")
     def status(request: Request):

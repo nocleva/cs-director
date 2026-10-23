@@ -214,7 +214,8 @@ CREATE TABLE IF NOT EXISTS web_users (
     nickname     VARCHAR,
     sync_status  VARCHAR,                -- bekliyor / alınıyor / tamam / hata: <mesaj>
     joined_at    TIMESTAMP DEFAULT current_timestamp,
-    team_access  BOOLEAN DEFAULT false   -- (v6) takım sahibinin kadro sayfalarını görebilir
+    team_access  BOOLEAN DEFAULT false,  -- (v6) takım sahibinin kadro sayfalarını görebilir
+    auto_demo    BOOLEAN DEFAULT false   -- (v10) maçının demosu hazır olunca otomatik işlensin
 );
 
 CREATE TABLE IF NOT EXISTS web_uploads (
@@ -272,4 +273,15 @@ CREATE TABLE IF NOT EXISTS user_tactics (
     data        VARCHAR,                 -- JSON: [{steam_id, x, y, place}]
     created_at  TIMESTAMP DEFAULT current_timestamp,
     updated_at  TIMESTAMP DEFAULT current_timestamp
+);
+
+-- FACEIT DEMO_READY webhook olayları (şema v10): aynı maç bir kez
+CREATE TABLE IF NOT EXISTS faceit_demo_events (
+    match_id       VARCHAR PRIMARY KEY,
+    resource_url   VARCHAR,
+    transaction_id VARCHAR,
+    received_at    TIMESTAMP DEFAULT current_timestamp,
+    status         VARCHAR,              -- kaydedildi / kuyrukta / tamam / hata / atlandı
+    detail         VARCHAR,
+    processed_for  VARCHAR               -- otomatik işleme için seçilen kullanıcının steam id'si
 );

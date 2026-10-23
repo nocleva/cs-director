@@ -62,5 +62,11 @@ WEB_BASE_URL = os.getenv("WEB_BASE_URL", "https://app.squadmind.info").strip()
 FACEIT_PKCE = os.getenv("FACEIT_PKCE", "1").strip() in ("1", "true", "evet")
 FACEIT_FLOW = os.getenv("FACEIT_FLOW", "implicit").strip() or "implicit"
 FACEIT_AUTHORIZE_URL = os.getenv("FACEIT_AUTHORIZE_URL", "https://accounts.faceit.com").strip()
+# FACEIT Downloads API ile "FACEIT'ten getir" ve DEMO_READY webhook'u. Yetki açılana kadar KAPALI
+# (arayüzde görünmez, uç noktalar 404). Webhook gizli değeri ayrı: boşsa uç nokta 404.
+FACEIT_DOWNLOADS_ENABLED = os.getenv("FACEIT_DOWNLOADS_ENABLED", "0").strip() in ("1", "true", "evet")
+FACEIT_WEBHOOK_SECRET = os.getenv("FACEIT_WEBHOOK_SECRET", "").strip()
+# App Studio'daki "Header Name" (değeri FACEIT_WEBHOOK_SECRET); sorgu parametresi ?gizli= de kabul edilir
+FACEIT_WEBHOOK_HEADER = os.getenv("FACEIT_WEBHOOK_HEADER", "X-Squadmind-Webhook").strip()
 # Web'den gelen dosyaların parça parça birleştirildiği klasör
 WEB_UPLOADS = DATA_DIR / "web_uploads"

@@ -71,6 +71,16 @@
         {% if t.status == "davet" %}<span class="chip invite">Davet</span>{% else %}<span class="chip">Üye</span>{% endif %}</a>
       {% else %}<p class="muted" style="margin:0">Henüz takımın yok. <a href="/takimlar">Takım kur →</a></p>{% endfor %}
     </div>
+    {% if faceit_downloads %}
+    <div class="card">
+      <h2>Otomatik demo</h2>
+      <form method="post" action="/ben/otomatik-demo" style="margin:0">
+        <p class="muted" style="margin:0 0 10px;font-size:13px">Açıkken maçlarının demosu FACEIT'te hazır olunca sunucu onu indirip işler; demo dosyası saklanmaz, yalnızca analiz verisi kalır.</p>
+        <input type="hidden" name="acik" value="{{ '0' if user.auto_demo else '1' }}">
+        <button class="btn{{ ' ghost' if user.auto_demo else '' }}" type="submit">{{ "Kapat (şu an açık)" if user.auto_demo else "Aç" }}</button>
+      </form>
+    </div>
+    {% endif %}
     <div class="card table-wrap recent">
       <h2>Son yüklemeler</h2>
       {% if recent %}
