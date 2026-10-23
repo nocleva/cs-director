@@ -299,24 +299,26 @@ const markSvg = (mark, x, y, color) => {
   return `<circle cx="${x}" cy="${y}" r="2.2" fill="none" stroke="${color}" stroke-width="1.2"/>`;
 };
 
-// Oyuncu jetonları: 18 px, 1,5 px turuncu kontur (seçili 2 px), içinde tabular numara; 44 px dokunma alanı
+// Oyuncu jetonları: küçük, içi dolu turuncu yuvarlak (12 px), içinde koyu numara; seçili
+// oyuncuda dışta ince beyaz halka; 44 px dokunma alanı
 const tokenEls = D.players.map((p) => {
   const g = el("g", { role: "button", tabindex: "0", "aria-label": `${p.name}, ${p.role}: ayrıntı`, style: "cursor:pointer;outline:none" }, gTokens);
   el("circle", { r: 22, fill: "transparent" }, g);  // dokunma alanı
-  const body = el("circle", { r: 9, fill: C.bg2, stroke: C.accent, "stroke-width": "1.5" }, g);
-  const num = el("text", { y: 3.4, "text-anchor": "middle", fill: C.line, "font-size": "9.5", "font-weight": "700", "font-family": "Inter, sans-serif" }, g);
+  const ring = el("circle", { r: 9, fill: "none", stroke: C.line, "stroke-width": "1.4", opacity: "0" }, g);
+  const body = el("circle", { r: 6, fill: C.accent, stroke: C.bg0, "stroke-width": "1" }, g);
+  const num = el("text", { y: 2.6, "text-anchor": "middle", fill: C.bg0, "font-size": "7.5", "font-weight": "800", "font-family": "Inter, sans-serif" }, g);
   num.textContent = p.label;
-  const mk = el("g", {}, g); mk.innerHTML = markSvg(p.mark, 0, 15, C.accent);
+  const mk = el("g", {}, g); mk.innerHTML = markSvg(p.mark, 0, 12, C.accent);
   const pick = () => select(p.label);
   g.addEventListener("click", pick);
   g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
-  return { g, body };
+  return { g, body, ring };
 });
 
 // Lejant
 const ic = (inner) => `<svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true">${inner}</svg>`;
 document.getElementById("legend").innerHTML = [
-  `<span>${ic(`<circle r="5" fill="${C.bg2}" stroke="${C.accent}" stroke-width="1.4"/>`)}Oyuncu</span>`,
+  `<span>${ic(`<circle r="4.5" fill="${C.accent}"/>`)}Oyuncu</span>`,
   `<span><svg width="18" height="4" aria-hidden="true"><line x1="0" y1="2" x2="18" y2="2" stroke="${C.line}" stroke-width="1.25" stroke-dasharray="5 4"/></svg>Rota</span>`,
   `<span>${ic(`<circle r="5" fill="#fff" fill-opacity=".18" stroke="#fff" stroke-opacity=".45"/>`)}Smoke</span>`,
   `<span>${ic(`<path d="M0,-5 L1.2,-1.2 L5,0 L1.2,1.2 L0,5 L-1.2,1.2 L-5,0 L-1.2,-1.2 Z" fill="${C.line}"/>`)}Flash</span>`,
@@ -329,7 +331,7 @@ const plist = document.getElementById("plist");
 const rows = D.players.map((p) => {
   const b = document.createElement("button");
   b.type = "button"; b.className = "prow";
-  b.innerHTML = `<svg width="22" height="30" viewBox="-11 -11 22 30" aria-hidden="true"><circle r="9" fill="${C.bg0}" stroke="${C.accent}" stroke-width="1.5"/><text y="3.4" text-anchor="middle" fill="${C.line}" font-size="9.5" font-weight="700" font-family="Inter, sans-serif">${p.label}</text>${markSvg(p.mark, 0, 15, C.accent)}</svg><span><span class="nm"></span><br><span class="rl"></span></span><span class="kol"></span>`;
+  b.innerHTML = `<svg width="22" height="30" viewBox="-11 -11 22 30" aria-hidden="true"><circle r="7" fill="${C.accent}"/><text y="3" text-anchor="middle" fill="${C.bg0}" font-size="8.5" font-weight="800" font-family="Inter, sans-serif">${p.label}</text>${markSvg(p.mark, 0, 13, C.accent)}</svg><span><span class="nm"></span><br><span class="rl"></span></span><span class="kol"></span>`;
   b.querySelector(".nm").textContent = p.name;
   b.querySelector(".rl").textContent = p.role;
   b.querySelector(".kol").textContent = p.kol;
@@ -397,12 +399,14 @@ function renderPanel() {
 }
 
 function render() {
-  const n = D.players[0].frames.length, i = Math.max(0, Math.min(n - 1, Math.round(t / D.dt)));
+  // Kareler arası doğrusal ara değer: jeton rota üstünde sıçramadan kayar
+  const n = D.players[0].frames.length, pos = Math.max(0, Math.min(n - 1, t / D.dt));
+  const i = Math.floor(pos), j = Math.min(n - 1, i + 1), f = pos - i;
   D.players.forEach((p, k) => {
-    const [x, y] = p.frames[i], isSel = p.label === sel;
-    tokenEls[k].g.setAttribute("transform", `translate(${x},${y})`);
-    tokenEls[k].body.setAttribute("stroke-width", isSel ? "2" : "1.5");
-    tokenEls[k].body.setAttribute("fill", isSel ? C.bg0 : C.bg2);
+    const a = p.frames[i], b = p.frames[j], isSel = p.label === sel;
+    const x = a[0] + (b[0] - a[0]) * f, y = a[1] + (b[1] - a[1]) * f;
+    tokenEls[k].g.setAttribute("transform", `translate(${x.toFixed(2)},${y.toFixed(2)})`);
+    tokenEls[k].ring.setAttribute("opacity", isSel ? "1" : "0");
     const r = routeEls[k].path;
     r.setAttribute("stroke", isSel ? C.accent : C.line);
     r.setAttribute("marker-end", isSel ? "url(#arrA)" : "url(#arrW)");

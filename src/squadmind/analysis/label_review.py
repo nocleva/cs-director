@@ -20,6 +20,8 @@ from squadmind.analysis.player_metrics import DemoData
 PATTERNS = ("rush", "execute", "split", "girilmedi")
 # Desen başına incelenecek round
 PER_PATTERN = 5
+# Round tekrarında kare aralığı (sn); sayfa kareler arasını ayrıca ara değerle doldurur
+REPLAY_DT = 0.2
 
 
 def _key(match_id: str, round_no: int) -> str:
@@ -45,28 +47,56 @@ def sample_rounds(tp: pl.DataFrame, per_pattern: int = PER_PATTERN) -> list[dict
     return out
 
 
+def _smooth(map_name: str, keys: list[tuple[float, float, float, float]],
+             px: Callable[[float, float], tuple[float, float]]) -> list[list[float]]:
+    """Anahtar kareler (t, x, y, z) arası navmesh yolunda sabit hızla REPLAY_DT'lik kareler.
+
+    Konum kayıtları 2 sn'de bir; düz çizgiyle birleştirmek köşelerde duvardan geçiriyordu.
+    Her aralık oyunun yürünebilir alanında en kısa yoldan (viz.board._route) çizilir.
+    """
+    from squadmind.viz.playback import Actor, Keyframe, actor_frames
+
+    actor = Actor("", "", keys=[Keyframe(t, (x, y, z)) for t, x, y, z in keys])
+    frames = actor_frames(map_name, actor, keys[-1][0], REPLAY_DT)
+    return [[round(v, 1) for v in px(x, y)] for x, y in frames]
+
+
 def round_replay(d: DemoData, match_id: str, round_no: int,
-                 px: Callable[[float, float], tuple[float, float]]) -> dict[str, Any]:
+                 px: Callable[[float, float], tuple[float, float]],
+                 map_name: str | None = None) -> dict[str, Any]:
     """Bir round'un oynatma verisi (piksel koordinatlı).
 
-    players: [{name, side, pts: [[t, x, y], ...]}] (konum kayıtları 2 sn'de bir, ölünce biter)
-    kills: [{t, x, y, victim_side, victim}] (ölüm yeri), plant: {t, site} ya da None,
-    duration: son kaydın saniyesi.
+    players: [{name, side, pts: [[t, x, y], ...]}] (konum kayıtları 2 sn'de bir, ölünce biter).
+    `map_name` verilirse her oyuncuya ayrıca `frames` (0. saniyeden REPLAY_DT aralıklı, navmesh
+    yolunda), `end` (öldüğü ya da son kaydın anı) ve `dead` eklenir; ölüm anı ve yeri kill
+    kaydından alınır.
+    kills: [{t, x, y, victim_side, victim}] (ölüm yeri), duration: son olayın saniyesi.
     """
     pos = d.positions.filter((pl.col("match_id") == match_id)
                              & (pl.col("round_no").cast(pl.Int64) == round_no)).sort("tick")
     names = {r["steam_id"]: r["nickname"] for r in
              d.roster.filter(pl.col("match_id") == match_id).iter_rows(named=True)}
+    k = d.kills.filter((pl.col("match_id") == match_id)
+                       & (pl.col("round_no").cast(pl.Int64) == round_no))
+    deaths = {r["victim"]: r for r in k.sort("time_in_round").iter_rows(named=True)}
     players = []
     for (sid, side), g in pos.group_by(["player", "side"], maintain_order=True):
-        pts = []
+        pts, keys = [], []
         for r in g.iter_rows(named=True):
             x, y = px(r["x"], r["y"])
             pts.append([round(r["time_in_round"], 1), round(x, 1), round(y, 1)])
-        players.append({"name": names.get(sid, "?"), "side": side, "pts": pts})
+            keys.append((r["time_in_round"], r["x"], r["y"], r.get("z") or 0.0))
+        p: dict[str, Any] = {"name": names.get(sid, "?"), "side": side, "pts": pts}
+        if map_name and keys:
+            death = deaths.get(sid)
+            if death is not None and death.get("victim_x") is not None \
+                    and death["time_in_round"] > keys[-1][0]:
+                keys.append((death["time_in_round"], death["victim_x"], death["victim_y"],
+                             death.get("victim_z") or keys[-1][3]))
+            p |= {"frames": _smooth(map_name, keys, px), "end": round(keys[-1][0], 2),
+                  "dead": death is not None}
+        players.append(p)
     kills = []
-    k = d.kills.filter((pl.col("match_id") == match_id)
-                       & (pl.col("round_no").cast(pl.Int64) == round_no))
     for r in k.sort("time_in_round").iter_rows(named=True):
         if r.get("victim_x") is None:
             continue

@@ -506,13 +506,14 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             proj = _Projection(map_polygons("de_dust2"), width, pad)
             rounds = []
             for r in lr.sample_rounds(tp):
-                rep_ = lr.round_replay(d, r["match_id"], int(r["round_no"]), proj)
+                rep_ = lr.round_replay(d, r["match_id"], int(r["round_no"]), proj, "de_dust2")
                 rounds.append({
                     "match_id": r["match_id"], "round_no": int(r["round_no"]),
                     "label": r["pattern"], "target_site": r["target_site"],
                     "commit_time": r["commit_time"], "plant_time": r["plant_time"],
                     "bomb_site": r["bomb_site"], "lanes": r["lanes"] or [],
-                    "default": r["default"], "won": r["won"], "buy": r["own_buy"], **rep_})
+                    "default": r["default"], "won": r["won"], "buy": r["own_buy"],
+                    "dt": lr.REPLAY_DT, **rep_})
             board = render_board(Board("de_dust2", places=BOARD_PLACES["de_dust2"],
                                        target_places=[]), width=width, pad=pad, theme=TAKTIK)
             _review_cache.clear()

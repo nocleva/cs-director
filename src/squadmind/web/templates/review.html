@@ -65,8 +65,8 @@
       <span class="time tnum" id="time">0:00</span>
     </div>
     <div class="legend">
-      <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#F37321"/></svg>Bizim T</span>
-      <span><svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="#E5484D"/></svg>Rakip CT</span>
+      <span><svg width="10" height="10"><circle cx="5" cy="5" r="3.6" fill="#F37321"/></svg>Bizim T</span>
+      <span><svg width="10" height="10"><circle cx="5" cy="5" r="3.2" fill="#E5484D"/></svg>Rakip CT</span>
       <span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="#E9EBEE" stroke-width="2"/></svg>Ölüm</span>
       <span><span class="dot" style="background:#3DB5AE"></span>Giriş anı</span>
       <span><span class="dot" style="background:#E9EBEE"></span>Plant</span>
@@ -127,44 +127,47 @@ for (const [t, label, color] of [[R.commit_time, "giriş", "#3DB5AE"], [R.plant_
   const m = document.createElement("span"); m.className = "mk tnum"; m.style.left = (100 * t / R.duration) + "%";
   m.style.color = color; m.textContent = "▲ " + label + " " + fmt(t); rail.appendChild(m);
 }
+// Oyuncu: küçük, içi dolu yuvarlak; yol navmesh'ten (duvardan geçmez), kareler arası ara değer
+const DT = R.dt || 0.2;
 const layers = R.players.map((p) => {
   const mine = p.side === "T", color = mine ? "#F37321" : "#E5484D";
   return { p, color, mine,
-    trail: el("polyline", { fill: "none", stroke: color, "stroke-width": mine ? 1.6 : 1, "stroke-opacity": mine ? .75 : .45, "stroke-linejoin": "round" }),
-    dot: el("circle", { r: mine ? 5 : 4, fill: color, stroke: "#111214", "stroke-width": 1.2 }),
-    name: mine ? el("text", { "font-size": 9, fill: "#E9EBEE", "font-family": "Inter, sans-serif", "font-weight": 600 }) : null };
+    trail: el("polyline", { fill: "none", stroke: color, "stroke-width": mine ? 1.4 : .9, "stroke-opacity": mine ? .6 : .35, "stroke-linejoin": "round", "stroke-linecap": "round" }),
+    dot: el("circle", { r: mine ? 3.6 : 3.2, fill: color, stroke: "#111214", "stroke-width": .8 }),
+    name: mine ? el("text", { "font-size": 8, fill: "#E9EBEE", "font-family": "Inter, sans-serif", "font-weight": 600, "paint-order": "stroke", stroke: "#111214", "stroke-width": 2.5 }) : null };
 });
 layers.forEach((l) => { if (l.name) l.name.textContent = l.p.name; });
 const kills = R.kills.map((k) => {
   const g = el("g", { opacity: 0 });
-  el("path", { d: `M${k.x - 4},${k.y - 4}L${k.x + 4},${k.y + 4}M${k.x + 4},${k.y - 4}L${k.x - 4},${k.y + 4}`, stroke: k.victim_side === "T" ? "#F37321" : "#E5484D", "stroke-width": 2.2 }, g);
+  el("path", { d: `M${k.x - 3},${k.y - 3}L${k.x + 3},${k.y + 3}M${k.x + 3},${k.y - 3}L${k.x - 3},${k.y + 3}`, stroke: k.victim_side === "T" ? "#F37321" : "#E5484D", "stroke-width": 1.8, "stroke-linecap": "round" }, g);
   return { k, g };
 });
-function at(pts, t) {
-  if (!pts.length || t < pts[0][0]) return null;
-  let i = 0; while (i + 1 < pts.length && pts[i + 1][0] <= t) i++;
-  const a = pts[i], b = pts[i + 1];
-  if (!b) return t - a[0] <= 2.5 ? [a[1], a[2], i] : null;   // son kayıttan sonra: öldü
-  const f = (t - a[0]) / (b[0] - a[0]);
-  return [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, i];
+// t anındaki konum: iki kare arasında doğrusal ara değer (kareler 0,2 sn'de bir, yol üstünde)
+function at(p, t) {
+  const f = p.frames;
+  if (!f || !f.length) return null;
+  if (p.dead && t > p.end) return null;                       // öldü
+  const x = Math.min(t, p.end) / DT, i = Math.min(Math.floor(x), f.length - 1), j = Math.min(i + 1, f.length - 1), k = x - Math.floor(x);
+  return [f[i][0] + (f[j][0] - f[i][0]) * k, f[i][1] + (f[j][1] - f[i][1]) * k, i];
 }
 let t = 0, playing = false, last = null;
 function render() {
   for (const l of layers) {
-    const cur = at(l.p.pts, t);
-    const upto = l.p.pts.filter((q) => q[0] <= t).map((q) => q[1] + "," + q[2]);
-    if (cur) upto.push(cur[0] + "," + cur[1]);
+    const cur = at(l.p, t);
+    const n = cur ? cur[2] + 1 : Math.min(l.p.frames ? l.p.frames.length : 0, Math.floor(Math.min(t, l.p.end || 0) / DT) + 1);
+    const upto = (l.p.frames || []).slice(0, n).map((q) => q[0] + "," + q[1]);
+    if (cur) upto.push(cur[0].toFixed(1) + "," + cur[1].toFixed(1));
     l.trail.setAttribute("points", upto.join(" "));
     const vis = cur ? 1 : 0;
     l.dot.setAttribute("opacity", vis);
     if (cur) { l.dot.setAttribute("cx", cur[0]); l.dot.setAttribute("cy", cur[1]); }
-    if (l.name) { l.name.setAttribute("opacity", vis); if (cur) { l.name.setAttribute("x", cur[0] + 7); l.name.setAttribute("y", cur[1] - 6); } }
+    if (l.name) { l.name.setAttribute("opacity", vis); if (cur) { l.name.setAttribute("x", cur[0] + 5); l.name.setAttribute("y", cur[1] - 4); } }
   }
   kills.forEach(({ k, g }) => g.setAttribute("opacity", t >= k.t ? 1 : 0));
   scrub.value = t; document.getElementById("time").textContent = fmt(t) + " / " + fmt(R.duration);
 }
 function tick(ts) {
-  if (playing) { if (last != null) t += (ts - last) / 1000 * 3; if (t >= R.duration) { t = R.duration; playing = false; document.getElementById("play").textContent = "▶"; } render(); }
+  if (playing) { if (last != null) t += (ts - last) / 1000 * 2; if (t >= R.duration) { t = R.duration; playing = false; document.getElementById("play").textContent = "▶"; } render(); }
   last = ts; requestAnimationFrame(tick);
 }
 document.getElementById("play").onclick = (e) => { if (t >= R.duration) t = 0; playing = !playing; last = null; e.currentTarget.textContent = playing ? "❚❚" : "▶"; };
