@@ -575,7 +575,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         """
         from squadmind.analysis import duels as du
         from squadmind.analysis import rating as rt
-        from squadmind.analysis.geometry import can_see
+        from squadmind.analysis.geometry import can_see_xy
 
         user = require_user(request)
         body = await request.json()
@@ -596,7 +596,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         if pa is None or pb is None:
             return {"visible": None, "reason": "Nokta oyuncuların gezdiği alanın dışında."}
         dist = ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
-        visible = can_see(map_name, (ax, ay, za), (bx, by, zb))
+        # Yükseklik navmesh katlarından (hücre z'si yalnızca yedek): yanlış "görmüyor" azalır
+        visible = can_see_xy(map_name, (ax, ay), (bx, by), za, zb)
         line = du.line_of(map_name, pa, pb)
         out = {"visible": visible, "place_a": pa, "place_b": pb, "dist": round(dist),
                "band": du.band_of(dist), "line": tbld.line_names(map_name).get(line or "", None)}
