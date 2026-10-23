@@ -434,3 +434,97 @@ def test_arena_requires_permission_and_position(web):
     # Konum eksikse 400
     r = client.post("/api/arena/duel", json={"a": {"steam_id": SELF}, "b": {"elo": 1500}})
     assert r.status_code == 400
+
+
+# --- Arena taktik modu: tek örnek akış (profesör kararı: olasılık / skor / kazanan yok) -------
+
+_A_LONG = [[350, -61], [815, 758], [1560, 1380], [1097, 2760]]
+
+
+def _flow_body(**over):
+    holds = [[1097, 2760], [1560, 1380], [-515, 2050], [-1102, 2200], [-1750, 2400]]
+    body = {"seed": 7,
+            "t": [{"level": 9, "weapon": "rifle", "points": _A_LONG, "delay": 0.35 * i, "plant": i == 4}
+                  for i in range(5)],
+            "ct": [{"level": 9, "weapon": "rifle", "point": h} for h in holds]}
+    body.update(over)
+    return body
+
+
+def _keys(obj):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield k
+            yield from _keys(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _keys(v)
+
+
+def _needs_dust2():
+    from awpy import data
+    if not data.mesh_path("de_dust2").exists():
+        pytest.skip("Dust2 geometrisi yerelde yok")
+
+
+def test_taktik_flow_requires_login_and_permission(web):
+    client, _ = web
+    assert client.post("/api/arena/taktik/akis", json=_flow_body()).status_code == 401
+    _join(client)
+    # İzinsiz oyuncu verisi (T ya da CT tarafında) reddedilir; hiçbir hesap yapılmadan
+    bad_t = _flow_body()
+    bad_t["t"][0] = {"steam_id": "76561100000000099", "weapon": "rifle", "points": []}
+    assert client.post("/api/arena/taktik/akis", json=bad_t).status_code == 403
+    bad_ct = _flow_body()
+    bad_ct["ct"][2] = {"steam_id": "76561100000000099", "weapon": "rifle", "point": [0, 0]}
+    assert client.post("/api/arena/taktik/akis", json=bad_ct).status_code == 403
+    # Biçim hataları
+    assert client.post("/api/arena/taktik/akis", json=_flow_body(t=[])).status_code == 400
+    assert client.post("/api/arena/taktik/akis", json=_flow_body(seed=-1)).status_code == 400
+    wrong_weapon = _flow_body()
+    wrong_weapon["ct"][0]["weapon"] = "bazuka"
+    assert client.post("/api/arena/taktik/akis", json=wrong_weapon).status_code == 400
+    far = _flow_body()
+    far["t"][0]["points"] = [[1e9, 0]]
+    assert client.post("/api/arena/taktik/akis", json=far).status_code == 400
+
+
+def test_taktik_flow_has_no_probability_fields_and_repeats_with_seed(web):
+    _needs_dust2()
+    client, _ = web
+    _join(client)
+    r1 = client.post("/api/arena/taktik/akis", json=_flow_body())
+    assert r1.status_code == 200, r1.text
+    flow = r1.json()
+    ks = set(_keys(flow))
+    assert not ks & {"p", "win", "prob", "probability", "lo", "hi", "p_t", "score", "winner"}
+    assert not any("prob" in k.lower() or "win" in k.lower() for k in ks)
+    assert flow["label"] == "Örnek akış: tahmin değil, betimleme. Sınamayı geçmedi."
+    assert len(flow["units"]) == 10 and flow["events"] is not None
+    # Aynı tohum aynı akış; başka tohumlardan en az biri farklı
+    assert client.post("/api/arena/taktik/akis", json=_flow_body()).json() == flow
+    others = [client.post("/api/arena/taktik/akis", json=_flow_body(seed=s)).json() for s in range(8, 20)]
+    assert any(o != flow for o in others)
+
+
+def test_taktik_route_preview_snaps_and_validates(web):
+    _needs_dust2()
+    client, _ = web
+    assert client.post("/api/arena/taktik/rota", json={"slot": 0, "points": _A_LONG}).status_code == 401
+    _join(client)
+    r = client.post("/api/arena/taktik/rota", json={"slot": 0, "points": _A_LONG})
+    assert r.status_code == 200 and len(r.json()["points"]) == 4 and len(r.json()["path"]) >= 4
+    assert client.post("/api/arena/taktik/rota", json={"slot": 9, "points": _A_LONG}).status_code == 400
+    assert client.post("/api/arena/taktik/rota", json={"slot": 0, "points": [[0, 0]] * 40}).status_code == 400
+    ct = client.post("/api/arena/taktik/rota", json={"side": "ct", "points": [[1097, 2760]]})
+    assert ct.status_code == 200 and len(ct.json()["points"]) == 1
+
+
+def test_taktik_page_renders_with_fixed_label(web):
+    _needs_dust2()
+    client, _ = web
+    assert client.get("/arena/taktik", follow_redirects=False).status_code == 303
+    _join(client)
+    page = client.get("/arena/taktik")
+    assert page.status_code == 200
+    assert "Örnek akış: tahmin değil, betimleme. Sınamayı geçmedi." in page.text

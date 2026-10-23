@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}Arena · Taktik · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { margin-bottom: 14px; }
+  .seg { display: inline-flex; border: 1px solid var(--bg-3); border-radius: 999px; padding: 3px; gap: 2px; background: var(--bg-1); flex-wrap: wrap; }
+  .seg button { height: 32px; border-radius: 999px; background: transparent; color: var(--text-2); padding: 0 14px; transition: background 180ms var(--ease), color 180ms var(--ease); }
+  .seg button:hover { background: var(--bg-3); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg-0); }
+  .modes a.mode { display: inline-flex; align-items: center; height: 32px; padding: 0 16px; border-radius: 999px; color: var(--text-2); text-decoration: none; font-size: 13px; font-weight: 600; transition: background 180ms var(--ease), color 180ms var(--ease); }
+  .modes a.mode:hover { background: var(--bg-3); }
+  .modes a.mode[aria-current="page"] { background: var(--accent); color: var(--bg-0); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .boardwrap { background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 20px; padding: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.35); min-width: 0; }
+  @media (max-width: 560px) { .boardwrap { padding: 8px; border-radius: 16px; } h1 { font-size: 24px; } }
+  .board { position: relative; width: 100%; max-width: 760px; margin: 0 auto; touch-action: none; }
+  .board svg { display: block; width: 100%; height: auto; }
+  .board svg.ov { position: absolute; inset: 0; }
+  .flowlabel { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px auto 0; max-width: 760px; padding: 8px 12px; border: 1px dashed var(--bg-3); border-radius: 10px; color: var(--text-2); font-size: 12.5px; font-weight: 600; text-align: center; }
+  .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-2); margin-top: 10px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .tok { filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); transition: opacity 300ms var(--ease); }
+  .tok.ct { cursor: grab; } .tok.ct:active { cursor: grabbing; }
+  .tok.playing { cursor: default; }
+  .tok.dead { opacity: .22; }
+  .tok.dead circle.body { fill: #6B7684; }
+  .route { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  @media (prefers-reduced-motion: reduce) { .tok { transition: none; } }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; max-width: 760px; margin: 12px auto 0; }
+  .bar input[type=range] { flex: 1 1 160px; min-width: 120px; accent-color: var(--accent); }
+  .bar .tm { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text-2); min-width: 4.6em; text-align: right; }
+  .panel { background: var(--bg-2); border: 1px solid var(--bg-3); border-radius: 20px; padding: 16px; min-width: 0; }
+  .panel h2 { margin: 14px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
+  .panel h2:first-child { margin-top: 0; }
+  .unit { display: grid; grid-template-columns: 26px minmax(0, 1fr) 84px; gap: 6px; align-items: center; padding: 6px; border-radius: 12px; border: 1px solid transparent; margin-bottom: 4px; }
+  .unit.sel { border-color: var(--accent); background: var(--bg-1); }
+  .unit select, .unit input { height: 32px; font-size: 12px; padding: 0 8px; width: 100%; min-width: 0; }
+  .unit .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--bg-0); border: 0; padding: 0; cursor: pointer; }
+  .unit .sub2 { grid-column: 2 / 4; display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+  .unit .sub2 label { display: inline-flex; gap: 4px; align-items: center; }
+  .unit .sub2 input[type=number] { width: 58px; }
+  .unit .sub2 input[type=radio] { width: auto; height: auto; accent-color: var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+  .row label { font-size: 11px; color: var(--muted); }
+  .hint { font-size: 11.5px; color: var(--muted); margin: 8px 0 0; }
+  .msg { font-size: 12px; color: var(--enemy); min-height: 1.2em; margin: 6px 0 0; }
+  .events { list-style: none; margin: 8px 0 0; padding: 0; max-height: 300px; overflow: auto; font-size: 12.5px; }
+  .events li { display: grid; grid-template-columns: 4.4em minmax(0, 1fr); gap: 8px; padding: 5px 6px; border-radius: 8px; color: var(--muted); cursor: pointer; transition: color 200ms var(--ease), background 200ms var(--ease); }
+  .events li:hover { background: var(--bg-1); }
+  .events li.past { color: var(--line); }
+  .events li .t { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .events li.done { font-weight: 700; }
+  @media (prefers-reduced-motion: reduce) { .events li { transition: none; } }
+  .evwrap { max-width: 760px; margin: 14px auto 0; padding: 12px 8px 0; border-top: 1px solid var(--bg-3); }
+  .evwrap h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
+  .act { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .act button { flex: 1 1 140px; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div class="seg modes" style="margin-bottom:10px" aria-label="Arena modu"><a class="mode" href="/arena">Düello</a><a class="mode" href="/arena/taktik" aria-current="page">Taktik</a></div>
+  <div class="eyebrow">Arena · Dust2 · Taktik</div>
+  <h1>Taktik kur, bir örnek akışı izle</h1>
+  <p class="sub">5 T için rota çiz, 5 CT'yi yerleştir; sistem tek bir örnek akış oynatır: kim kimi ne zaman gördü, kim kimi vurdu. Bu bir tahmin değildir.</p>
+</div>
+
+<div class="layout">
+  <section class="boardwrap" aria-label="Taktik haritası">
+    <div class="board" id="board">
+      {{ board | safe }}
+      <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-label="Rotalar ve oyuncular"></svg>
+    </div>
+    <div class="bar" id="bar">
+      <button type="button" id="playBtn" aria-label="Oynat / durdur">Oynat</button>
+      <input type="range" id="scrub" min="0" max="0" step="0.05" value="0" aria-label="Zaman çubuğu" disabled>
+      <span class="tm" id="tm">0:00,0</span>
+      <div class="seg" id="speedSeg" aria-label="Hız"><button type="button" data-s="1" aria-pressed="true">1×</button><button type="button" data-s="2" aria-pressed="false">2×</button><button type="button" data-s="4" aria-pressed="false">4×</button></div>
+    </div>
+    <div class="flowlabel" id="flowlabel" role="note">{{ label }}</div>
+    <div class="legend"><span><i style="background:#FF8A3D"></i>T</span><span><i style="background:#4FD1C5"></i>CT</span><span><i style="background:#6B7684"></i>Elenen</span></div>
+    <div class="evwrap">
+      <h2>Olay sırası</h2>
+      <ul class="events" id="events"><li><span class="t"></span><span>Henüz akış yok.</span></li></ul>
+      <p class="hint">Akış bir tohumla üretilir; "Başka bir örnek" farklı bir akış verir. Ekranda sayı, olasılık ya da kazanan yok: model sınamayı geçmedi, bu yüzden hangi taktiğin daha iyi olduğunu söylemez. Modelde utility, flash, trade ve plant sonrası dövüş yok; jetonlar rotada sabit hızla yürür, görüşü olan T-CT çifti düello eder.</p>
+    </div>
+  </section>
+
+  <aside class="panel" aria-live="polite">
+    <h2>Şablon (başlangıç kolaylığı)</h2>
+    <div class="row" id="tplRow"></div>
+    <p class="hint">Şablonlar strateji önerisi değil, başlangıç kolaylığıdır: noktaları kendin düzenle.</p>
+
+    <h2>T oyuncuları</h2>
+    <div class="row"><label for="tLevel">Ortalama oyuncu seviyesi</label><select id="tLevel" style="width:auto"></select></div>
+    <div id="tList"></div>
+    <div class="row"><button type="button" class="ghost small" id="undoBtn">Son noktayı sil</button><button type="button" class="ghost small" id="clearBtn">Seçili rotayı temizle</button></div>
+    <p class="hint">Haritaya dokun: seçili T'nin rotasına nokta ekler. Noktalar yürünebilir alana yapışır, yol duvardan geçmez. Bomba, taşıyanın rotasının sonuna varıp 3,2 sn hayatta kalırsa kurulur; akış orada biter.</p>
+
+    <h2>CT oyuncuları</h2>
+    <div class="row"><label for="cLevel">Ortalama oyuncu seviyesi</label><select id="cLevel" style="width:auto"></select></div>
+    <div id="cList"></div>
+    <p class="hint">CT jetonlarını haritada sürükle: bırakıldığı yerde tutar.</p>
+
+    <div class="act">
+      <button type="button" id="runBtn">Örnek akışı oynat</button>
+      <button type="button" class="ghost" id="otherBtn" disabled>Başka bir örnek</button>
+    </div>
+    <p class="msg" id="msg" role="alert"></p>
+  </aside>
+</div>
+
+<script id="payload" type="application/json">{{ payload | tojson }}</script>
+<script>
+const P = JSON.parse(document.getElementById("payload").textContent);
+const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
+const C = { t: "#FF8A3D", ct: "#4FD1C5", ink: "#111214", white: "#F2F5F8", bg0: "#0F1319", flash: "#FFE08A" };
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const el = (tag, at, p = ov) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); p.appendChild(e); return e; };
+const toPx = (x, y) => [(x - P.proj.minx) * P.proj.s + P.proj.pad, (P.proj.maxy - y) * P.proj.s + P.proj.pad];
+const toWorld = (px, py) => [(px - P.proj.pad) / P.proj.s + P.proj.minx, P.proj.maxy - (py - P.proj.pad) / P.proj.s];
+const byId = Object.fromEntries(P.players.map((p) => [p.steam_id, p]));
+
+// Durum
+const S = {
+  t: P.spawns.map(() => ({ sid: "", weapon: "rifle", delay: 0, pts: [], path: [], plant: false })),
+  ct: P.ct_holds.map(([x, y]) => ({ sid: "", weapon: "rifle", x, y })),
+  tLevel: 9, cLevel: 9, sel: 0, seed: 0,
+};
+S.t[4].plant = true;
+let flow = null, tcur = 0, playing = false, speed = 1, lastTs = 0, mode = "edit", busy = false;
+
+// --- Katmanlar: rotalar altta, jetonlar üstte, efektler en üstte
+const gRoutes = el("g", {}), gTok = el("g", {}), gFx = el("g", { "pointer-events": "none" });
+const planted = el("g", { "pointer-events": "none", opacity: 0 }, gFx);
+el("circle", { r: 10, fill: "none", stroke: C.flash, "stroke-width": 2.5 }, planted); el("circle", { r: 3, fill: C.flash }, planted);
+
+function token(side, i) {
+  const g = el("g", { class: "tok " + side }, gTok);
+  const col = side === "t" ? C.t : C.ct;
+  el("circle", { class: "body", r: 13, fill: col, stroke: C.white, "stroke-width": 2.5 }, g);
+  const tx = el("text", { y: 4.5, "text-anchor": "middle", "font-size": 13, "font-weight": 800, fill: C.ink, "font-family": "Inter, sans-serif", "pointer-events": "none" }, g);
+  tx.textContent = String(i + 1);
+  if (side === "ct") g.addEventListener("pointerdown", (e) => { if (mode !== "edit") return; e.stopPropagation(); drag = i; ov.setPointerCapture(e.pointerId); });
+  return g;
+}
+const tokT = S.t.map((_, i) => token("t", i)), tokC = S.ct.map((_, i) => token("ct", i));
+// Jeton ölçeği: telefonda harita küçülür; jeton ekranda en az ~11 px yarıçapta kalır (ayırt edilebilsin)
+let K = 1;
+function fit() { const w = ov.getBoundingClientRect().width || P.proj.w; K = Math.max(1, (11 / 13) / (w / P.proj.w)); }
+const place = (g, x, y) => { const [px, py] = toPx(x, y); g.setAttribute("transform", `translate(${px.toFixed(1)},${py.toFixed(1)}) scale(${K.toFixed(2)})`); };
+function refit() { fit(); if (mode === "edit") drawEdit(); else if (flow) setTime(tcur, false); }
+window.addEventListener("resize", refit); fit();
+
+// --- Kontroller
+const lvOpts = (sel) => { for (const l of P.levels) sel.add(new Option(`Seviye ${l.level}`, l.level)); sel.value = 9; };
+lvOpts(document.getElementById("tLevel")); lvOpts(document.getElementById("cLevel"));
+document.getElementById("tLevel").onchange = (e) => { S.tLevel = +e.target.value; invalidate(); };
+document.getElementById("cLevel").onchange = (e) => { S.cLevel = +e.target.value; invalidate(); };
+const WEAPONS = [["rifle", "Tüfek"], ["pistol", "Tabanca"], ["awp", "AWP"]];
+function unitRow(side, i) {
+  const u = S[side][i], row = document.createElement("div");
+  row.className = "unit" + (side === "t" && S.sel === i ? " sel" : "");
+  const num = document.createElement("button"); num.type = "button"; num.className = "num"; num.textContent = i + 1;
+  num.style.background = side === "t" ? C.t : C.ct; num.setAttribute("aria-label", `${side === "t" ? "T" : "CT"} ${i + 1}`);
+  if (side === "t") num.onclick = () => { S.sel = i; renderRows(); drawEdit(); };
+  const ps = document.createElement("select"); ps.setAttribute("aria-label", "Oyuncu");
+  ps.add(new Option("Ortalama oyuncu", ""));
+  for (const p of P.players) ps.add(new Option(p.nickname, p.steam_id));
+  ps.value = u.sid; ps.onchange = () => { u.sid = ps.value; invalidate(); };
+  const ws = document.createElement("select"); ws.setAttribute("aria-label", "Silah");
+  for (const [v, n] of WEAPONS) ws.add(new Option(n, v));
+  ws.value = u.weapon; ws.onchange = () => { u.weapon = ws.value; invalidate(); };
+  row.append(num, ps, ws);
+  if (side === "t") {
+    const sub = document.createElement("div"); sub.className = "sub2";
+    const d = document.createElement("label"); d.append("Başlama gecikmesi (sn) ");
+    const di = document.createElement("input"); di.type = "number"; di.min = 0; di.max = 10; di.step = 0.05; di.value = u.delay; di.inputMode = "decimal";
+    di.onchange = () => { u.delay = Math.min(10, Math.max(0, +di.value || 0)); di.value = u.delay; invalidate(); };
+    d.append(di);
+    const b = document.createElement("label"), r = document.createElement("input"); r.type = "radio"; r.name = "plant"; r.checked = u.plant;
+    r.onchange = () => { S.t.forEach((x, k) => x.plant = k === i); invalidate(); };
+    b.append(r, "Bomba");
+    const n = document.createElement("span"); n.textContent = u.pts.length ? `${u.pts.length} nokta` : "rota yok (spawn'da bekler)";
+    sub.append(d, b, n); row.append(sub);
+  }
+  return row;
+}
+function renderRows() {
+  const tl = document.getElementById("tList"), cl = document.getElementById("cList");
+  tl.replaceChildren(...S.t.map((_, i) => unitRow("t", i)));
+  cl.replaceChildren(...S.ct.map((_, i) => unitRow("ct", i)));
+}
+const tplRow = document.getElementById("tplRow");
+for (const t of P.templates) { const b = document.createElement("button"); b.type = "button"; b.className = "ghost small"; b.textContent = t.name; b.onclick = () => applyTemplate(t); tplRow.appendChild(b); }
+const clr = document.createElement("button"); clr.type = "button"; clr.className = "ghost small"; clr.textContent = "Tüm rotaları temizle";
+clr.onclick = () => { S.t.forEach((u) => { u.pts = []; u.path = []; }); invalidate(); renderRows(); };
+tplRow.appendChild(clr);
+
+// --- Sunucu: rota yapıştırma
+async function post(url, body) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  let data = {}; try { data = await res.json(); } catch {}
+  if (!res.ok) throw new Error(data.detail || "İstek başarısız.");
+  return data;
+}
+const say = (t) => { document.getElementById("msg").textContent = t || ""; };
+async function resolveRoute(i) {
+  const u = S.t[i];
+  if (!u.pts.length) { u.path = []; return; }
+  const r = await post("/api/arena/taktik/rota", { slot: i, points: u.pts });
+  u.pts = r.points; u.path = r.path;
+}
+async function applyTemplate(t) {
+  say(""); await stopToEdit();
+  try {
+    for (let i = 0; i < 5; i++) { S.t[i].pts = t.routes[i].points.map((p) => [...p]); S.t[i].delay = t.routes[i].delay; S.t[i].plant = i === t.planter; await resolveRoute(i); }
+  } catch (e) { say(e.message); }
+  S.sel = 0; renderRows(); drawEdit();
+}
+
+// --- Düzenleme görünümü
+let drag = null, downAt = null;
+function drawEdit() {
+  gRoutes.replaceChildren(); planted.setAttribute("opacity", 0);
+  S.t.forEach((u, i) => {
+    const sel = i === S.sel && mode === "edit", dim = mode !== "edit";
+    const [sx, sy] = P.spawns[i];
+    const line = [[sx, sy], ...(u.path.length ? u.path.slice(1) : [])].map(([x, y]) => toPx(x, y));
+    if (u.path.length > 1) el("polyline", { class: "route", points: line.map((p) => p.join(",")).join(" "), stroke: C.t, "stroke-width": sel ? 3 : 1.8, "stroke-dasharray": sel ? "none" : "7 5", opacity: dim ? .35 : (sel ? .95 : .55) }, gRoutes);
+    if (!dim) u.pts.forEach(([x, y], k) => { const [px, py] = toPx(x, y); el("circle", { cx: px, cy: py, r: sel ? 4 : 2.5, fill: C.t, stroke: C.bg0, "stroke-width": 1.2, opacity: sel ? 1 : .6 }, gRoutes); });
+  });
+  tokT.forEach((g, i) => { g.classList.remove("dead", "playing"); place(g, ...P.spawns[i]); });
+  tokC.forEach((g, i) => { g.classList.remove("dead", "playing"); place(g, S.ct[i].x, S.ct[i].y); });
+}
+function invalidate() { // düzenleme akışı geçersiz kılar
+  if (mode === "edit") { drawEdit(); return; }
+  stopToEdit(); renderRows();
+}
+async function stopToEdit() {
+  playing = false; mode = "edit"; flow = null; tcur = 0;
+  document.getElementById("scrub").disabled = true; document.getElementById("scrub").value = 0;
+  document.getElementById("playBtn").textContent = "Oynat"; document.getElementById("otherBtn").disabled = true;
+  document.getElementById("tm").textContent = fmt(0);
+  document.getElementById("events").replaceChildren(li("", "Henüz akış yok."));
+  drawEdit();
+}
+
+// Haritaya dokunma: T rotasına nokta, CT sürükleme
+function svgPoint(e) { const pt = ov.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; return pt.matrixTransform(ov.getScreenCTM().inverse()); }
+ov.addEventListener("pointerdown", (e) => { if (drag === null) downAt = { x: e.clientX, y: e.clientY }; });
+ov.addEventListener("pointermove", (e) => { if (drag === null) return; const p = svgPoint(e); [S.ct[drag].x, S.ct[drag].y] = toWorld(p.x, p.y); place(tokC[drag], S.ct[drag].x, S.ct[drag].y); });
+ov.addEventListener("pointerup", async (e) => {
+  if (drag !== null) {
+    const i = drag; drag = null;
+    try { const r = await post("/api/arena/taktik/rota", { side: "ct", points: [[S.ct[i].x, S.ct[i].y]] }); [S.ct[i].x, S.ct[i].y] = r.points[0]; say(""); } catch (err) { say(err.message); }
+    place(tokC[i], S.ct[i].x, S.ct[i].y); return;
+  }
+  if (!downAt || mode !== "edit") return;
+  const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y); downAt = null;
+  if (moved > 8) return;
+  const p = svgPoint(e), w = toWorld(p.x, p.y), u = S.t[S.sel];
+  u.pts.push(w); say("");
+  try { await resolveRoute(S.sel); } catch (err) { u.pts.pop(); say(err.message); try { await resolveRoute(S.sel); } catch {} }
+  renderRows(); drawEdit();
+});
+ov.addEventListener("pointercancel", () => { drag = null; downAt = null; });
+document.getElementById("undoBtn").onclick = async () => { const u = S.t[S.sel]; u.pts.pop(); await stopToEdit(); try { await resolveRoute(S.sel); } catch (e) { say(e.message); } renderRows(); drawEdit(); };
+document.getElementById("clearBtn").onclick = async () => { const u = S.t[S.sel]; u.pts = []; u.path = []; await stopToEdit(); renderRows(); drawEdit(); };
+
+// --- Örnek akış
+const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).replace(".", ",").padStart(4, "0")}`;
+function li(t, text) { const e = document.createElement("li"); const a = document.createElement("span"); a.className = "t"; a.textContent = t; const b = document.createElement("span"); b.textContent = text; e.append(a, b); return e; }
+const who = (i) => { const u = flow.units[i]; return `${u.side}${(i % 5) + 1} ${u.name}`; };
+function eventText(e) {
+  const at = e.where ? ` · ${e.where} yakını` : "";
+  if (e.kind === "los") return `${who(e.a)} ile ${who(e.b)} birbirini gördü${at}`;
+  if (e.kind === "duel") return `Düello · ${who(e.a)} vurdu, ${who(e.b)} düştü${at}`;
+  return `${who(e.a)} bombayı kurdu${at} (plant sonrası oynatılmaz)`;
+}
+function buildEvents() {
+  const ul = document.getElementById("events"); ul.replaceChildren();
+  if (!flow.events.length) ul.append(li(fmt(0), "Bu kurulumda iki taraf birbirini görmedi; düello olmadı."));
+  flow.events.forEach((e) => { const n = li(fmt(e.t), eventText(e)); n.dataset.t = e.t; ul.append(n); });
+  const end = li(fmt(flow.end_t), "Akış bitti."); end.classList.add("done"); end.dataset.t = flow.end_t; ul.append(end);
+  [...ul.children].forEach((n) => n.onclick = () => { pause(); setTime(+n.dataset.t, false); });
+}
+function slot(u, side, i) {
+  const base = { steam_id: u.sid || undefined, level: u.sid ? undefined : (side === "t" ? S.tLevel : S.cLevel), weapon: u.weapon };
+  return side === "t" ? { ...base, points: u.pts, delay: u.delay, plant: u.plant } : { ...base, point: [u.x, u.y] };
+}
+async function run(newSeed) {
+  if (busy) return; busy = true; say("");
+  const runBtn = document.getElementById("runBtn"); runBtn.disabled = true;
+  if (newSeed) S.seed = Math.floor(Math.random() * 2147483647);
+  try {
+    flow = await post("/api/arena/taktik/akis", { seed: S.seed, t: S.t.map((u, i) => slot(u, "t", i)), ct: S.ct.map((u, i) => slot(u, "ct", i)) });
+  } catch (e) { say(e.message); busy = false; runBtn.disabled = false; return; }
+  busy = false; runBtn.disabled = false;
+  mode = "play"; buildEvents(); drawEdit();
+  tokT.forEach((g) => g.classList.add("playing")); tokC.forEach((g) => g.classList.add("playing"));
+  const sc = document.getElementById("scrub"); sc.max = flow.end_t; sc.disabled = false; document.getElementById("otherBtn").disabled = false;
+  setTime(0, false); renderRows();
+  if (!REDUCED) play(); else pause();
+}
+document.getElementById("runBtn").onclick = () => run(S.seed === 0 && !flow ? true : false) ;
+document.getElementById("otherBtn").onclick = () => run(true);
+
+function posAt(u, t) {
+  const f = Math.min(t / flow.dt, flow.steps - 1), i0 = Math.floor(f), i1 = Math.min(i0 + 1, flow.steps - 1), a = f - i0;
+  return [u.xy[i0][0] + (u.xy[i1][0] - u.xy[i0][0]) * a, u.xy[i0][1] + (u.xy[i1][1] - u.xy[i0][1]) * a];
+}
+function setTime(t, fx) {
+  const prev = tcur; tcur = Math.max(0, Math.min(flow.end_t, t));
+  flow.units.forEach((u, i) => {
+    const g = i < 5 ? tokT[i] : tokC[i - 5];
+    place(g, ...posAt(u, tcur));
+    g.classList.toggle("dead", u.died !== null && tcur >= u.died);
+  });
+  if (fx && !REDUCED) flow.events.forEach((e) => { if (e.kind === "duel" && e.t > prev && e.t <= tcur) shot(e); });
+  const plant = flow.events.find((e) => e.kind === "plant");
+  if (plant && tcur >= plant.t) { place(planted, ...posAt(flow.units[plant.a], tcur)); planted.setAttribute("opacity", 1); } else planted.setAttribute("opacity", 0);
+  document.getElementById("scrub").value = tcur; document.getElementById("tm").textContent = fmt(tcur);
+  [...document.getElementById("events").children].forEach((n) => n.classList.toggle("past", +n.dataset.t <= tcur));
+}
+// Düello efekti: vuranla vurulan arasında kısa çizgi (200-350 ms, ease-out); azaltılmış harekette kapalı
+function shot(e) {
+  const a = flow.units[e.a], b = flow.units[e.b], [ax, ay] = toPx(...posAt(a, e.t)), [bx, by] = toPx(...posAt(b, e.t));
+  const ln = el("line", { x1: ax, y1: ay, x2: bx, y2: by, stroke: C.flash, "stroke-width": 3, "stroke-linecap": "round" }, gFx);
+  const ring = el("circle", { cx: bx, cy: by, r: 13 * K, fill: "none", stroke: C.flash, "stroke-width": 2 }, gFx);
+  ln.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 350, easing: "ease-out" }).onfinish = () => ln.remove();
+  ring.animate([{ opacity: .9, transform: "scale(1)" }, { opacity: 0, transform: "scale(1.9)" }], { duration: 400, easing: "ease-out" }).onfinish = () => ring.remove();
+  ring.style.transformBox = "fill-box"; ring.style.transformOrigin = "center";
+}
+function frame(ts) {
+  if (!playing) return;
+  const dt = Math.min(0.1, (ts - lastTs) / 1000) * speed; lastTs = ts;
+  setTime(tcur + dt, true);
+  if (tcur >= flow.end_t) { pause(); document.getElementById("playBtn").textContent = "Yeniden oynat"; return; }
+  requestAnimationFrame(frame);
+}
+function play() { if (!flow) return; if (tcur >= flow.end_t) setTime(0, false); playing = true; document.getElementById("playBtn").textContent = "Durdur"; lastTs = performance.now(); requestAnimationFrame(frame); }
+function pause() { playing = false; document.getElementById("playBtn").textContent = flow && tcur >= flow.end_t ? "Yeniden oynat" : "Oynat"; }
+document.getElementById("playBtn").onclick = () => { if (!flow) return run(true); playing ? pause() : play(); };
+document.getElementById("scrub").oninput = (e) => { pause(); setTime(+e.target.value, false); };
+document.querySelectorAll("#speedSeg button").forEach((b) => b.onclick = () => { speed = +b.dataset.s; document.querySelectorAll("#speedSeg button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); });
+
+renderRows(); drawEdit();
+// Bağlantı parçası (ekran görüntüsü / paylaşım): #sablon=a_long&ornek=3&an=14
+(async () => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const t = P.templates.find((x) => x.id === h.get("sablon")); if (t) await applyTemplate(t);
+  if (h.get("ornek") !== null) { S.seed = Math.max(1, +h.get("ornek") || 1); await run(false); pause(); if (h.get("an") !== null && flow) setTime(+h.get("an"), false); }
+})();
+</script>
+{% endblock %}

@@ -1350,6 +1350,156 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             res["height"] = {"up": "a" if za > zb else "b", "dz": round(abs(za - zb))}
         return res
 
+    # --- arena taktik modu: TEK örnek akış (analysis/replay.py) --------------------------
+    # Profesör kararı 24.10: simülasyon sınamayı geçmedi → yanıtta olasılık / skor / kazanan
+    # alanı YOK; yalnız zamanlı konumlar ve olay sırası. Etiket sabit (replay.FLOW_LABEL).
+
+    _taktik_cache: dict[str, Any] = {}
+
+    def taktik_board() -> dict:
+        """Tahta SVG'si ve izdüşüm (DB'siz; harita geometrisinden), süreç boyunca önbellekli."""
+        if "board" not in _taktik_cache:
+            from squadmind.analysis.maps import BOARD_PLACES
+            from squadmind.viz.board import ARENA, Board, _Projection, map_polygons, render_board
+            width, pad = 640, 16
+            proj = _Projection(map_polygons("de_dust2"), width, pad)
+            _taktik_cache["board"] = {
+                "board": render_board(Board("de_dust2", places=BOARD_PLACES.get("de_dust2", {}),
+                                            target_places=[]), width=width, pad=pad, theme=ARENA),
+                "proj": {"minx": proj.minx, "maxy": proj.maxy, "s": proj.s, "pad": proj.pad,
+                         "w": width, "h": proj.height}}
+        return _taktik_cache["board"]
+
+    @app.get("/arena/taktik", response_class=HTMLResponse)
+    def arena_taktik_page(request: Request):
+        from squadmind.analysis import replay as rp
+        user = current_user(request)
+        if user is None:
+            return RedirectResponse("/", status_code=303)
+        try:
+            tbd = taktik_board()
+            payload = {"proj": tbd["proj"], "players": builder_players(user, "de_dust2"),
+                       "levels": level_options(), "spawns": rp.spawns(), "ct_holds": rp.default_ct_holds(),
+                       "templates": rp.templates(), "label": rp.FLOW_LABEL, "me": user.steam_id}
+        except Exception:  # noqa: BLE001
+            log.exception("taktik modu kurulamadı")
+            return render_report(request, "Arena · Taktik", "_Bu harita için harita geometrisi yok._")
+        return page(request, "arena_taktik.html", user=user, board=tbd["board"], payload=payload,
+                    label=rp.FLOW_LABEL,
+                    w=tbd["proj"]["w"], h=tbd["proj"]["h"])
+
+    def _points(raw: Any, limit: int) -> list[tuple[float, float]]:
+        """Gövdedeki [[x, y], ...] listesini doğrula (sayı, sınırlı, haritanın içinde)."""
+        from squadmind.analysis import replay as rp
+        if not isinstance(raw, list) or len(raw) > limit:
+            raise HTTPException(400, "Nokta listesi geçersiz.")
+        out = []
+        for p in raw:
+            try:
+                x, y = float(p[0]), float(p[1])
+            except (TypeError, ValueError, IndexError, KeyError):
+                raise HTTPException(400, "Nokta geçersiz.") from None
+            if not (abs(x) <= rp.MAX_COORD and abs(y) <= rp.MAX_COORD):   # NaN de burada düşer
+                raise HTTPException(400, "Nokta haritanın dışında.")
+            out.append((x, y))
+        return out
+
+    @app.post("/api/arena/taktik/rota")
+    async def arena_taktik_route(request: Request):
+        """Rota önizlemesi: tıklanan noktalar yürünebilir alana yapışır, yol navmesh'te çizilir.
+
+        Gövde: {slot: 0-4, points: [[x, y], ...]} (T) ya da {side: "ct", points: [[x, y]]} (tutma noktası).
+        """
+        from squadmind.analysis import replay as rp
+        from starlette.concurrency import run_in_threadpool
+        require_user(request)
+        body = await request.json()
+        try:
+            if body.get("side") == "ct":
+                pts = _points(body.get("points"), 1)
+                if not pts:
+                    raise HTTPException(400, "Nokta yok.")
+                x, y, _ = rp.snap("de_dust2", *pts[0])
+                return {"points": [[round(x, 1), round(y, 1)]]}
+            slot = body.get("slot")
+            if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot < 5:
+                raise HTTPException(400, "Oyuncu sırası geçersiz.")
+            pts = _points(body.get("points"), rp.MAX_WAYPOINTS)
+            snapped, path = await run_in_threadpool(rp.resolve_route, "de_dust2", rp.spawns()[slot], pts)
+        except rp.RouteError as e:
+            raise HTTPException(400, str(e)) from None
+        return {"points": [[round(x, 1), round(y, 1)] for x, y in snapped],
+                "path": [[round(x, 1), round(y, 1)] for x, y in path]}
+
+    @app.post("/api/arena/taktik/akis")
+    async def arena_taktik_flow(request: Request):
+        """Tek örnek akış. Gövde: {seed, t: [5 × {steam_id | level, weapon, points, delay, plant}],
+        ct: [5 × {steam_id | level, weapon, point}]}. Yanıtta olasılık / skor / kazanan YOK."""
+        from squadmind.analysis import replay as rp
+        from starlette.concurrency import run_in_threadpool
+
+        user = require_user(request)
+        body = await request.json()
+        t_raw, ct_raw = body.get("t"), body.get("ct")
+        if not (isinstance(t_raw, list) and isinstance(ct_raw, list) and len(t_raw) == 5 and len(ct_raw) == 5
+                and all(isinstance(u, dict) for u in t_raw + ct_raw)):
+            raise HTTPException(400, "Her takımda 5 oyuncu olmalı.")
+        seed = body.get("seed", 0)
+        if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed < 2 ** 31:
+            raise HTTPException(400, "Tohum geçersiz.")
+        # İzin: kullanılan her oyuncu izinli listede olmalı (veri hiçbir şey hesaplanmadan önce)
+        players = builder_players(user, "de_dust2")
+        by_sid = {p["steam_id"]: p for p in players}
+        if any(u.get("steam_id") and u["steam_id"] not in by_sid for u in t_raw + ct_raw):
+            raise HTTPException(403, "Bu oyuncunun verisini kullanma iznin yok.")
+        levels = {lv["level"]: lv["elo"] for lv in level_options()}
+        if any(u.get("weapon", "rifle") not in rp.CLASSES for u in t_raw + ct_raw):
+            raise HTTPException(400, "Silah geçersiz.")
+        if any(u.get("steam_id") for u in t_raw + ct_raw):
+            builder_ratings("de_dust2", players)        # ELO canlı FACEIT'ten (önbellekli)
+
+        def strength(u: dict) -> tuple[str, float]:
+            sid = u.get("steam_id")
+            if sid:
+                f = _rating_cache["feats0"].get(sid)
+                if f is None:
+                    raise HTTPException(503, "Güç puanı şu an hesaplanamadı (FACEIT).")
+                return by_sid[sid]["nickname"], float(f.combined_elo)
+            lv = u.get("level", 9)
+            if lv not in levels:
+                raise HTTPException(400, "Seviye geçersiz.")
+            return f"Ort. L{lv}", float(levels[lv])
+
+        t_slots, ct_slots = [], []
+        for u in t_raw:
+            name, elo = strength(u)
+            try:
+                delay = min(10.0, max(0.0, float(u.get("delay", 0))))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Gecikme geçersiz.") from None
+            t_slots.append(rp.Slot(name, elo, u.get("weapon", "rifle"),
+                                   tuple(_points(u.get("points", []), rp.MAX_WAYPOINTS)), delay,
+                                   bool(u.get("plant"))))
+        for u in ct_raw:
+            name, elo = strength(u)
+            pt = _points(u.get("point") and [u["point"]], 1)
+            if not pt:
+                raise HTTPException(400, "CT tutma noktası eksik.")
+            ct_slots.append(rp.Slot(name, elo, u.get("weapon", "rifle"), (pt[0],)))
+        if sum(s.plant for s in t_slots) > 1:
+            raise HTTPException(400, "Bombayı en çok bir oyuncu taşır.")
+
+        def run_flow() -> dict:
+            scn, _ = rp.build_scenario(t_slots, ct_slots)
+            return rp.replay(rp.prepare_cached(scn), seed)
+
+        try:
+            flow = await run_in_threadpool(run_flow)
+        except rp.RouteError as e:
+            raise HTTPException(400, str(e)) from None
+        flow["seed"], flow["label"] = seed, rp.FLOW_LABEL
+        return flow
+
     # --- takım oluşturma ---------------------------------------------------------------
 
     def member_of(team_id: str, user: WebUser) -> tuple[dict, dict | None]:

@@ -10,6 +10,9 @@
   .seg button:hover { background: var(--bg-3); }
   .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg-0); }
   .levels button { padding: 0 6px; min-width: 32px; }
+  .modes a.mode { display: inline-flex; align-items: center; height: 32px; padding: 0 16px; border-radius: 999px; color: var(--text-2); text-decoration: none; font-size: 13px; font-weight: 600; transition: background 180ms var(--ease), color 180ms var(--ease); }
+  .modes a.mode:hover { background: var(--bg-3); }
+  .modes a.mode[aria-current="page"] { background: var(--accent); color: var(--bg-0); }
   .controls > div { min-width: 0; max-width: 100%; }
   @media (max-width: 560px) { .controls > div, .controls select { width: 100%; } .boardwrap { padding: 8px; border-radius: 16px; } h1 { font-size: 24px; } .big { font-size: 34px; } }
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
@@ -52,6 +55,7 @@
 {% endblock %}
 {% block body %}
 <div class="pagehead">
+  <div class="seg modes" style="margin-bottom:10px" role="tablist" aria-label="Arena modu"><a class="mode" href="/arena" aria-current="page">Düello</a><a class="mode" href="/arena/taktik">Taktik</a></div>
   <div class="eyebrow">Arena · Dust2</div>
   <h1>Kim kazanır?</h1>
   <p class="sub">Kendini ve rakibini haritaya yerleştir. Birbirinizi görüyorsanız, güncel FACEIT ELO'n ve istatistiklerine göre düelloyu kimin alacağı hesaplanır.</p>
