@@ -16,10 +16,12 @@ import re
 import secrets
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any
 from pathlib import Path
 from urllib.parse import quote
 
 import markdown as md
+import polars as pl
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -593,8 +595,11 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                 width, pad = 640, 16
                 proj = _Projection(map_polygons(map_name), width, pad)
                 _builder_cache.clear()
+                duel_df = du.duels(d, map_name)
                 _builder_cache[key] = {
-                    "model": du.strengths(du.duels(d, map_name)), "grid": tbld.place_grid(d),
+                    "duels": duel_df, "match_ids": d.match_maps.filter(
+                        pl.col("map") == map_name)["match_id"].to_list(),
+                    "model": du.strengths(duel_df), "grid": tbld.place_grid(d),
                     "board": render_board(Board(map_name, places=BOARD_PLACES.get(map_name, {}),
                                                 target_places=[]), width=width, pad=pad, theme=TAKTIK),
                     "proj": {"minx": proj.minx, "maxy": proj.maxy, "s": proj.s, "pad": proj.pad,
@@ -602,6 +607,58 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                 }
             return _builder_cache[key]
         return store.run(build, lock=False)
+
+    _rating_cache: dict[str, Any] = {"key": None, "ctx": None, "feats": {}}
+
+    def builder_ratings(map_name: str, players: list[dict]) -> dict[str, dict]:
+        """Doğrulanmış güç puanı (analysis/rating.py): ortalama rakibe karşı beklenen düello
+        yüzdesi, %90 aralık, birleşik ELO. Model demo sayısı değişince yeniden kurulur; oyuncu
+        özellikleri FACEIT'ten (önbellekli) gelir. FACEIT'e ulaşılamazsa boş döner (sayfa
+        puansız açılır)."""
+        from squadmind.analysis import rating as rt
+
+        bm = builder_model(map_name)
+        key = (map_name, len(bm["match_ids"]))
+        try:
+            with client_factory() as client:
+                if _rating_cache["key"] != key:
+                    roster = []
+                    for mid in bm["match_ids"]:
+                        det = client.get_match_details(mid)
+                        for team in (det.get("teams") or {}).values():
+                            for p in team.get("roster") or []:
+                                roster.append({"match_id": mid, "steam_id": p.get("game_player_id"),
+                                               "faceit_id": p["player_id"],
+                                               "level": p.get("game_skill_level"),
+                                               "started_at": det["started_at"],
+                                               "finished_at": det["finished_at"]})
+                    _rating_cache.update(key=key, ctx=rt.build_context(bm["duels"], client, roster),
+                                         feats={})
+                ctx, feats = _rating_cache["ctx"], _rating_cache["feats"]
+                for p in players:
+                    if p["steam_id"] not in feats:
+                        prof = client.get_player(p["faceit_id"])
+                        game = (prof.get("games") or {}).get("cs2") or {}
+                        hist = rt.summarize_history(client.get_player_match_stats(p["faceit_id"]))
+                        feats[p["steam_id"]] = rt.player_features(
+                            hist, ctx.pop, elo=game.get("faceit_elo"), level=game.get("skill_level"))
+        except Exception:  # noqa: BLE001 - FACEIT yoksa puansız devam
+            log.exception("güç puanı kurulamadı")
+            return {}
+        out = {}
+        for p in players:
+            f = feats.get(p["steam_id"])
+            if f is None:
+                continue
+            score, lo, hi = rt.rating_score(ctx.model, f, p["steam_id"])
+            few = (not f.elo_known) or f.n_matches < rt.MIN_MATCHES
+            out[p["steam_id"]] = {
+                "score": round(score, 1), "lo": round(lo, 1), "hi": round(hi, 1),
+                "elo": round(f.elo) if f.elo_known else None, "combined": round(f.combined_elo),
+                "sd": round(f.combined_sd), "matches": f.n_matches,
+                "conf": "az veri" if few else ("belirgin" if lo > 50 or hi < 50 else "belirsiz"),
+            }
+        return out
 
     def builder_players(user: WebUser, map_name: str) -> list[dict]:
         """Taktikte kullanılabilecek oyuncular (izin modeli): kendisi, takımlarında daveti kabul
@@ -653,6 +710,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             "map": map_name, "proj": bm["proj"], "grid": bm["grid"], "players": players, "cards": cards,
             "lineNames": tbld.line_names(map_name), "linePlaces": tbld.line_places(map_name),
             "base": {f"{ln}|{sd}": round(p, 3) for (ln, sd), p in bm["model"]["base"].items()},
+            "ratings": builder_ratings(map_name, players),
             "current": None if current is None else {**current, "updated_at": str(current["updated_at"])},
         }
         return page(request, "builder.html", user=user, board=bm["board"], payload=payload,

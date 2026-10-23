@@ -56,7 +56,7 @@
   <div>
     <div class="eyebrow">Taktik oluştur · Dust2</div>
     <h1>{{ current.name if current else "Yeni taktik" }}</h1>
-    <p class="sub">Oyuncuları haritaya yerleştir; her noktada oyuncunun o bölgedeki peek hatlarındaki gerçek düello kaydı görünür.</p>
+    <p class="sub">Oyuncuları haritaya yerleştir. Her oyuncunun doğrulanmış güç puanı (FACEIT seviyesi + istatistikleri) ve o bölgedeki geçmiş düello kaydı görünür.</p>
   </div>
 </div>
 
@@ -90,7 +90,7 @@
     <div class="panel">
       <h2>Yerleşimler</h2>
       <div id="cards"><p class="empty">Henüz oyuncu yerleştirilmedi.</p></div>
-      <div class="locked"><b>Rakip modu</b> yakında: karşılaşma tahmini, istatistik doğrulaması tamamlanınca açılacak. Şu an rakipler verimizde çoğunlukla tek maçlık; tahmin güvenilir değil.</div>
+      <div class="locked"><b>Rakip modu</b> sıradaki adım. Karşılaşma modeli sınamayı geçti: kimin favori olduğunu bilmede yazı-turadan küçük ama gerçek bir kazanç, iyi kalibre (tahmin %56 dediğinde gerçekleşen %55). Tek düello büyük ölçüde şans: tahminlerin çoğu %40-60 arasında.</div>
     </div>
     {% if saved %}
     <div class="panel" style="margin-top:14px">
@@ -145,7 +145,8 @@ function renderList() {
     if (placements.some((q2) => q2.steam_id === p.steam_id)) b.classList.add("placed");
     b.innerHTML = `<span class="lvl-dot"></span><span><span class="nm"></span><br><span class="meta"></span></span>`;
     b.querySelector(".nm").textContent = p.nickname + (p.me ? " (sen)" : "");
-    b.querySelector(".meta").textContent = `${p.demos} Dust2 demosu${p.level ? " · L" + p.level : ""}`;
+    const R = P.ratings[p.steam_id];
+    b.querySelector(".meta").textContent = `${R ? "Güç " + R.score.toFixed(0) + " · " : ""}${p.demos} Dust2 demosu${p.level ? " · L" + p.level : ""}`;
     if (!p.me && p.rank < 3) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "ÖNERİLEN"; b.appendChild(t); }
     b.addEventListener("click", () => { selected = selected === p.steam_id ? null : p.steam_id; renderList(); });
     b.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", p.steam_id); });
@@ -197,17 +198,6 @@ function strengthAt(sid, place) {
   const rows = linesOf(place).map((ln) => ({ ln, v: card.lines[`${ln}|${side}`] })).filter((r) => r.v);
   return { rows, overall: card.overall, duels: card.duels };
 }
-function bestFor(place, exclude) {
-  let best = null;
-  for (const p of P.players) {
-    if (p.steam_id === exclude) continue;
-    for (const { v } of strengthAt(p.steam_id, place).rows) {
-      if (v.conf === "az") continue;
-      if (!best || v.strength > best.v.strength) best = { p, v };
-    }
-  }
-  return best;
-}
 function renderCards() {
   const box = document.getElementById("cards");
   if (!placements.length) { box.innerHTML = `<p class="empty">Henüz oyuncu yerleştirilmedi.</p>`; return; }
@@ -216,23 +206,23 @@ function renderCards() {
     const p = byId[q.steam_id], s = strengthAt(q.steam_id, q.place);
     const d = document.createElement("div"); d.className = "pcard";
     let html = `<div class="top"><span class="nm">${i + 1}. </span><span class="pl"></span><button class="rm" type="button">Kaldır</button></div>`;
+    const R = P.ratings[q.steam_id];
+    if (R) {
+      // Doğrulanmış güç: ortalama rakibe karşı beklenen düello yüzdesi (%90 aralık)
+      html += `<div class="ln">Güç <b style="color:${color(R.score / 100)}">${R.score.toFixed(0)}</b> <span class="muted">[${R.lo.toFixed(0)}-${R.hi.toFixed(0)}] · ${R.conf} · birleşik ELO ${R.combined} ±${R.sd}${R.elo ? " (FACEIT " + R.elo + ")" : ""} · ${R.matches} maç</span>
+        <div class="sbar"><div style="width:${R.score}%;background:${color(R.score / 100)}"></div></div></div>`;
+    } else html += `<p class="ln muted">Güç puanı şu an hesaplanamadı (FACEIT verisine ulaşılamadı).</p>`;
     if (!q.place) html += `<p class="ln muted">Bu nokta oyuncuların gezdiği alanların dışında.</p>`;
     else if (!s.rows.length) html += `<p class="ln muted">Bu bölgede (${q.place}) ${side} tarafında peek hattı kaydı yok.${s.overall != null ? " Genel düello gücü " + pct(s.overall) + " (" + s.duels + " düello)." : ""}</p>`;
+    // Hat kayıtları betimleyici: geçmişte bu hatta kaç düello, kaçı kazanıldı (tahmin değil;
+    // hat etkisi istatistik sınamasını geçmedi)
+    if (s.rows.length) html += `<p class="ln muted" style="margin-bottom:0">Bu bölgede geçmiş kayıt (tahmin değil):</p>`;
     s.rows.forEach(({ ln, v }) => {
-      html += `<div class="ln">${P.lineNames[ln]} · <b style="color:${color(v.strength)}">${pct(v.strength)}</b> <span class="muted">· ${v.wins}/${v.n} düello · güven ${v.conf}</span>
-        <div class="sbar"><div style="width:${Math.round(100 * v.strength)}%;background:${color(v.strength)}"></div></div></div>`;
+      html += `<div class="ln">${P.lineNames[ln]} · <b>${v.wins}/${v.n}</b> <span class="muted">düello kazanıldı (%${Math.round(100 * v.wins / v.n)})</span></div>`;
     });
-    const best = q.place ? bestFor(q.place, q.steam_id) : null;
-    const mine = s.rows.filter((r) => r.v.conf !== "az").reduce((m, r) => Math.max(m, r.v.strength), 0);
-    if (best && best.v.strength > mine + 0.03) {
-      // Önerilen oyuncu başka bir noktaya yerleşikse bu bir takas önerisidir
-      const at = placements.find((r) => r.steam_id === best.p.steam_id);
-      html += `<p class="best">Bu noktada daha güçlü: <b></b> (${pct(best.v.strength)}, ${best.v.n} düello)${at ? " · şu an " + (at.place || "başka noktada") + ", takas düşünülebilir" : ""}</p>`;
-    }
     d.innerHTML = html;
     d.querySelector(".nm").textContent = `${i + 1}. ${p.nickname}`;
     d.querySelector(".pl").textContent = q.place || "bilinmeyen alan";
-    if (best && d.querySelector(".best b")) d.querySelector(".best b").textContent = best.p.nickname;
     d.querySelector(".rm").addEventListener("click", () => { placements = placements.filter((r) => r !== q); render(); });
     box.appendChild(d);
   });
