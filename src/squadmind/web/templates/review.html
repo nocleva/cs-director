@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Desen doğrulama · SquadMind{% endblock %}
+{% set NAMES = {"rush": "Rush", "execute": "Execute", "split": "Split", "girilmedi": "Girilmedi"} %}
+{% set RULES = {
+  "rush": "En az 3 T (hayatta daha azsa hepsi) 25. saniyeye kadar aynı anda hedef sitenin giriş alanında.",
+  "execute": "25. saniyeden sonra giriş; siteye girenler tek koridordan geliyor.",
+  "split": "25. saniyeden sonra giriş; siteye girenler en az iki farklı koridordan geliyor.",
+  "girilmedi": "Hiçbir anda yeterli T aynı anda siteye girmedi ve plant yok (save, erken ölüm, dağınık oyun)."} %}
+{% block head %}
+<style>
+  .pagehead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+  .pill { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; background: var(--bg-2); color: var(--text-2); font-size: 12px; font-weight: 600; text-decoration: none; border: 1px solid transparent; }
+  .pill.done { background: rgba(63, 185, 80, .15); color: var(--ok); }
+  .pill[aria-current="true"] { border-color: var(--accent); color: var(--line); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; }
+  @media (max-width: 980px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .boardcard { background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 12px; padding: 14px; }
+  .board { position: relative; width: 100%; max-width: 560px; margin: 0 auto; }
+  .board svg { display: block; width: 100%; height: auto; }
+  .board svg.ov { position: absolute; inset: 0; }
+  .ctrl { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  .ctrl button { width: 36px; padding: 0; }
+  .rail { position: relative; flex: 1; height: 26px; }
+  .rail input { width: 100%; margin: 0; accent-color: var(--accent); }
+  .rail .mk { position: absolute; top: 18px; font-size: 9px; transform: translateX(-50%); white-space: nowrap; }
+  .time { font-size: 13px; font-weight: 600; min-width: 70px; text-align: right; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--text-2); margin-top: 18px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .label { font-size: 30px; font-weight: 700; letter-spacing: -0.6px; color: var(--accent); }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 12px 0; }
+  .facts dt { color: var(--muted); } .facts dd { margin: 0; }
+  .rule { font-size: 12px; color: var(--text-2); background: var(--bg-1); border-radius: 6px; padding: 10px; margin: 0 0 14px; }
+  .verdicts { display: grid; gap: 8px; }
+  .verdicts button { width: 100%; justify-content: flex-start; }
+  .btn-ok { background: var(--ok); }
+  .wrongbox { display: flex; gap: 8px; }
+  .wrongbox select { flex: 1; }
+  textarea { width: 100%; min-height: 54px; border: 1px solid var(--bg-3); border-radius: 4px; background: var(--bg-0); color: var(--line); font: 13px var(--font); padding: 8px; resize: vertical; }
+  .prev { font-size: 12px; color: var(--ok); margin: 0 0 10px; }
+  .acc td, .acc th { padding: 6px 8px; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <div class="eyebrow">Faz 2b · Desen doğrulama · Dust2 T</div>
+    <h1>Round {{ i + 1 }} / {{ n }}</h1>
+    <p class="sub">Analiz {{ total }} T round'unu kuralla etiketledi; her desenden {{ per_pattern }} round. Hareketi izle, etiket doğru mu işaretle.</p>
+  </div>
+</div>
+<nav class="pills" aria-label="Round'lar">
+  {% for k in range(n) %}<a class="pill{% if done[k] %} done{% endif %}" href="/dogrulama?i={{ k }}"{% if k == i %} aria-current="true"{% endif %}>{{ k + 1 }}</a>{% endfor %}
+</nav>
+
+<div class="layout">
+  <section class="boardcard" aria-label="Round tekrarı">
+    <div class="board">
+      {{ board | safe }}
+      <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-hidden="true"></svg>
+    </div>
+    <div class="ctrl">
+      <button type="button" id="play" aria-label="Oynat">▶</button>
+      <div class="rail" id="rail"><input type="range" id="scrub" min="0" step="0.1" value="0" aria-label="Zaman"></div>
+      <span class="time tnum" id="time">0:00</span>
+    </div>
+    <div class="legend">
+      <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#F37321"/></svg>Bizim T</span>
+      <span><svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="#E5484D"/></svg>Rakip CT</span>
+      <span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="#E9EBEE" stroke-width="2"/></svg>Ölüm</span>
+      <span><span class="dot" style="background:#3DB5AE"></span>Giriş anı</span>
+      <span><span class="dot" style="background:#E9EBEE"></span>Plant</span>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <div class="eyebrow">Analizin etiketi</div>
+      <div class="label">{{ NAMES[current.label] }}{% if current.target_site %} · {{ current.target_site }}{% endif %}</div>
+      <dl class="facts tnum">
+        <dt>Giriş anı</dt><dd>{% if current.commit_time is not none %}{{ "%d:%02d" | format(current.commit_time // 60, current.commit_time % 60) }}{% else %}yok{% endif %}</dd>
+        <dt>Koridorlar</dt><dd>{{ current.lanes | join(" + ") or "—" }}</dd>
+        <dt>Plant</dt><dd>{% if current.bomb_site %}{{ current.bomb_site }} · {{ "%d:%02d" | format(current.plant_time // 60, current.plant_time % 60) }}{% else %}yok{% endif %}</dd>
+        <dt>Default</dt><dd>{{ "evet" if current.default else "hayır" }}</dd>
+        <dt>Alım · sonuç</dt><dd>{{ current.buy or "?" }} · {{ "kazanıldı" if current.won else "kaybedildi" }}</dd>
+      </dl>
+      <p class="rule"><b>Kural:</b> {{ RULES[current.label] }}</p>
+      {% if prev %}<p class="prev">Önceki işaretin: {{ prev.verdict | replace("_", " ") }}{% if prev.corrected %} → {{ NAMES[prev.corrected] }}{% endif %}</p>{% endif %}
+      <form method="post" action="/dogrulama" class="verdicts">
+        <input type="hidden" name="i" value="{{ i }}">
+        <textarea name="note" placeholder="Not (isteğe bağlı): ne gördün?" aria-label="Not">{{ prev.note if prev and prev.note else "" }}</textarea>
+        <button class="btn-ok" type="submit" name="verdict" value="dogru">Doğru</button>
+        <div class="wrongbox">
+          <select name="corrected" aria-label="Doğrusu">
+            {% for p in patterns if p != current.label %}<option value="{{ p }}">Doğrusu: {{ NAMES[p] }}</option>{% endfor %}
+          </select>
+          <button type="submit" name="verdict" value="yanlis">Yanlış</button>
+        </div>
+        <button class="ghost" type="submit" name="verdict" value="emin_degil">Emin değilim</button>
+      </form>
+    </div>
+    <div class="card table-wrap">
+      <h2>Doğruluk (şimdiye kadar)</h2>
+      <table class="acc">
+        <tr><th>Desen</th><th>İşaretlenen</th><th>Doğru</th><th>Düzeltme</th></tr>
+        {% for a in acc %}
+        <tr><td>{{ NAMES[a.pattern] }}</td><td class="tnum">{{ a.reviewed }}</td>
+          <td class="tnum">{% if a.reviewed %}%{{ (100 * a.correct / a.reviewed) | round | int }} ({{ a.correct }}){% else %}—{% endif %}</td>
+          <td>{% for k, v in a.fixes.items() %}{{ NAMES[k] }} ×{{ v }} {% endfor %}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </aside>
+</div>
+
+<script id="replay" type="application/json">{{ current | tojson }}</script>
+<script>
+// Round tekrarı: konum kayıtları 2 sn'de bir; aradaki anlar doğrusal ara değerle çizilir
+const R = JSON.parse(document.getElementById("replay").textContent);
+const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
+const el = (tag, a, p = ov) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; };
+const fmt = (t) => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+const scrub = document.getElementById("scrub"), rail = document.getElementById("rail");
+scrub.max = R.duration;
+for (const [t, label, color] of [[R.commit_time, "giriş", "#3DB5AE"], [R.plant_time, "plant", "#E9EBEE"]]) {
+  if (t == null) continue;
+  const m = document.createElement("span"); m.className = "mk tnum"; m.style.left = (100 * t / R.duration) + "%";
+  m.style.color = color; m.textContent = "▲ " + label + " " + fmt(t); rail.appendChild(m);
+}
+const layers = R.players.map((p) => {
+  const mine = p.side === "T", color = mine ? "#F37321" : "#E5484D";
+  return { p, color, mine,
+    trail: el("polyline", { fill: "none", stroke: color, "stroke-width": mine ? 1.6 : 1, "stroke-opacity": mine ? .75 : .45, "stroke-linejoin": "round" }),
+    dot: el("circle", { r: mine ? 5 : 4, fill: color, stroke: "#111214", "stroke-width": 1.2 }),
+    name: mine ? el("text", { "font-size": 9, fill: "#E9EBEE", "font-family": "Inter, sans-serif", "font-weight": 600 }) : null };
+});
+layers.forEach((l) => { if (l.name) l.name.textContent = l.p.name; });
+const kills = R.kills.map((k) => {
+  const g = el("g", { opacity: 0 });
+  el("path", { d: `M${k.x - 4},${k.y - 4}L${k.x + 4},${k.y + 4}M${k.x + 4},${k.y - 4}L${k.x - 4},${k.y + 4}`, stroke: k.victim_side === "T" ? "#F37321" : "#E5484D", "stroke-width": 2.2 }, g);
+  return { k, g };
+});
+function at(pts, t) {
+  if (!pts.length || t < pts[0][0]) return null;
+  let i = 0; while (i + 1 < pts.length && pts[i + 1][0] <= t) i++;
+  const a = pts[i], b = pts[i + 1];
+  if (!b) return t - a[0] <= 2.5 ? [a[1], a[2], i] : null;   // son kayıttan sonra: öldü
+  const f = (t - a[0]) / (b[0] - a[0]);
+  return [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, i];
+}
+let t = 0, playing = false, last = null;
+function render() {
+  for (const l of layers) {
+    const cur = at(l.p.pts, t);
+    const upto = l.p.pts.filter((q) => q[0] <= t).map((q) => q[1] + "," + q[2]);
+    if (cur) upto.push(cur[0] + "," + cur[1]);
+    l.trail.setAttribute("points", upto.join(" "));
+    const vis = cur ? 1 : 0;
+    l.dot.setAttribute("opacity", vis);
+    if (cur) { l.dot.setAttribute("cx", cur[0]); l.dot.setAttribute("cy", cur[1]); }
+    if (l.name) { l.name.setAttribute("opacity", vis); if (cur) { l.name.setAttribute("x", cur[0] + 7); l.name.setAttribute("y", cur[1] - 6); } }
+  }
+  kills.forEach(({ k, g }) => g.setAttribute("opacity", t >= k.t ? 1 : 0));
+  scrub.value = t; document.getElementById("time").textContent = fmt(t) + " / " + fmt(R.duration);
+}
+function tick(ts) {
+  if (playing) { if (last != null) t += (ts - last) / 1000 * 3; if (t >= R.duration) { t = R.duration; playing = false; document.getElementById("play").textContent = "▶"; } render(); }
+  last = ts; requestAnimationFrame(tick);
+}
+document.getElementById("play").onclick = (e) => { if (t >= R.duration) t = 0; playing = !playing; last = null; e.currentTarget.textContent = playing ? "❚❚" : "▶"; };
+scrub.oninput = () => { t = Number(scrub.value); playing = false; document.getElementById("play").textContent = "▶"; render(); };
+render(); requestAnimationFrame(tick);
+</script>
+{% endblock %}

@@ -272,3 +272,30 @@ class Store:
                 "SELECT count(*), (SELECT count(*) FROM rounds) FROM matches "
                 "WHERE demo_status = 'processed'").fetchone()
         return {"demos": mine[0], "rounds": mine[1], "site_demos": site[0], "site_rounds": site[1]}
+
+    # --- desen doğrulama ------------------------------------------------------------
+
+    def save_review(self, match_id: str, round_no: int, label: str, target_site: str | None,
+                    verdict: str, corrected: str | None, note: str | None, reviewer: str) -> None:
+        """Bir round'un etiket kararı; aynı kişi yeniden işaretlerse üzerine yazılır."""
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO label_reviews (match_id, round_no, label, target_site, verdict,
+                                           corrected, note, reviewer)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (match_id, round_no, reviewer) DO UPDATE SET
+                    label = excluded.label, target_site = excluded.target_site,
+                    verdict = excluded.verdict, corrected = excluded.corrected,
+                    note = excluded.note, reviewed_at = now()
+                """, [match_id, round_no, label, target_site, verdict, corrected, note, reviewer])
+
+    def reviews(self, reviewer: str | None = None) -> list[dict[str, Any]]:
+        with self.cursor() as cur:
+            rows = cur.execute(
+                "SELECT match_id, round_no, label, target_site, verdict, corrected, note, reviewer, "
+                "reviewed_at FROM label_reviews WHERE ? IS NULL OR reviewer = ? "
+                "ORDER BY reviewed_at", [reviewer, reviewer]).fetchall()
+        keys = ("match_id", "round_no", "label", "target_site", "verdict", "corrected", "note",
+                "reviewer", "reviewed_at")
+        return [dict(zip(keys, r, strict=True)) for r in rows]

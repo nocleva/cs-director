@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from squadmind.faceit.client import FaceitAPIError, FaceitClient, FaceitNotFound
+from squadmind.analysis import label_review as lr
 from squadmind.analysis import team_builder as tb
 from squadmind.ingest import demos as demo_rules
 from squadmind.ingest.matches import profile_to_player_row, upsert_players
@@ -455,6 +456,98 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                     stat=tactic_view.stat_line(tab, ctx["stats"], strat.side),
                     entry_label=f"{entry // 60}:{entry % 60:02d}",
                     spot_window=tactic_view.SPOT_WINDOW, **ctx)
+
+    # --- desen doğrulama (Faz 2b) ------------------------------------------------------
+
+    _review_cache: dict[tuple, dict] = {}
+
+    def review_data(owner: str) -> dict:
+        """Örnek round'lar + her birinin tekrarı; demo sayısı değişince yeniden hesaplanır."""
+        from squadmind.analysis.maps import BOARD_PLACES
+        from squadmind.analysis.player_metrics import load_demo_data
+        from squadmind.analysis.team_tactics import t_round_patterns
+        from squadmind.viz.board import TAKTIK, Board, _Projection, map_polygons, render_board
+
+        def build(con):
+            sid = con.execute("SELECT steam_id FROM players WHERE lower(nickname) = lower(?)",
+                              [owner]).fetchone()
+            if not sid:
+                raise LookupError(f"'{owner}' veritabanında yok.")
+            n = con.execute("SELECT count(*) FROM matches WHERE demo_status = 'processed' "
+                            "AND map = 'de_dust2'").fetchone()[0]
+            key = (sid[0], n)
+            if key in _review_cache:
+                return _review_cache[key]
+            d = load_demo_data(con, "de_dust2")
+            tp = t_round_patterns(d, sid[0])
+            width, pad = 560, 16
+            proj = _Projection(map_polygons("de_dust2"), width, pad)
+            rounds = []
+            for r in lr.sample_rounds(tp):
+                rep_ = lr.round_replay(d, r["match_id"], int(r["round_no"]), proj)
+                rounds.append({
+                    "match_id": r["match_id"], "round_no": int(r["round_no"]),
+                    "label": r["pattern"], "target_site": r["target_site"],
+                    "commit_time": r["commit_time"], "plant_time": r["plant_time"],
+                    "bomb_site": r["bomb_site"], "lanes": r["lanes"] or [],
+                    "default": r["default"], "won": r["won"], "buy": r["own_buy"], **rep_})
+            board = render_board(Board("de_dust2", places=BOARD_PLACES["de_dust2"],
+                                       target_places=[]), width=width, pad=pad, theme=TAKTIK)
+            _review_cache.clear()
+            _review_cache[key] = {"rounds": rounds, "board": board, "w": width, "h": proj.height,
+                                  "total": tp.height}
+            return _review_cache[key]
+        return store.run(build, lock=False)
+
+    @app.get("/dogrulama", response_class=HTMLResponse)
+    def review_page(request: Request, i: int = 0):
+        user = current_user(request)
+        if user is None:
+            return RedirectResponse("/", status_code=303)
+        if not user.team_access:
+            return locked(request, "Desen doğrulama")
+        owner = settings.team_owner or user.nickname
+        try:
+            data = review_data(owner)
+        except LookupError as exc:
+            return render_report(request, "Desen doğrulama", f"_{exc}_")
+        rounds = data["rounds"]
+        if not rounds:
+            return render_report(request, "Desen doğrulama", "_İncelenecek round yok._")
+        i = max(0, min(i, len(rounds) - 1))
+        mine = {(r["match_id"], r["round_no"]): r for r in store.reviews(user.steam_id)}
+        done = [(r["match_id"], r["round_no"]) in mine for r in rounds]
+        return page(request, "review.html", user=user, i=i, n=len(rounds), current=rounds[i],
+                    done=done, prev=mine.get((rounds[i]["match_id"], rounds[i]["round_no"])),
+                    board=data["board"], w=data["w"], h=data["h"], total=data["total"],
+                    patterns=lr.PATTERNS, acc=lr.accuracy(store.reviews()),
+                    per_pattern=lr.PER_PATTERN)
+
+    @app.post("/dogrulama")
+    def review_save(request: Request, i: int = Form(...), verdict: str = Form(...),
+                    corrected: str = Form(""), note: str = Form("")):
+        user = require_user(request)
+        if not user.team_access:
+            raise HTTPException(403, "Bu sayfa kadroya özel.")
+        rounds = review_data(settings.team_owner or user.nickname)["rounds"]
+        if not 0 <= i < len(rounds) or verdict not in ("dogru", "yanlis", "emin_degil"):
+            raise HTTPException(400, "Geçersiz işaret.")
+        if corrected and corrected not in lr.PATTERNS:
+            raise HTTPException(400, "Geçersiz desen.")
+        r = rounds[i]
+        store.save_review(r["match_id"], r["round_no"], r["label"], r["target_site"], verdict,
+                          corrected if verdict == "yanlis" else None, note.strip()[:300] or None,
+                          user.steam_id)
+        return RedirectResponse(f"/dogrulama?i={min(i + 1, len(rounds) - 1)}", status_code=303)
+
+    @app.get("/dogrulama/sonuc.json")
+    def review_results(request: Request):
+        user = require_user(request)
+        if not user.team_access:
+            raise HTTPException(403, "Bu sayfa kadroya özel.")
+        reviews = store.reviews()
+        return JSONResponse({"accuracy": lr.accuracy(reviews),
+                             "reviews": [{**r, "reviewed_at": str(r["reviewed_at"])} for r in reviews]})
 
     # --- takım oluşturma ---------------------------------------------------------------
 

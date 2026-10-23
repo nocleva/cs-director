@@ -15,7 +15,8 @@ SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 # v4: demo_files (aynı demo bir kez: içerik özeti, boyut, yükleyen).
 # v5: web_users, web_uploads (davetle katılım ve web yüklemeleri).
 # v6: takım oluşturma (web_teams, web_team_members), yüklemede harita, kadro erişimi.
-SCHEMA_VERSION = 6
+# v7: label_reviews (desen etiketlerinin insan doğrulaması, Faz 2b).
+SCHEMA_VERSION = 7
 
 # v3'te mevcut tablolara eklenen kolonlar (eski DB'ler için)
 _V3_COLUMNS = (

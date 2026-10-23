@@ -245,3 +245,17 @@ CREATE TABLE IF NOT EXISTS web_team_members (
     added_at    TIMESTAMP DEFAULT current_timestamp,
     PRIMARY KEY (team_id, faceit_id)
 );
+
+-- Desen etiketi doğrulaması (şema v7): bir insanın round tekrarına bakıp verdiği karar
+CREATE TABLE IF NOT EXISTS label_reviews (
+    match_id    VARCHAR,
+    round_no    INTEGER,
+    label       VARCHAR,                 -- analizin verdiği desen (rush / execute / split / girilmedi)
+    target_site VARCHAR,                 -- analizin hedef site'ı
+    verdict     VARCHAR,                 -- dogru / yanlis / emin_degil
+    corrected   VARCHAR,                 -- yanlışsa doğrusu (desen)
+    note        VARCHAR,
+    reviewer    VARCHAR,                 -- işaretleyenin steam_id'si
+    reviewed_at TIMESTAMP DEFAULT current_timestamp,
+    PRIMARY KEY (match_id, round_no, reviewer)
+);
