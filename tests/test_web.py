@@ -361,6 +361,20 @@ def test_faceit_authorize_url_pkce_toggle():
     assert "code_challenge=ch" in on and "code_challenge_method=S256" in on
 
 
+def test_faceit_check_credentials_separates_bad_secret_from_bad_code():
+    # Sahte kodlu kontrol: 400 = kimlik geçerli, 401 = secret reddedildi
+    import httpx
+    from squadmind.web.faceit_auth import FaceitOAuth
+    oauth = FaceitOAuth("id", "sec", "https://app.squadmind.info", flow="code")
+    for status, word in ((400, "kimlik geçerli"), (401, "secret reddedildi")):
+        def handler(req: httpx.Request, status=status) -> httpx.Response:
+            assert req.headers["authorization"].startswith("Basic ")
+            assert b"code_verifier=" in req.content
+            return httpx.Response(status)
+        with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+            assert word in oauth.check_credentials(http)
+
+
 def test_faceit_implicit_flow(tmp_path, make_client, monkeypatch):
     """Implicit: dönüş sayfası anahtarı POST eder, sunucu userinfo'dan kimliği alır."""
     from squadmind.web.faceit_auth import FaceitAuthError, FaceitOAuth
