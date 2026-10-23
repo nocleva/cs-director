@@ -44,6 +44,9 @@ COOKIE = "squadmind_oturum"
 # FACEIT girişi sürerken (state + PKCE doğrulayıcı + davet) tutulan kısa ömürlü çerez
 LOGIN_COOKIE = "squadmind_giris"
 LOGIN_SECONDS = 600
+# Yöneticinin ürettiği giriş linkinin ömrü (squadmind login-link)
+LINK_SECONDS = 900
+LINK_SALT = "squadmind-link"
 # FACEIT ile girişte davetsiz kabul: takım sahibiyle aynı tarafta en az bu kadar maç
 # (tek seferlik rastgele takım arkadaşı girmesin)
 TEAM_MIN_SHARED = 3
@@ -273,6 +276,25 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     @app.get("/terms", response_class=HTMLResponse)
     def terms(request: Request):
         return page(request, "legal.html", page="terms", title="Kullanım şartları")
+
+    @app.get("/giris/link")
+    def login_link(request: Request, t: str = ""):
+        """`squadmind login-link <nick>` ile üretilen imzalı link: kayıtlı kullanıcıya oturum açar.
+
+        Link WEB_SECRET ile imzalı ve LINK_SECONDS geçerli; sadece siteye daha önce katılmış
+        hesaplar için çalışır (yeni hesap açmaz, erişim yetkisi vermez).
+        """
+        try:
+            steam_id = URLSafeTimedSerializer(settings.secret, salt=LINK_SALT).loads(
+                t, max_age=LINK_SECONDS)
+        except BadSignature:
+            return join_page(request, "", "Giriş linkinin süresi dolmuş ya da geçersiz.")
+        if store.user(steam_id) is None:
+            return join_page(request, "", "Bu hesap siteye kayıtlı değil.")
+        resp = RedirectResponse("/ben", status_code=303)
+        resp.set_cookie(COOKIE, signer.dumps(steam_id), max_age=SESSION_DAYS * 86400,
+                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
+        return resp
 
     @app.get("/cikis")
     def logout():
@@ -649,6 +671,12 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                                 status_code=303)
 
     return app
+
+
+def make_login_link(secret: str, base_url: str, steam_id: str) -> str:
+    """Yönetici giriş linki (bkz. /giris/link)."""
+    token = URLSafeTimedSerializer(secret, salt=LINK_SALT).dumps(steam_id)
+    return f"{base_url.rstrip('/')}/giris/link?t={token}"
 
 
 def default_secret(secret: str) -> str:

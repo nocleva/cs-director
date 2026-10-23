@@ -418,6 +418,25 @@ def web(
         store.close()
 
 
+@app.command("login-link")
+def login_link(nickname: str = typer.Argument(..., help="Siteye kayıtlı FACEIT nickname")) -> None:
+    """Siteye kayıtlı bir hesap için 15 dk geçerli giriş linki (DB açmaz; web açıkken çalışır)."""
+    from squadmind.config import WEB_BASE_URL, WEB_SECRET
+    from squadmind.faceit.client import FaceitClient
+    from squadmind.ingest.matches import profile_to_player_row
+    from squadmind.web.app import make_login_link
+
+    if not WEB_SECRET:
+        console.print("[red].env içinde WEB_SECRET yok: link sunucu yeniden başlayınca geçersiz olur.[/red]")
+        raise typer.Exit(1)
+    with FaceitClient() as client:
+        row = profile_to_player_row(client.get_player_by_nickname(nickname))
+    if not row.get("steam_id"):
+        console.print("[red]Bu FACEIT hesabına bağlı Steam hesabı yok.[/red]")
+        raise typer.Exit(1)
+    console.print(make_login_link(WEB_SECRET, WEB_BASE_URL, row["steam_id"]))
+
+
 @app.command()
 def track(
     plan_file: Path = typer.Argument(..., help="Plan dosyası (ör. plans/dust2_cekirdek_2026-10-22.json)"),

@@ -409,3 +409,18 @@ def test_faceit_implicit_flow(tmp_path, make_client, monkeypatch):
         assert ok.headers["location"] == "/ben" and store.users()[0].nickname == "TestNick"
     finally:
         store.close()
+
+
+def test_login_link_signs_in_known_user_only(web):
+    from squadmind.web.app import make_login_link
+    client, store = web
+    assert "süresi dolmuş" in client.get("/giris/link?t=sahte").text
+    unknown = make_login_link("test-secret", "http://x", "yok").split("?t=")[1]
+    assert "kayıtlı değil" in client.get(f"/giris/link?t={unknown}").text
+    _join(client)
+    client.cookies.clear()
+    token = make_login_link("test-secret", "http://x", SELF).split("?t=")[1]
+    r = client.get(f"/giris/link?t={token}", follow_redirects=False)
+    assert r.headers["location"] == "/ben" and "squadmind_oturum" in r.headers["set-cookie"]
+    other = make_login_link("baska-secret", "http://x", SELF).split("?t=")[1]
+    assert "süresi dolmuş" in client.get(f"/giris/link?t={other}").text

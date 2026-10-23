@@ -97,7 +97,7 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
           <p class="note"><b>Güvenli giriş.</b> Kimlik doğrulama FACEIT üzerinden yapılır; şifren SquadMind ile paylaşılmaz. Profil, seviye ve maç geçmişi hesabından otomatik olarak alınır.</p>
           <p class="note">Giriş yaptıktan sonra kendi takımını kurabilirsin. Verilerin yalnızca katılmayı kabul ettiğin takımlarla paylaşılır.</p>
           {% if invited %}
-          <details class="alt">
+          <details class="alt" open>
             <summary>FACEIT girişi çalışmıyor mu? Davet koduyla katıl</summary>
             <form method="post" action="/katil">
               <input type="hidden" name="davet" value="{{ davet }}">
