@@ -1,0 +1,14 @@
+# Cloudflare kalıcı tüneli `squadmind`: app.squadmind.info → 127.0.0.1:8000
+# Ayar /etc/cloudflared/config.yml, kimlik /etc/cloudflared/<tünel-id>.json (migrate.ps1 kopyalar)
+[Unit]
+Description=SquadMind Cloudflare tunnel
+After=network-online.target squadmind-web.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/cloudflared --no-autoupdate --config /etc/cloudflared/config.yml tunnel run squadmind
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

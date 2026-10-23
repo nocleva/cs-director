@@ -1,0 +1,9 @@
+[Unit]
+Description=SquadMind yedeği her gece 04:17 (sunucu saati)
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

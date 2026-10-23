@@ -1,0 +1,6 @@
+[Unit]
+Description=SquadMind gece veritabanı yedeği
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/squadmind-backup

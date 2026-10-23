@@ -1,0 +1,24 @@
+# SquadMind web sunucusu (yalnız 127.0.0.1:8000; dışarıdan Cloudflare tüneliyle erişilir)
+[Unit]
+Description=SquadMind web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=squadmind
+WorkingDirectory=/opt/squadmind
+Environment=PYTHONUTF8=1
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/opt/squadmind/.venv/bin/squadmind web --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/lib/squadmind/logs/web.log
+StandardError=append:/var/lib/squadmind/logs/web.err.log
+# Sertleştirme: yalnız veri klasörüne yazabilir
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/squadmind /home/squadmind
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
