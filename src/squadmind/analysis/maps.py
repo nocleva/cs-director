@@ -46,6 +46,28 @@ def has_zones(map_name: str | None) -> bool:
     return bool(map_name) and map_name in ZONES
 
 
+# Peek hatları: en çok düello yaşanan bölge çiftleri (18 Dust2 demosundaki 2.911 kill'den,
+# kullanıcıyla 23.10.2026'da onaylandı). Her hat iki bölge kümesi; bir kill, saldıranla kurbanın
+# bölgeleri iki kümeye (hangi yönde olursa olsun) düşüyorsa o hatta sayılır. Sıra önemli: bir
+# çift birden çok hatta uyarsa ilk hat alınır.
+PEEK_LINES: dict[str, list[tuple[str, str, frozenset[str], frozenset[str]]]] = {
+    "de_dust2": [
+        ("long", "Long Doors ↔ Long A", frozenset({"LongDoors"}), frozenset({"LongA"})),
+        ("mid_awp", "Top Mid ↔ Mid Doors", frozenset({"TopofMid"}), frozenset({"MidDoors"})),
+        ("b_site", "B Site / Upper Tunnel ↔ B Site", frozenset({"BombsiteB", "UpperTunnel"}),
+         frozenset({"BombsiteB"})),
+        ("mid_doors", "Mid Doors yakın temas", frozenset({"MidDoors"}), frozenset({"MidDoors"})),
+        ("long_corner", "Long Doors köşe teması", frozenset({"LongDoors"}), frozenset({"LongDoors"})),
+        ("a_long", "Long A ↔ A Site / Under A / Ramp", frozenset({"LongA"}),
+         frozenset({"BombsiteA", "UnderA", "ARamp", "LongA"})),
+        ("cat_short", "Top Mid / Catwalk ↔ Catwalk / Short Stairs", frozenset({"TopofMid", "Catwalk"}),
+         frozenset({"Catwalk", "ShortStairs"})),
+        ("ext_a", "Extended A ↔ Under A / A Ramp", frozenset({"ExtendedA"}), frozenset({"UnderA", "ARamp"})),
+        ("ct_mid", "Mid Doors ↔ CT Spawn", frozenset({"MidDoors"}), frozenset({"CTSpawn"})),
+        ("b_doors", "B Doors ↔ B Site", frozenset({"BDoors"}), frozenset({"BombsiteB"})),
+    ],
+}
+
 # T tarafının site'lara yaklaşım koridorları (taktik desen tespiti için).
 # Split = site'a en az iki farklı koridordan girmek (A: long + short, B: tünel + mid).
 LANES: dict[str, dict[str, str]] = {
