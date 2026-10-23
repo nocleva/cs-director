@@ -77,9 +77,9 @@ class WebSettings:
 def join_art() -> str:
     """Giriş sayfasının görseli: Dust2 tahtası (navmesh yerelde yoksa boş)."""
     try:
-        from squadmind.viz.board import TAKTIK, Board, render_board
+        from squadmind.viz.board import ARENA, Board, render_board
         return render_board(Board("de_dust2", target_places=[(1097, 2649)], target_radius=430),
-                            width=560, pad=16, theme=TAKTIK)
+                            width=560, pad=16, theme=ARENA)
     except Exception:  # noqa: BLE001 - görsel yoksa sayfa yine açılır
         log.warning("giriş sayfası görseli çizilemedi", exc_info=True)
         return ""
@@ -88,8 +88,8 @@ def join_art() -> str:
 @lru_cache(maxsize=16)
 def map_art(map_name: str) -> str:
     """Harita kartının görseli: navmesh'ten çizim (etiketsiz). Valve görseli kullanılmaz."""
-    from squadmind.viz.board import TAKTIK, Board, render_board
-    return render_board(Board(map_name), width=400, pad=6, theme=TAKTIK)
+    from squadmind.viz.board import ARENA, Board, render_board
+    return render_board(Board(map_name), width=400, pad=6, theme=ARENA)
 
 
 def safe_file_name(name: str) -> str:
@@ -431,7 +431,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         from squadmind.analysis import duels as du
         from squadmind.analysis.maps import BOARD_PLACES
         from squadmind.analysis.player_metrics import load_demo_data
-        from squadmind.viz.board import TAKTIK, Board, _Projection, map_polygons, render_board
+        from squadmind.viz.board import ARENA, Board, _Projection, map_polygons, render_board
 
         def build(con):
             n = con.execute("SELECT count(*) FROM matches WHERE demo_status = 'processed' AND map = ?",
@@ -448,7 +448,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                         pl.col("map") == map_name)["match_id"].to_list(),
                     "model": du.strengths(duel_df), "grid": tbld.place_grid(d),
                     "board": render_board(Board(map_name, places=BOARD_PLACES.get(map_name, {}),
-                                                target_places=[]), width=width, pad=pad, theme=TAKTIK),
+                                                target_places=[]), width=width, pad=pad, theme=ARENA),
                     "proj": {"minx": proj.minx, "maxy": proj.maxy, "s": proj.s, "pad": proj.pad,
                              "w": width, "h": proj.height},
                 }
