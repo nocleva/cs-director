@@ -10,6 +10,7 @@ raporunu görür. Kullanıcıdan bilgi istenmez: kimlik FACEIT girişinden, geri
 from __future__ import annotations
 
 import hmac
+import mimetypes
 import html as html_lib
 import logging
 import re
@@ -24,6 +25,7 @@ from urllib.parse import quote
 import markdown as md
 import polars as pl
 from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -58,6 +60,13 @@ SESSION_DAYS = 30
 CHUNK_BYTES = 32 * 1024 * 1024
 # Bir oyuncunun aynı anda açık (yüklenen / sırada / işlenen) en fazla demo sayısı
 MAX_OPEN_UPLOADS = 5
+# Tarayıcıda üretilen demo paketi (gzip'li JSON, ~0,3-0,5 MB) için üst sınır
+PACKAGE_MAX_BYTES = 8 * 1024 * 1024
+STATIC_DIR = Path(__file__).with_name("static")
+# Windows kayıt defterinde eksik olabilen türler: WASM akışla derlenebilsin, modül scriptleri yüklensin
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("text/javascript", ".js")
 # Dosya adı: FACEIT adı (maç ID'si) korunsun, gerisi güvenli karakterlere indirgensin
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -105,6 +114,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     login_signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-giris")
     oauth = settings.oauth if settings.oauth and settings.oauth.configured else None
     store.map_name = settings.map_name
+    # WASM ayrıştırıcı ve zstd çözücü (kendi sunucumuzdan; CDN yok)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     # --- oturum ---------------------------------------------------------------------
 
@@ -338,7 +349,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         selected = harita if harita in tb.MAP_POOL else ""
         return page(request, "demos.html", user=user, uploads=uploads, cards=cards,
                     selected=selected, min_demos=tb.MIN_DEMOS, pending=busy(user, uploads),
-                    chunk=CHUNK_BYTES, sizes=(demo_rules.MIN_DEMO_BYTES, demo_rules.MAX_DEMO_BYTES))
+                    chunk=CHUNK_BYTES, package_max=PACKAGE_MAX_BYTES, sizes=(demo_rules.MIN_DEMO_BYTES, demo_rules.MAX_DEMO_BYTES))
 
     @app.get("/harita/{map_name}.svg")
     def map_image(map_name: str):
@@ -406,6 +417,46 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         store.set_upload(upload_id, QUEUED)
         worker.submit(Job("ingest", upload_id, path))
         return {"ok": True}
+
+    # --- tarayıcıda işlenen paket (varsayılan yol; tam demo yüklemesi yedek) -------------------
+
+    @app.post("/api/paket")
+    async def package_upload(request: Request, name: str = "", sha256: str = "",
+                             dem_sha256: str = "", size: int = 0, map: str = ""):
+        """Tarayıcıda WASM ile üretilen gzip'li paketi alır; işçi kuyruğuna koyar.
+
+        Gövde = ham gzip baytları. Sorgu: name (orijinal dosya adı), sha256 (seçilen dosyanın
+        olduğu gibi baytlarının özeti), dem_sha256 (açılmış .dem özeti), size (orijinal boyut), map.
+        """
+        user = require_user(request)
+        name = safe_file_name(name)
+        if not name.lower().endswith(demo_rules.DEMO_SUFFIXES):
+            raise HTTPException(400, "Sadece .dem, .dem.zst ya da .dem.gz işlenebilir.")
+        if map not in tb.MAP_POOL:
+            raise HTTPException(400, "Önce haritayı seç.")
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > PACKAGE_MAX_BYTES:
+            raise HTTPException(413, "Paket çok büyük; tam demoyu yükle.")
+        data = await request.body()
+        if len(data) > PACKAGE_MAX_BYTES:
+            raise HTTPException(413, "Paket çok büyük; tam demoyu yükle.")
+        if data[:2] != b"\x1f\x8b":
+            raise HTTPException(400, "Paket gzip değil.")
+        if store.open_uploads(user.steam_id) >= MAX_OPEN_UPLOADS:
+            raise HTTPException(429, "Önceki yüklemelerin işlenmesini bekle.")
+        # Hızlı geri bildirim: kopya ise işçiyi hiç beklemeden reddet (işçi yine denetler)
+        reason = store.run(lambda con: demo_rules.precheck_package(con, name, sha256, dem_sha256))
+        if reason:
+            raise HTTPException(409, reason)
+        upload_id = store.new_upload(user.steam_id, name, size or len(data), map)
+        folder = settings.uploads_dir / upload_id
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "paket.json.gz"
+        path.write_bytes(data)
+        store.set_upload(upload_id, QUEUED)
+        worker.submit(Job("package", upload_id, path, {
+            "sha256": sha256, "dem_sha256": dem_sha256, "orig_size": size, "file_name": name}))
+        return {"id": upload_id}
 
     @app.get("/api/durum")
     def status(request: Request):

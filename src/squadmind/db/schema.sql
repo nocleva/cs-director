@@ -202,7 +202,9 @@ CREATE TABLE IF NOT EXISTS demo_files (
     size_bytes   BIGINT,
     uploaded_by  VARCHAR,                -- yükleyenin steam id'si (yerel inbox'ta boş)
     status       VARCHAR,                -- processed / mismatch
-    added_at     TIMESTAMP DEFAULT current_timestamp
+    added_at     TIMESTAMP DEFAULT current_timestamp,
+    source       VARCHAR DEFAULT 'demo', -- (v9) 'demo' = tam dosya, 'paket' = tarayıcıda üretilen paket
+    dem_sha256   VARCHAR                 -- (v9) açılmış .dem baytlarının özeti (paket yolunda)
 );
 
 -- Web (şema v5): davet linkiyle katılan kullanıcılar ve yükledikleri demolar

@@ -17,7 +17,8 @@ SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 # v6: takım oluşturma (web_teams, web_team_members), yüklemede harita, kadro erişimi.
 # v7: label_reviews (desen etiketlerinin insan doğrulaması, Faz 2b).
 # v8: user_tactics (taktik oluşturucuda kaydedilen yerleşimler).
-SCHEMA_VERSION = 8
+# v9: demo_files.source (tam demo / tarayıcı paketi) ve dem_sha256 (açılmış .dem özeti).
+SCHEMA_VERSION = 9
 
 # v3'te mevcut tablolara eklenen kolonlar (eski DB'ler için)
 _V3_COLUMNS = (
@@ -30,6 +31,12 @@ _V3_COLUMNS = (
 _V6_COLUMNS = (
     ("web_users", "team_access", "BOOLEAN DEFAULT false"),
     ("web_uploads", "map_hint", "VARCHAR"),
+)
+
+# v9'da demo_files'a eklenen kolonlar
+_V9_COLUMNS = (
+    ("demo_files", "source", "VARCHAR DEFAULT 'demo'"),
+    ("demo_files", "dem_sha256", "VARCHAR"),
 )
 
 # v1'deki demo tabloları; v1'de hiç doldurulmadıkları için yeniden kurmak güvenli
@@ -66,6 +73,9 @@ def init_db(con: duckdb.DuckDBPyConnection) -> list[str]:
         # v6'dan önce herkes davet linkiyle katıldı: mevcut kullanıcılar kadro erişimini korur
         if version >= 5:
             con.execute("UPDATE web_users SET team_access = true")
+    if version < 9:
+        for table, column, typ in _V9_COLUMNS:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {typ}")
     if version < SCHEMA_VERSION:
         con.execute("INSERT INTO schema_version VALUES (?)", [SCHEMA_VERSION])
     rows = con.execute(

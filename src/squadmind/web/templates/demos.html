@@ -49,6 +49,19 @@
   .drop.over { transform: scale(1.01); }
   .drop b { font-size: 15px; }
   .drop span { font-size: 12px; color: var(--muted); }
+  .qtop { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 14px; font-size: 13px; color: var(--text-2); }
+  .qmeter { height: 4px; border-radius: 2px; background: var(--bg-3); margin-top: 8px; overflow: hidden; }
+  .qmeter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 240ms ease-out; }
+  .qbtn { font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 100px; border: 1px solid var(--bg-3); background: var(--bg-1); color: var(--line); cursor: pointer; }
+  .qbtn:hover { border-color: var(--accent); }
+  .queue { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .queue li { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 12px; align-items: center; background: var(--bg-1); border-radius: 10px; padding: 9px 12px; font-size: 13px; }
+  .queue .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue .st { font-size: 12px; color: var(--text-2); }
+  .queue .why { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+  .queue li.ok .st { color: var(--ok); }
+  .queue li.bad .st { color: #e5484d; }
+  .queue li.run .st { color: var(--accent); }
   #progress p { margin: 8px 0 0; font-size: 13px; color: var(--text-2); }
   .empty { text-align: center; padding: 40px 16px; color: var(--muted); border: 1.5px dashed var(--bg-3); border-radius: 16px; }
   tr[hidden] { display: none; }
@@ -95,12 +108,18 @@
       <h2 id="panelTitle"></h2>
       <span class="muted tnum" id="panelCount"></span>
     </div>
-    <p class="rule"><b>Kural:</b> Bu alana yalnızca <b id="ruleMap"></b> demosu yüklenir; başka haritanın demosu reddedilir. FACEIT maç sayfasındaki "Watch demo" ile indirdiğin dosyayı (.dem.zst) açmadan yükle. Yalnızca oynadığın maçlar kabul edilir; aynı demo bir kez eklenir. En az {{ min_demos }} demo gerekir, daha fazlası daha gerçekçi sonuç verir.</p>
+    <p class="rule"><b>Kural:</b> Bu alana yalnızca <b id="ruleMap"></b> demosu yüklenir; başka haritanın demosu reddedilir. FACEIT maç sayfasındaki "Watch demo" ile indirdiğin dosyaları (.dem.zst) açmadan seç; birden fazla demo seçebilirsin. Demo <b>tarayıcında işlenir</b>: sunucuya yüzlerce MB değil, ~0,5 MB'lık özet paket gider. Yalnızca oynadığın maçlar kabul edilir; aynı demo bir kez eklenir. En az {{ min_demos }} demo gerekir, daha fazlası daha gerçekçi sonuç verir.</p>
     <label class="drop" id="drop" for="files">
-      <b>Demoları buraya sürükle</b>
+      <b>Demoları buraya sürükle (birden fazla olabilir)</b>
       <span>ya da tıklayıp seç · .dem, .dem.zst, .dem.gz</span>
     </label>
     <input type="file" id="files" multiple accept=".dem,.zst,.gz" hidden>
+    <div id="queueBar" hidden>
+      <div class="qtop"><span id="qTotal" class="tnum"></span><button type="button" id="qStop" class="qbtn">Durdur</button></div>
+      <div class="qmeter" aria-hidden="true"><i id="qFill"></i></div>
+    </div>
+    <ul id="queue" class="queue"></ul>
+    <p class="muted" id="fallbackNote" hidden style="font-size:12px;margin:8px 0 0">Tarayıcıda işlenemeyen demo için satırdaki "Tam demoyu yükle" düğmesi dosyayı olduğu gibi sunucuya yollar (daha uzun sürer).</p>
     <div id="progress"></div>
     <div class="table-wrap" style="margin-top:18px">
       <table id="uploads">
@@ -118,7 +137,9 @@
   </section>
 </div>
 
-<script>
+<script type="module">
+import { fileSource } from "/static/pack/sources.js";
+import { packSource, uploadPackage } from "/static/pack/pack.js";
 const CHUNK = {{ chunk }}, MIN = {{ sizes[0] }}, MAX = {{ sizes[1] }}, NEED = {{ min_demos }};
 const cards = [...document.querySelectorAll(".mcard")];
 const panel = document.getElementById("panel"), empty = document.getElementById("emptyPanel");
@@ -172,12 +193,120 @@ async function send(file, map) {
   p.textContent = file.name + (r.ok ? ": yüklendi, sırada" : ": " + (await r.json()).detail);
 }
 
+// --- Varsayılan yol: tarayıcıda işle (Web Worker + WASM), sırayla, aynı anda TEK demo ---------------
+const STAGES = {okunuyor: "okunuyor", ozet: "özet alınıyor", aciliyor: "açılıyor", isleniyor: "işleniyor",
+                sikistiriliyor: "paketleniyor"};
+const list = document.getElementById("queue"), bar = document.getElementById("queueBar");
+const wasmOk = typeof WebAssembly === "object" && typeof Worker === "function" && typeof CompressionStream === "function";
+let items = [], stopped = false, active = null;
+
+function addRow(source) {
+  const li = document.createElement("li");
+  li.innerHTML = '<span class="nm"></span><span class="st"></span><span class="why"></span>';
+  li.querySelector(".nm").textContent = source.name;
+  list.appendChild(li);
+  const it = {source, li, done: false};
+  setState(it, "sırada");
+  return it;
+}
+function setState(it, text, kind = "", why = "") {
+  it.li.className = kind;
+  it.li.querySelector(".st").textContent = text;
+  const w = it.li.querySelector(".why"); w.textContent = why; w.hidden = !why;
+}
+function finish(it, text, kind, why = "") { it.done = true; setState(it, text, kind, why); updateTotal(); }
+function updateTotal() {
+  const d = items.filter((i) => i.done).length;
+  document.getElementById("qTotal").textContent = `${d} / ${items.length} demo tamamlandı`;
+  document.getElementById("qFill").style.width = (items.length ? 100 * d / items.length : 0) + "%";
+}
+
+// Sunucudaki işlenme sonucunu bekler (sırada / işleniyor -> tamam / reddedildi / hata / tutmadı)
+async function waitResult(it, id) {
+  for (let n = 0; n < 400 && !stopped; n++) {
+    const r = await fetch("/api/durum");
+    if (r.ok) {
+      const u = (await r.json()).uploads.find((x) => x.id === id);
+      if (u && !["yükleniyor", "sırada", "işleniyor"].includes(u.status)) {
+        if (u.status === "tamam") finish(it, "işlendi", "ok", u.message || "");
+        else finish(it, u.status, "bad", u.message || "");
+        return;
+      }
+      setState(it, u ? u.status : "sunucuda", "run");
+    }
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  if (!it.done) finish(it, "durduruldu", "bad", "Sonuç beklenirken durduruldu; sonucu aşağıdaki listeden izle.");
+}
+
+async function processOne(it, map, seen) {
+  const task = packSource(it.source, {
+    onStage: (s) => setState(it, STAGES[s] || s, "run"),
+    onSha: (sha) => { if (seen.has(sha)) return true; seen.add(sha); return false; },
+  });
+  active = task;
+  let packed;
+  try { packed = await task.promise; }
+  catch (e) {
+    active = null;
+    if (e.kind === "duplicate") finish(it, "reddedildi", "bad", "Aynı demoyu iki kez seçtin; ikincisi atlandı.");
+    else if (e.kind === "cancelled") finish(it, "durduruldu", "bad");
+    else if (e.kind === "format") finish(it, "reddedildi", "bad", e.message);
+    else { finish(it, "tarayıcıda işlenemedi", "bad", (e.message || "") + " Tam demoyu yüklemeyi dene.");
+           addFallback(it, map); }
+    return;
+  }
+  active = null;
+  setState(it, "yükleniyor", "run");
+  try {
+    const {id} = await uploadPackage(it.source, map, packed);
+    await waitResult(it, id);
+  } catch (e) {
+    finish(it, e.status === 409 ? "reddedildi" : "hata", "bad", e.message);
+  }
+}
+
+// Yedek: dosyayı olduğu gibi (parçalı) sunucuya yükler; sunucu işler
+function addFallback(it, map) {
+  if (!it.source.file) return;
+  document.getElementById("fallbackNote").hidden = false;
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "qbtn"; b.textContent = "Tam demoyu yükle";
+  b.addEventListener("click", async () => {
+    b.disabled = true; setState(it, "yükleniyor (tam demo)", "run");
+    await send(it.source.file, map);
+    setState(it, "sunucuya yüklendi", "ok", box.lastChild ? box.lastChild.textContent : "");
+  });
+  it.li.appendChild(b);
+}
+
 async function uploadAll(files) {
   if (!files.length || uploading || !current) return;
-  uploading = true; box.innerHTML = "";
-  for (const f of files) { await send(f, current); }
-  uploading = false; location.href = "/demolar?harita=" + current;
+  uploading = true; stopped = false; box.innerHTML = ""; list.innerHTML = "";
+  const map = current, seen = new Set();
+  // Tarayıcı bu yolu desteklemiyorsa doğrudan tam demo yüklemesi (yedek)
+  if (!wasmOk) {
+    for (const f of files) { await send(f, map); }
+    uploading = false; location.href = "/demolar?harita=" + map; return;
+  }
+  bar.hidden = false; document.getElementById("qStop").disabled = false;
+  items = files.map(fileSource).map((s) => {
+    const it = addRow(s);
+    if (s.size < MIN || s.size > MAX) finish(it, "reddedildi", "bad", "Boyut demo için şüpheli.");
+    return it;
+  });
+  updateTotal();
+  for (const it of items) {
+    if (it.done) continue;
+    if (stopped) { finish(it, "durduruldu", "bad"); continue; }
+    await processOne(it, map, seen);         // bir demonun hatası sıradakini durdurmaz
+  }
+  uploading = false;
+  document.getElementById("qStop").disabled = true;
+  // Yedek düğmesi çıkan satır varsa sayfa yenilenmez (kullanıcı basabilsin)
+  if (!list.querySelector("button")) setTimeout(() => { location.href = "/demolar?harita=" + map; }, 2500);
 }
+document.getElementById("qStop").addEventListener("click", () => { stopped = true; if (active) active.cancel(); });
 const drop = document.getElementById("drop"), input = document.getElementById("files");
 input.addEventListener("change", () => uploadAll([...input.files]));
 ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));

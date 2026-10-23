@@ -18,8 +18,8 @@ Gerçek awpy `Demo`'dan tek fark (içerik sonucu değiştirmez; `parse_demo` yal
 
 from __future__ import annotations
 
-import gzip
 import json
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,9 @@ from squadmind.parse.demo_parser import DemoTables, tables_from_demo
 
 # Desteklenen paket biçimi sürümü (WASM crate'indeki FORMAT_VERSION ile aynı)
 FORMAT_VERSION = 1
+
+# Açılmış paket JSON'u için üst sınır (gerçek paketler birkaç on MB; bomba koruması)
+MAX_JSON_BYTES = 256 * 1024 * 1024
 
 # Paket dtype adı → Polars dtype (awpy-python'un `Column::new` ile çıkardığı türler)
 DTYPES: dict[str, Any] = {
@@ -140,9 +143,13 @@ def load_package(source: Path | str | bytes) -> dict[str, Any]:
         raw = Path(source).read_bytes()
     try:
         if raw[:2] == b"\x1f\x8b":  # gzip sihirli baytları
-            raw = gzip.decompress(raw)
+            # Sıkıştırma bombasına karşı: açılmış boyut sınırlı (wbits=31: gzip başlığı)
+            dec = zlib.decompressobj(wbits=31)
+            raw = dec.decompress(raw, MAX_JSON_BYTES)
+            if dec.unconsumed_tail:
+                raise PackageError("paket açılınca beklenenden çok büyük")
         return json.loads(raw)
-    except (OSError, EOFError, ValueError) as exc:
+    except (OSError, EOFError, ValueError, zlib.error) as exc:
         raise PackageError(f"paket açılamadı: {exc}") from exc
 
 
@@ -154,3 +161,41 @@ def package_demo(source: Path | str | bytes) -> PackageDemo:
 def parse_package(source: Path | str | bytes) -> DemoTables:
     """Tarayıcı paketinden `parse_demo` ile aynı tabloları üretir."""
     return tables_from_demo(package_demo(source))
+
+
+def installed_awpy_version() -> str | None:
+    """Sunucudaki awpy sürümü (kurulu değilse None)."""
+    from importlib import metadata
+
+    try:
+        return metadata.version("awpy")
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def check_compatibility(package: dict[str, Any], awpy_version: str | None = None) -> None:
+    """Paketi üreten ayrıştırıcı sunucununkiyle aynı sürümde değilse PackageError atar.
+
+    Farklı awpy sürümü farklı sütun / hesap demektir; sessizce karıştırmak yerine reddedilir.
+    `awpy_version` verilmezse kurulu sürüm kullanılır (bulunamazsa kontrol atlanır).
+    """
+    version = package.get("format_version")
+    if version != FORMAT_VERSION:
+        raise PackageError(
+            f"paket biçimi sürümü uyuşmuyor (pakette {version!r}, sunucuda {FORMAT_VERSION}); "
+            "sayfayı yenileyip tekrar dene"
+        )
+    expected = awpy_version if awpy_version is not None else installed_awpy_version()
+    got = package.get("awpy_version")
+    if expected is not None and got != expected:
+        raise PackageError(
+            f"ayrıştırıcı sürümü uyuşmuyor (tarayıcı {got!r}, sunucu {expected!r}); "
+            "tam demoyu yükle"
+        )
+
+
+def parse_package_checked(source: Path | str | bytes) -> DemoTables:
+    """`parse_package` + sürüm uyumu kontrolü (web yüklemesinde kullanılır)."""
+    package = load_package(source)
+    check_compatibility(package)
+    return tables_from_demo(PackageDemo(package))

@@ -10,11 +10,11 @@ import logging
 import queue
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from squadmind.faceit.client import FaceitAPIError, FaceitClient
-from squadmind.ingest.demos import ingest_demo
+from squadmind.ingest.demos import DemoIngestResult, ingest_demo, ingest_package
 from squadmind.ingest.matches import sync_player_matches
 from squadmind.parse.demo_parser import DemoTables, parse_demo
 from squadmind.web.store import DONE, FAILED, MISMATCH, PROCESSING, REJECTED, Store
@@ -27,20 +27,24 @@ SYNC_MATCHES = 100
 
 @dataclass
 class Job:
-    kind: str      # "sync" (maç geçmişi) / "ingest" (demo)
+    kind: str      # "sync" (maç geçmişi) / "ingest" (tam demo) / "package" (tarayıcı paketi)
     key: str       # steam_id ya da upload_id
     path: Path | None = None
+    # package işi: {"sha256", "dem_sha256", "orig_size", "file_name"} (tarayıcının bildirdiği)
+    meta: dict = field(default_factory=dict)
 
 
 class Worker:
     def __init__(self, store: Store, processed: Path, tmp: Path,
                  client_factory: Callable[[], FaceitClient] = FaceitClient,
                  parser: Callable[[Path], DemoTables] = parse_demo,
+                 package_parser: Callable[[bytes], DemoTables] | None = None,
                  delete_after: bool = False, team_owner: str | None = None) -> None:
         self.store = store
         self.processed, self.tmp = processed, tmp
         self.client_factory = client_factory
         self.parser = parser
+        self.package_parser = package_parser  # None: paket sürümünü de denetleyen varsayılan
         self.delete_after = delete_after
         # Takım sahibi: katılan hesabın onunla ortak maçı yoksa yanlış hesap uyarısı verilir
         self.team_owner = team_owner
@@ -73,6 +77,8 @@ class Worker:
             self._sync(job.key)
         elif job.kind == "ingest":
             self._ingest(job.key, job.path)
+        elif job.kind == "package":
+            self._ingest_package(job.key, job.path, job.meta)
 
     def _sync(self, steam_id: str) -> None:
         user = self.store.user(steam_id)
@@ -119,15 +125,40 @@ class Worker:
             con, path, self.tmp, self.processed, self.parser,
             delete_after=self.delete_after, uploader=up["steam_id"],
             expected_map=up.get("map_hint")), lock=False)
-        if r.rejected:
-            status, msg = REJECTED, r.error
-        elif r.error:
-            status, msg = FAILED, r.error
-        elif r.validated is False:
-            status, msg = MISMATCH, "FACEIT skor tablosuyla tutmadı; analize alınmadı"
-        else:
-            status, msg = DONE, f"{r.rounds} round, {r.kills} kill"
+        status, msg = self._outcome(r)
         self.store.set_upload(upload_id, status, msg, r.match_id)
         # Reddedilen / hatalı dosya sunucuda yer kaplamasın (kopya ya da bozuk)
         if status in (REJECTED, FAILED) and path.exists():
             path.unlink()
+
+    @staticmethod
+    def _outcome(r: DemoIngestResult) -> tuple[str, str | None]:
+        """İşleme sonucunu yükleme durumuna ve kullanıcıya gösterilecek nota çevirir."""
+        if r.rejected:
+            return REJECTED, r.error
+        if r.error:
+            return FAILED, r.error
+        if r.mismatch_reason:
+            return MISMATCH, f"paket FACEIT kaydıyla tutmadı ({r.mismatch_reason}); analize alınmadı"
+        if r.validated is False:
+            return MISMATCH, "FACEIT skor tablosuyla tutmadı; analize alınmadı"
+        return DONE, f"{r.rounds} round, {r.kills} kill"
+
+    def _ingest_package(self, upload_id: str, path: Path | None, meta: dict) -> None:
+        """Tarayıcı paketini işler (demo dosyası yok); paket dosyası işlenince silinir."""
+        up = self.store.upload(upload_id)
+        if up is None or path is None or not path.exists():
+            self.store.set_upload(upload_id, FAILED, "paket bulunamadı")
+            return
+        self.store.set_upload(upload_id, PROCESSING)
+        try:
+            data = path.read_bytes()
+            r = self.store.run(lambda con: ingest_package(
+                con, data, meta.get("file_name", up["file_name"]), meta["sha256"],
+                meta.get("dem_sha256", ""), int(meta.get("orig_size", 0)),
+                parser=self.package_parser, uploader=up["steam_id"],
+                expected_map=up.get("map_hint")), lock=False)
+            status, msg = self._outcome(r)
+            self.store.set_upload(upload_id, status, msg, r.match_id)
+        finally:
+            path.unlink(missing_ok=True)  # paket işlenince sunucuda hiçbir şey kalmaz
