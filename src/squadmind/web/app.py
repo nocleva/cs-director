@@ -485,12 +485,17 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                 now = time.time()
                 for p in players:
                     if p["steam_id"] not in feats or now - at.get(p["steam_id"], 0) > 60:
-                        at[p["steam_id"]] = now
-                        prof = client.get_player_live(p["faceit_id"])   # ELO her zaman FACEIT'ten
-                        game = (prof.get("games") or {}).get("cs2") or {}
-                        hist = rt.summarize_history(client.get_player_match_stats(p["faceit_id"]))
-                        feats[p["steam_id"]] = rt.player_features(
-                            hist, ctx.pop, elo=game.get("faceit_elo"), level=game.get("skill_level"))
+                        try:
+                            prof = client.get_player_live(p["faceit_id"])   # ELO her zaman FACEIT'ten
+                            game = (prof.get("games") or {}).get("cs2") or {}
+                            hist = rt.summarize_history(client.get_player_match_stats(p["faceit_id"]))
+                            elo = rt._num(game.get("faceit_elo"))
+                            feats[p["steam_id"]] = rt.player_features(
+                                hist, ctx.pop, elo=elo if elo and elo > 0 else None,
+                                level=game.get("skill_level"))
+                            at[p["steam_id"]] = now   # sadece başarıda: hata olunca bir sonraki istekte yeniden dene
+                        except Exception:  # noqa: BLE001 - tek oyuncu başarısız olursa diğerleri puanlı kalsın
+                            log.exception("oyuncu puanı alınamadı: %s", p.get("nickname"))
         except Exception:  # noqa: BLE001 - FACEIT yoksa puansız devam
             log.exception("güç puanı kurulamadı")
             return {}
@@ -500,10 +505,11 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             if f is None:
                 continue
             score, lo, hi = rt.rating_score(ctx.model, f, p["steam_id"])
-            few = (not f.elo_known) or f.n_matches < rt.MIN_MATCHES
+            # Canlı ELO alınamayıp seviye ortası kullanıldıysa "elo" gösterilmez, güven "az veri"
+            few = (not f.elo_exact) or f.n_matches < rt.MIN_MATCHES
             out[p["steam_id"]] = {
                 "score": round(score, 1), "lo": round(lo, 1), "hi": round(hi, 1),
-                "elo": round(f.elo) if f.elo_known else None, "combined": round(f.combined_elo),
+                "elo": round(f.elo) if f.elo_exact else None, "combined": round(f.combined_elo),
                 "sd": round(f.combined_sd), "matches": f.n_matches,
                 "conf": "az veri" if few else ("belirgin" if lo > 50 or hi < 50 else "belirsiz"),
             }
@@ -620,7 +626,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         if b_key == "ortalama":
             # Ortalama rakip bir tanım (verilen ELO'da popülasyon ortalaması), eksik veri değil:
             # güven yalnızca A'nın verisine ve aralığın %50'yi dışlayıp dışlamadığına bakar
-            few = (not fa.elo_known) or fa.n_matches < rt.MIN_MATCHES
+            few = (not fa.elo_exact) or fa.n_matches < rt.MIN_MATCHES
             conf = "az veri" if few else ("belirgin" if m.lo > 0.5 or m.hi < 0.5 else "belirsiz")
         out.update({"p": round(m.p, 3), "lo": round(m.lo, 3), "hi": round(m.hi, 3), "conf": conf,
                     "a_combined": round(fa.combined_elo), "b_combined": round(fb.combined_elo),
