@@ -173,7 +173,7 @@ class _FakeClient:
         row = {"Kills": str(10 + lv), "Deaths": "15", "ADR": "80", "Match Finished At": 0}
         return [{"Match Id": "m0", **row}] + [{"Match Id": f"old{i}", **row} for i in range(30)]
 
-    def get_player(self, faceit_id):
+    def get_player_live(self, faceit_id):
         return {"nickname": f"N{faceit_id}", "games": {"cs2": {"faceit_elo": 1500, "skill_level": 7}}}
 
 
@@ -189,3 +189,52 @@ def test_build_context_uses_only_pre_match_history():
     r = ctx.matchup("p2", "T", "p1", "long")
     assert r is not None and r.p > 0.5               # aynı ELO, p2'nin kill payı daha yüksek
     assert ctx.matchup("p2", "T", "yok", "long") is None
+
+
+class _NickClient:
+    """features_from_faceit için: nickname araması bayat ELO, canlı profil güncel ELO döner."""
+
+    def __init__(self, n_matches: int = 100, nickname: str = "Nocleva"):
+        self.n, self.nick, self.calls = n_matches, nickname, []
+
+    def get_player_by_nickname(self, nickname):
+        self.calls.append(("nick", nickname))
+        return {"player_id": "11111111-1111-1111-1111-111111111111", "nickname": self.nick,
+                "games": {"cs2": {"faceit_elo": 1000, "skill_level": 4}}}
+
+    def get_player_live(self, pid):
+        self.calls.append(("live", pid))
+        return {"player_id": pid, "nickname": self.nick, "steam_id_64": "7656",
+                "games": {"cs2": {"faceit_elo": 1897, "skill_level": 9}}}
+
+    def get_player_match_stats(self, pid, to_ms=None, limit=100):
+        self.calls.append(("stats", pid))
+        return [{"Kills": "20", "Deaths": "12", "ADR": "95"}] * self.n
+
+
+def test_features_from_faceit_uses_live_elo_and_returns_player_id():
+    c = _NickClient()
+    r = rt.features_from_faceit(c, "Nocleva", POP)
+    assert r.player_id == "11111111-1111-1111-1111-111111111111" and r.steam_id == "7656"
+    assert r.features.elo == 1897 and r.features.elo_exact and r.level == 9   # bayat 1000 değil
+    assert r.features.n_matches == 100 and r.features.stat_adj > 0            # güçlü kill payı
+    assert ("stats", r.player_id) in c.calls                                  # geçmiş player_id ile
+
+
+def test_features_from_faceit_rejects_lookalike_and_bad_input():
+    with pytest.raises(ValueError, match="tam eşleşen"):
+        rt.features_from_faceit(_NickClient(nickname="Nocleva"), "nocleva", POP)    # büyük / küçük harf
+    with pytest.raises(ValueError, match="tam eşleşen"):
+        rt.features_from_faceit(_NickClient(nickname="Nocleva_"), "Nocleva", POP)
+    with pytest.raises(ValueError):
+        rt.features_from_faceit(_NickClient(), "  ", POP)
+    c = _NickClient()
+    r = rt.features_from_faceit(c, "11111111-1111-1111-1111-111111111111", POP)      # UUID: arama yok
+    assert not any(k == "nick" for k, _ in c.calls) and r.features.elo == 1897
+
+
+def test_features_from_faceit_few_matches_leans_on_level():
+    many = rt.features_from_faceit(_NickClient(100), "Nocleva", POP).features
+    few = rt.features_from_faceit(_NickClient(5), "Nocleva", POP).features
+    assert few.weight < many.weight and abs(few.stat_adj) < abs(many.stat_adj)
+    assert few.n_matches == 5 and abs(few.stat_adj) <= rt.MAX_STAT_ADJ

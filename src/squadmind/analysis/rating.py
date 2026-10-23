@@ -34,6 +34,7 @@ güç tahmininin belirsizliğidir, tek düellonun şansı değil (olasılıklar 
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -242,6 +243,7 @@ class PlayerFeatures:
     stat_adj: float                         # stat puanının ELO karşılığı (κ'lı, sınırlı)
     combined_elo: float                     # birleşik ELO = ELO + stat_adj
     combined_sd: float                      # birleşik ELO'nun belirsizliği (ELO)
+    elo_exact: bool = False                 # ELO FACEIT'ten kesin mi (False: seviye aralığı ortası)
 
 
 def player_features(hist: History, pop: Population, *, elo: float | None = None,
@@ -278,7 +280,8 @@ def player_features(hist: History, pop: Population, *, elo: float | None = None,
     x = ((e - pop.elo_mean) / ELO_UNIT, _logit(s) - _logit(pop.share.mean),
          (a - pop.adr.mean) / ADR_UNIT, (comb - pop.elo_mean) / ELO_UNIT)
     var = (e_var / ELO_UNIT ** 2, s_var / d ** 2, a_var / ADR_UNIT ** 2, comb_var / ELO_UNIT ** 2)
-    return PlayerFeatures(x, var, e, known, s, hist.share, a, w, hist.n, adj, comb, math.sqrt(comb_var))
+    return PlayerFeatures(x, var, e, known, s, hist.share, a, w, hist.n, adj, comb, math.sqrt(comb_var),
+                          elo is not None)
 
 
 # --- 3. Model ---------------------------------------------------------------------------------
@@ -565,10 +568,59 @@ def build_context(du: pl.DataFrame, client: Any, roster: Iterable[Mapping[str, A
     out: dict[str, PlayerFeatures] = {}
     names: dict[str, str] = {}
     for c in current:
-        prof = client.get_player(c["faceit_id"])
+        prof = client.get_player_live(c["faceit_id"])   # ELO her zaman canlı (≤60 sn), 1 saatlik değil
         game = (prof.get("games") or {}).get("cs2") or {}
         items = client.get_player_match_stats(c["faceit_id"])
         out[c["steam_id"]] = player_features(summarize_history(items), pop, elo=game.get("faceit_elo"),
                                              level=game.get("skill_level"))
         names[c["steam_id"]] = prof.get("nickname", c["steam_id"])
     return RatingContext(model, pop, out, names)
+
+
+# --- 7. Siteye katılmamış oyuncu: FACEIT geçmişinden puan -------------------------------------
+
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class FaceitRating:
+    """FACEIT'ten çözülen oyuncu: kimlik (player_id geri döner) + özellikler."""
+
+    player_id: str
+    nickname: str
+    steam_id: str | None
+    level: int | None
+    features: PlayerFeatures
+
+
+def features_from_faceit(client: Any, who: str, pop: Population, *, kappa: float = KAPPA
+                         ) -> FaceitRating:
+    """Nickname ya da player_id (UUID) → profil → CANLI ELO + son 100 maç → `player_features`.
+
+    Benzer adlı hesaba düşmemek için nickname, FACEIT'in döndürdüğü profildeki adla TAM (büyük /
+    küçük harf dahil) eşleşmezse reddedilir (ValueError); kimlik çözüldükten sonra ELO
+    `get_player_live` ile (≤60 sn eski), geçmiş o player_id ile alınır. Bulunamayan nickname
+    `FaceitNotFound` fırlatır. Az maçta (ör. 5) puan popülasyon beklentisine (seviye) yaslanır:
+    w küçük, stat eki ≈ 0, aralık geniş.
+    """
+    who = (who or "").strip()
+    if not who:
+        raise ValueError("Nickname ya da player_id boş.")
+    if _UUID.match(who):
+        pid = who.lower()
+    else:
+        prof = client.get_player_by_nickname(who)
+        if prof.get("nickname") != who or not prof.get("player_id"):
+            raise ValueError(f"'{who}' ile tam eşleşen hesap yok (FACEIT: '{prof.get('nickname')}').")
+        pid = prof["player_id"]
+    live = client.get_player_live(pid)
+    if str(live.get("player_id", pid)).lower() != pid.lower():
+        raise ValueError("FACEIT profili istenen player_id ile uyuşmuyor.")
+    game = (live.get("games") or {}).get("cs2")
+    if not game:
+        raise ValueError(f"'{live.get('nickname', who)}' için CS2 profili yok.")
+    elo = _num(game.get("faceit_elo"))
+    level = int(game["skill_level"]) if game.get("skill_level") else None
+    hist = summarize_history(client.get_player_match_stats(pid))
+    feats = player_features(hist, pop, elo=elo if elo and elo > 0 else None, level=level, kappa=kappa)
+    return FaceitRating(pid, live.get("nickname", who), live.get("steam_id_64"), level, feats)
