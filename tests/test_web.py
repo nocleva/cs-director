@@ -421,3 +421,15 @@ def test_login_link_signs_in_known_user_only(web):
     assert r.headers["location"] == "/ben" and "squadmind_oturum" in r.headers["set-cookie"]
     other = make_login_link("baska-secret", "http://x", SELF).split("?t=")[1]
     assert "süresi dolmuş" in client.get(f"/giris/link?t={other}").text
+
+
+def test_arena_requires_permission_and_position(web):
+    client, store = web
+    _join(client)
+    # İzinsiz oyuncu verisi kullanılamaz
+    r = client.post("/api/arena/duel", json={"a": {"steam_id": "76561100000000099", "x": 0, "y": 0},
+                                            "b": {"elo": 1500, "x": 10, "y": 10}})
+    assert r.status_code == 403
+    # Konum eksikse 400
+    r = client.post("/api/arena/duel", json={"a": {"steam_id": SELF}, "b": {"elo": 1500}})
+    assert r.status_code == 400

@@ -20,6 +20,9 @@ BASE_URL = "https://open.faceit.com/data/v4"
 # Cache süreleri (saniye). None = kalıcı (biten maçın verisi değişmez)
 PROFILE_TTL: float | None = 3600  # oyuncu profili 1 saat geçerli
 HISTORY_TTL: float | None = 600  # maç geçmişi 10 dk (yeni maç gelebilir)
+# Canlı ELO: arena hesapları sunucudaki değeri değil FACEIT'in güncelini kullanır (kullanıcı kuralı);
+# 60 sn, her tıklamada API'yi yormamak için
+LIVE_TTL: float | None = 60
 PERMANENT: float | None = None
 
 # FACEIT history endpoint'i tek istekte en fazla 100 kayıt döner
@@ -185,6 +188,10 @@ class FaceitClient:
     def get_player_by_nickname(self, nickname: str, game: str = "cs2") -> dict[str, Any]:
         """Nickname ile oyuncu profili (ELO, level, steam id). 1 saat cache'lenir."""
         return self._get("/players", {"nickname": nickname, "game": game}, ttl=PROFILE_TTL)
+
+    def get_player_live(self, player_id: str) -> dict[str, Any]:
+        """Oyuncu profili, en fazla LIVE_TTL eski (güncel ELO / seviye için)."""
+        return self._get(f"/players/{player_id}", ttl=LIVE_TTL)
 
     def get_player(self, player_id: str) -> dict[str, Any]:
         """FACEIT player_id ile oyuncu profili. 1 saat cache'lenir."""

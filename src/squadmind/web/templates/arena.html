@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Arena · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { margin-bottom: 14px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-end; margin-bottom: 14px; }
+  .controls label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .6px; }
+  .seg { display: inline-flex; border: 1px solid var(--bg-3); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+  .seg button { height: 36px; border-radius: 0; background: transparent; color: var(--text-2); padding: 0 12px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg-0); }
+  .levels button { padding: 0 9px; min-width: 36px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .boardwrap { background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 14px; padding: 12px; }
+  .board { position: relative; width: 100%; max-width: 720px; margin: 0 auto; touch-action: none; }
+  .board svg { display: block; width: 100%; height: auto; }
+  .board svg.ov { position: absolute; inset: 0; }
+  .tok { cursor: grab; }
+  .tok.win circle.body { fill: var(--ok); }
+  .tok.win circle.halo { opacity: 1; animation: halo 1600ms ease-out infinite; }
+  .tok.lose { opacity: .55; }
+  .tok circle.halo { opacity: 0; transform-box: fill-box; transform-origin: center; }
+  @keyframes halo { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(2.1); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .tok.win circle.halo { animation: none; opacity: .5; } }
+  .result { background: var(--bg-2); border-radius: 14px; padding: 16px; }
+  .vs { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .side { text-align: center; flex: 1; }
+  .side .nm { font-weight: 700; font-size: 15px; word-break: break-all; }
+  .side .el { font-size: 11px; color: var(--muted); }
+  .vsx { font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: 1px; }
+  .pbar { position: relative; height: 12px; border-radius: 6px; background: var(--bg-3); overflow: hidden; margin: 8px 0; }
+  .pbar .a { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); transition: width 400ms cubic-bezier(.2,.7,.2,1); }
+  .pbar .ci { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.18); }
+  .pbar .mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line); opacity: .6; }
+  .big { font-size: 34px; font-weight: 800; letter-spacing: -1px; text-align: center; margin: 4px 0; }
+  .facts { font-size: 12px; color: var(--text-2); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin-top: 10px; }
+  .facts dt { color: var(--muted); } .facts dd { margin: 0; }
+  .note { font-size: 11px; color: var(--muted); margin: 12px 0 0; }
+  .nosee { text-align: center; padding: 14px 6px; color: var(--text-2); }
+  select { width: 100%; }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div class="eyebrow">Arena · Dust2</div>
+  <h1>Kim kazanır?</h1>
+  <p class="sub">Kendini ve rakibini haritaya yerleştir. Birbirinizi görüyorsanız, güncel FACEIT ELO'n ve istatistiklerine göre düelloyu kimin alacağı hesaplanır.</p>
+</div>
+
+<div class="controls">
+  <div><label for="playerSel">Sen / oyuncu</label><select id="playerSel"></select></div>
+  <div><label>Taraf</label><div class="seg" id="sideSeg"><button type="button" data-side="T" aria-pressed="true">T</button><button type="button" data-side="CT" aria-pressed="false">CT</button></div></div>
+  <div><label>Rakip: FACEIT seviyesi (ortalama oyuncu)</label><div class="seg levels" id="levels"></div></div>
+  <div><label for="oppSel">ya da oyuncu</label><select id="oppSel"><option value="">— seviye seçili —</option></select></div>
+</div>
+
+<div class="layout">
+  <section class="boardwrap" aria-label="Arena haritası">
+    <div class="board" id="board">
+      {{ board | safe }}
+      <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-label="Oyuncular"></svg>
+    </div>
+    <p class="note" style="text-align:center">Jetonları sürükle. Turuncu: sen · Kırmızı: rakip.</p>
+  </section>
+  <aside class="result" aria-live="polite">
+    <div class="vs">
+      <div class="side"><div class="nm" id="aName"></div><div class="el" id="aElo"></div></div>
+      <div class="vsx">VS</div>
+      <div class="side"><div class="nm" id="bName"></div><div class="el" id="bElo"></div></div>
+    </div>
+    <div id="out"></div>
+    <p class="note">Model: güncel FACEIT ELO + son 100 maçın istatistikleri (küçültmeli, sınırlı). Sınamada kimin favori olduğunu bilmede yazı-turadan küçük ama gerçek kazanç, iyi kalibre. Tek düello büyük ölçüde şans; peek / tutma ve silah henüz modelde yok.</p>
+  </aside>
+</div>
+
+<script id="payload" type="application/json">{{ payload | tojson }}</script>
+<script>
+const P = JSON.parse(document.getElementById("payload").textContent);
+const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
+const C = { a: "#F37321", b: "#E5484D", ok: "#3FB950", line: "#E9EBEE", bg0: "#111214", muted: "#8B9198" };
+const el = (tag, at, p = ov) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); p.appendChild(e); return e; };
+const toPx = (x, y) => [(x - P.proj.minx) * P.proj.s + P.proj.pad, (P.proj.maxy - y) * P.proj.s + P.proj.pad];
+const toWorld = (px, py) => [(px - P.proj.pad) / P.proj.s + P.proj.minx, P.proj.maxy - (py - P.proj.pad) / P.proj.s];
+const byId = Object.fromEntries(P.players.map((p) => [p.steam_id, p]));
+
+// Durum: A (sen) Long Doors, B (rakip) Long A; noktalar bu hattaki gerçek kill konumlarının ortancası
+const state = { a: { sid: P.me, x: 681, y: 835 }, b: { sid: "", elo: (P.levels.find((l) => l.level === 9) || P.levels[0]).elo, x: 1408, y: 1293 }, side: "T" };
+
+// Kontroller
+const playerSel = document.getElementById("playerSel"), oppSel = document.getElementById("oppSel");
+for (const p of P.players) {
+  const r = P.ratings[p.steam_id];
+  const o1 = new Option(`${p.nickname}${r ? " · ELO " + (r.elo ?? "?") : ""}`, p.steam_id); playerSel.add(o1);
+  oppSel.add(new Option(`${p.nickname}${r ? " · ELO " + (r.elo ?? "?") : ""}`, p.steam_id));
+}
+playerSel.value = P.me;
+playerSel.onchange = () => { state.a.sid = playerSel.value; refresh(); };
+oppSel.onchange = () => { state.b.sid = oppSel.value; renderLevels(); refresh(); };
+const levels = document.getElementById("levels");
+function renderLevels() {
+  levels.innerHTML = "";
+  for (const l of P.levels) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = l.level; b.title = `Seviye ${l.level}: ELO ${l.range}, ortalama ${l.elo}`;
+    b.setAttribute("aria-pressed", !state.b.sid && state.b.elo === l.elo ? "true" : "false");
+    b.onclick = () => { state.b.sid = ""; state.b.elo = l.elo; oppSel.value = ""; renderLevels(); refresh(); };
+    levels.appendChild(b);
+  }
+}
+document.querySelectorAll("#sideSeg button").forEach((b) => b.onclick = () => {
+  state.side = b.dataset.side; document.querySelectorAll("#sideSeg button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); refresh();
+});
+
+// Tahta: görüş çizgisi + iki jeton
+const sight = el("line", { stroke: C.muted, "stroke-width": 1.5, "stroke-dasharray": "4 5", opacity: 0 });
+function token(key, color) {
+  const g = el("g", { class: "tok" });
+  el("circle", { class: "halo", r: 11, fill: "none", stroke: C.ok, "stroke-width": 2 }, g);
+  el("circle", { class: "body", r: 11, fill: color, stroke: C.bg0, "stroke-width": 2 }, g);
+  const t = el("text", { y: 3.8, "text-anchor": "middle", "font-size": 10, "font-weight": 800, fill: C.bg0, "font-family": "Inter, sans-serif" }, g);
+  const n = el("text", { x: 15, y: -12, "font-size": 10, "font-weight": 700, fill: C.line, "paint-order": "stroke", stroke: C.bg0, "stroke-width": 3, "font-family": "Inter, sans-serif" }, g);
+  g.addEventListener("pointerdown", (e) => { drag = key; ov.setPointerCapture(e.pointerId); g.style.cursor = "grabbing"; });
+  return { g, t, n };
+}
+const tokA = token("a", C.a), tokB = token("b", C.b);
+let drag = null;
+function svgPoint(e) { const pt = ov.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; return pt.matrixTransform(ov.getScreenCTM().inverse()); }
+ov.addEventListener("pointermove", (e) => { if (!drag) return; const p = svgPoint(e); [state[drag].x, state[drag].y] = toWorld(p.x, p.y); draw(); });
+const drop = () => { if (drag) { drag = null; refresh(); } };
+ov.addEventListener("pointerup", drop); ov.addEventListener("pointercancel", drop);
+
+function names() {
+  const a = byId[state.a.sid], b = state.b.sid ? byId[state.b.sid] : null;
+  const lv = P.levels.find((l) => l.elo === state.b.elo);
+  return { a: a ? a.nickname : "?", b: b ? b.nickname : `Ort. seviye ${lv ? lv.level : ""}` };
+}
+function draw(result) {
+  const [ax, ay] = toPx(state.a.x, state.a.y), [bx, by] = toPx(state.b.x, state.b.y), nm = names();
+  tokA.g.setAttribute("transform", `translate(${ax.toFixed(1)},${ay.toFixed(1)})`);
+  tokB.g.setAttribute("transform", `translate(${bx.toFixed(1)},${by.toFixed(1)})`);
+  tokA.t.textContent = nm.a.slice(0, 2).toUpperCase(); tokB.t.textContent = state.b.sid ? nm.b.slice(0, 2).toUpperCase() : "L" + (P.levels.find((l) => l.elo === state.b.elo) || {}).level;
+  tokA.n.textContent = nm.a; tokB.n.textContent = nm.b;
+  Object.assign(sight.attributes, {});
+  sight.setAttribute("x1", ax); sight.setAttribute("y1", ay); sight.setAttribute("x2", bx); sight.setAttribute("y2", by);
+  if (result !== undefined) {
+    const vis = result && result.visible;
+    sight.setAttribute("stroke", vis ? C.ok : C.muted); sight.setAttribute("opacity", result && result.visible !== null ? (vis ? .9 : .5) : 0);
+    for (const [tk, isA] of [[tokA, true], [tokB, false]]) {
+      tk.g.classList.remove("win", "lose");
+      if (vis && result.p != null) tk.g.classList.add((isA ? result.p >= .5 : result.p < .5) ? "win" : "lose");
+    }
+  }
+}
+
+// Sunucuya sor: görüş + olasılık
+let seq = 0;
+async function refresh() {
+  draw();
+  const nm = names();
+  document.getElementById("aName").textContent = nm.a; document.getElementById("bName").textContent = nm.b;
+  const ra = P.ratings[state.a.sid];
+  document.getElementById("aElo").textContent = ra ? `FACEIT ELO ${ra.elo ?? "?"} · güç ${ra.score.toFixed(0)}` : "";
+  const rb = state.b.sid ? P.ratings[state.b.sid] : null;
+  document.getElementById("bElo").textContent = rb ? `FACEIT ELO ${rb.elo ?? "?"} · güç ${rb.score.toFixed(0)}` : `ELO ${state.b.elo} (seviyenin ortalaması)`;
+  const my = ++seq, body = { side_a: state.side, a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y },
+    b: state.b.sid ? { steam_id: state.b.sid, x: state.b.x, y: state.b.y } : { elo: state.b.elo, x: state.b.x, y: state.b.y } };
+  const out = document.getElementById("out");
+  let r;
+  try {
+    const res = await fetch("/api/arena/duel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    r = await res.json();
+    if (!res.ok) { out.innerHTML = `<p class="nosee"></p>`; out.firstChild.textContent = r.detail || "Hesaplanamadı."; draw(null); return; }
+  } catch { out.innerHTML = `<p class="nosee">Sunucuya ulaşılamadı.</p>`; return; }
+  if (my !== seq) return;          // daha yeni bir istek var
+  draw(r);
+  if (!r.visible) { out.innerHTML = `<p class="nosee"></p>`; out.firstChild.textContent = r.reason || "Düello yok."; return; }
+  const pa = r.p * 100, winner = r.p >= .5 ? nm.a : nm.b;
+  out.innerHTML = `<div class="big" style="color:${r.p >= .5 ? C.ok : C.b}"></div>
+    <div class="pbar"><div class="a" style="width:${pa}%"></div><div class="ci" style="left:${r.lo * 100}%;width:${(r.hi - r.lo) * 100}%"></div><div class="mid"></div></div>
+    <p style="text-align:center;margin:0;font-size:13px"><b></b> favori · güven: ${r.conf}</p>
+    <dl class="facts"><dt>Konumlar</dt><dd></dd><dt>Mesafe</dt><dd>${r.dist} birim (${r.band})</dd><dt>Hat</dt><dd>${r.line || "tanımlı peek hattı değil"}</dd><dt>%90 aralık</dt><dd>%${Math.round(r.lo * 100)} - %${Math.round(r.hi * 100)}</dd><dt>Birleşik ELO</dt><dd>${r.a_combined} vs ${r.b_combined}</dd></dl>`;
+  out.querySelector(".big").textContent = `%${Math.round(pa)}`;
+  out.querySelector("p b").textContent = winner;
+  out.querySelector(".facts dd").textContent = `${r.place_a} ↔ ${r.place_b}`;
+}
+renderLevels(); refresh();
+</script>
+{% endblock %}

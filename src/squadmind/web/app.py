@@ -14,6 +14,7 @@ import html as html_lib
 import logging
 import re
 import secrets
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -454,7 +455,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return _builder_cache[key]
         return store.run(build, lock=False)
 
-    _rating_cache: dict[str, Any] = {"key": None, "ctx": None, "feats": {}}
+    _rating_cache: dict[str, Any] = {"key": None, "ctx": None, "feats": {}, "at": {}}
 
     def builder_ratings(map_name: str, players: list[dict]) -> dict[str, dict]:
         """Doğrulanmış güç puanı (analysis/rating.py): ortalama rakibe karşı beklenen düello
@@ -480,10 +481,12 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                                                "finished_at": det["finished_at"]})
                     _rating_cache.update(key=key, ctx=rt.build_context(bm["duels"], client, roster),
                                          feats={})
-                ctx, feats = _rating_cache["ctx"], _rating_cache["feats"]
+                ctx, feats, at = _rating_cache["ctx"], _rating_cache["feats"], _rating_cache["at"]
+                now = time.time()
                 for p in players:
-                    if p["steam_id"] not in feats:
-                        prof = client.get_player(p["faceit_id"])
+                    if p["steam_id"] not in feats or now - at.get(p["steam_id"], 0) > 60:
+                        at[p["steam_id"]] = now
+                        prof = client.get_player_live(p["faceit_id"])   # ELO her zaman FACEIT'ten
                         game = (prof.get("games") or {}).get("cs2") or {}
                         hist = rt.summarize_history(client.get_player_match_stats(p["faceit_id"]))
                         feats[p["steam_id"]] = rt.player_features(
@@ -536,6 +539,93 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                    for f, s, n, lv, dm in rows]
             return sorted(out, key=lambda r: (r["rank"], (r["nickname"] or "").lower()))
         return store.run(load, lock=False)
+
+    # --- düello arenası ------------------------------------------------------------------
+
+    def level_options() -> list[dict]:
+        """Rakip seçimi: her FACEIT seviyesinde ortalama rakip (aralığın ortası ELO)."""
+        from squadmind.analysis import rating as rt
+        return [{"level": lv, "elo": round((lo + hi) / 2), "range": f"{int(lo)}-{int(hi)}"}
+                for lv, (lo, hi) in rt.LEVEL_ELO_RANGE.items()]
+
+    @app.get("/arena", response_class=HTMLResponse)
+    def arena_page(request: Request):
+        user = current_user(request)
+        if user is None:
+            return RedirectResponse("/", status_code=303)
+        map_name = "de_dust2"
+        try:
+            bm = builder_model(map_name)
+        except Exception:  # noqa: BLE001
+            log.exception("arena modeli kurulamadı")
+            return render_report(request, "Arena", "_Bu harita için henüz yeterli veri yok._")
+        players = builder_players(user, map_name)
+        payload = {"map": map_name, "proj": bm["proj"], "grid": bm["grid"], "players": players,
+                   "ratings": builder_ratings(map_name, players), "levels": level_options(),
+                   "me": user.steam_id}
+        return page(request, "arena.html", user=user, board=bm["board"], payload=payload,
+                    w=bm["proj"]["w"], h=bm["proj"]["h"])
+
+    @app.post("/api/arena/duel")
+    async def arena_duel(request: Request):
+        """İki yerleşim → görüş, mesafe, hat ve (görüyorlarsa) A'nın kazanma olasılığı.
+
+        Gövde: {a: {steam_id, x, y}, b: {steam_id | elo, x, y}, side_a: "T" | "CT"}.
+        A izinli oyunculardan biri olmalı; B ya izinli bir oyuncu ya da bir ELO (ortalama rakip).
+        """
+        from squadmind.analysis import duels as du
+        from squadmind.analysis import rating as rt
+        from squadmind.analysis.geometry import can_see
+
+        user = require_user(request)
+        body = await request.json()
+        map_name = "de_dust2"
+        bm = builder_model(map_name)
+        players = builder_players(user, map_name)
+        allowed = {p["steam_id"] for p in players}
+        a, b = body.get("a") or {}, body.get("b") or {}
+        side_a = body.get("side_a") if body.get("side_a") in ("T", "CT") else "T"
+        if a.get("steam_id") not in allowed or (b.get("steam_id") and b["steam_id"] not in allowed):
+            raise HTTPException(403, "Bu oyuncunun verisini kullanma iznin yok.")
+        try:
+            ax, ay, bx, by = (float(a["x"]), float(a["y"]), float(b["x"]), float(b["y"]))
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(400, "Konum eksik.") from None
+        pa, za = tbld.place_at(bm["grid"], ax, ay)
+        pb, zb = tbld.place_at(bm["grid"], bx, by)
+        if pa is None or pb is None:
+            return {"visible": None, "reason": "Nokta oyuncuların gezdiği alanın dışında."}
+        dist = ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+        visible = can_see(map_name, (ax, ay, za), (bx, by, zb))
+        line = du.line_of(map_name, pa, pb)
+        out = {"visible": visible, "place_a": pa, "place_b": pb, "dist": round(dist),
+               "band": du.band_of(dist), "line": tbld.line_names(map_name).get(line or "", None)}
+        if not visible:
+            out["reason"] = "Birbirlerini görmüyorlar: düello yok."
+            return out
+        ratings = builder_ratings(map_name, players)
+        ctx = _rating_cache["ctx"]
+        fa = _rating_cache["feats"].get(a["steam_id"])
+        if ctx is None or fa is None:
+            raise HTTPException(503, "Güç puanı şu an hesaplanamadı (FACEIT).")
+        if b.get("steam_id"):
+            fb, b_key = _rating_cache["feats"].get(b["steam_id"]), b["steam_id"]
+        else:
+            elo = max(100.0, min(4000.0, float(b.get("elo") or 1000)))
+            fb, b_key = rt.player_features(rt.History((), ()), ctx.pop, elo=elo), "ortalama"
+        if fb is None:
+            raise HTTPException(503, "Rakibin puanı hesaplanamadı.")
+        m = rt.matchup(ctx.model, a["steam_id"], side_a, b_key, line, fa, fb)
+        conf = m.conf
+        if b_key == "ortalama":
+            # Ortalama rakip bir tanım (verilen ELO'da popülasyon ortalaması), eksik veri değil:
+            # güven yalnızca A'nın verisine ve aralığın %50'yi dışlayıp dışlamadığına bakar
+            few = (not fa.elo_known) or fa.n_matches < rt.MIN_MATCHES
+            conf = "az veri" if few else ("belirgin" if m.lo > 0.5 or m.hi < 0.5 else "belirsiz")
+        out.update({"p": round(m.p, 3), "lo": round(m.lo, 3), "hi": round(m.hi, 3), "conf": conf,
+                    "a_combined": round(fa.combined_elo), "b_combined": round(fb.combined_elo),
+                    "a_score": ratings.get(a["steam_id"], {}).get("score")})
+        return out
 
     # --- takım oluşturma ---------------------------------------------------------------
 
