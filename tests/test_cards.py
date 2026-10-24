@@ -1,6 +1,8 @@
-"""Oyuncu kartı (analysis/cards.py): ölçek, etiketler, küçültme, veri yok durumu."""
+"""Oyuncu kartı (analysis/cards.py): ölçek, etiketler, küçültme, silah kaydı, veri yok, bağımsızlık."""
 
 from __future__ import annotations
+
+import pathlib
 
 import numpy as np
 import polars as pl
@@ -20,7 +22,7 @@ def _feats(elo: float = 1700.0) -> rt.PlayerFeatures:
 
 def _duels(spec: list[tuple[str, str, str, int]], seed: int = 1) -> tuple[pl.DataFrame, dict]:
     """spec: (A, B, A'nın silahı, düello sayısı). ELO farkı sonucu belirler (yüksek ELO daha çok
-    kazanır; hi/lo dolgu çifti β'yı ayırt edilir kılar); "star" yalnız AWP'de çok güçlüdür (tüfekte sıradan: kayma genele göre)."""
+    kazanır; hi/lo dolgu çifti β'yı ayırt edilir kılar); "star" yalnız AWP'de çok güçlüdür."""
     rows = []
     elo = {}
     rng = np.random.default_rng(seed)
@@ -48,6 +50,7 @@ def test_scale_monotone_and_anchored() -> None:
     assert abs(cd.elo_to_score(1751) - 80) < 1e-9                   # seviye 9 başı
     assert abs(cd.elo_to_score(2001) - 90) < 1e-9                   # seviye 10 başı
     assert 80 < cd.elo_to_score(1800) < 90
+    assert "doğrusal DEĞİL" in (cd.__doc__ or "")                   # uyarı docstring'de
 
 
 def test_label_thresholds() -> None:
@@ -64,45 +67,49 @@ def test_rate_stat_threshold_and_interval() -> None:
     assert (wide.hi - wide.lo) > (narrow.hi - narrow.lo)
 
 
-def test_shrinkage_few_duels_stay_near_general() -> None:
-    # "star" AWP'de 400 düelloda çok kazanır; "newbie" 4 düello: küçültme farkı büyük olmalı
-    du, elo = _duels([("star", "x", "awp", 400), ("star", "w", "rifle", 400), ("newbie", "y", "awp", 4), ("avg", "z", "awp", 400)])
+def test_internal_shift_shrinks_with_few_duels() -> None:
+    # İç hesap: "star" AWP'de 400 düelloda çok kazanır; "newbie" 4 düello → küçültme büyük fark yaratır
+    du, elo = _duels([("star", "x", "awp", 400), ("star", "w", "rifle", 400), ("newbie", "y", "awp", 4),
+                      ("avg", "z", "awp", 400)])
     cm = cd.fit_card_model(du, elo)
-    star, newbie = cm.d[("star", "awp")][0], cm.d.get(("newbie", "awp"), (0.0, 0, 0))[0]
+    star = cm.d[("star", "awp")][0]
+    newbie = cm.d.get(("newbie", "awp"), (0.0, 0, 0))[0]
     assert star > 0.05 and abs(newbie) < 0.5 * abs(star)
-    # az veride ELO kayması genele yakın ve "veri yok"
-    f = _feats()
-    sk = cd.skill_of(cm, "newbie", "awp", f)
-    assert sk.score.value is None and sk.score.label == "veri yok"
-    big = cd.skill_of(cm, "star", "awp", f)
-    assert big.score.value is not None and big.score.label == "yeterli"
-    # kayma sınırlı: ±300 ELO
-    assert abs(big.shift_elo) <= cd.MAX_SKILL_SHIFT
-    # aynı silah: daha çok veri, daha dar aralık (belirsizlik azalır)
-    assert big.score.lo is not None and big.score.hi is not None
-    assert big.score.hi - big.score.lo < 60
 
 
-def test_shift_follows_direction_and_score_monotone() -> None:
-    du, elo = _duels([("star", "x", "awp", 300), ("star", "w", "rifle", 300), ("avg", "z", "awp", 300)])
-    cm = cd.fit_card_model(du, elo)
-    f = _feats()
-    s_star, s_avg = cd.skill_of(cm, "star", "awp", f), cd.skill_of(cm, "avg", "awp", f)
-    assert s_star.shift_elo > s_avg.shift_elo
-    assert s_star.score.value >= s_avg.score.value                    # tek yönlü eşleme
+def test_weapon_record_raw_wilson_unvalidated() -> None:
+    du, _ = _duels([("star", "x", "awp", 60), ("newbie", "y", "awp", 4)])
+    counts = cd.weapon_counts(du)
+    big, small = cd.weapon_record(counts, "star", "awp"), cd.weapon_record(counts, "newbie", "awp")
+    assert big.n >= 60 and big.label == "yeterli" and big.lo < big.wins / big.n < big.hi
+    assert small.n < cd.MIN_N and small.label == "veri yok" and small.lo is None and small.hi is None
+    assert not big.validated and not small.validated
+    none = cd.weapon_record(counts, "hiç_yok", "rifle")
+    assert none.n == 0 and none.label == "veri yok"
+
+
+def test_card_has_no_weapon_score_or_shift() -> None:
+    du, _ = _duels([("star", "x", "awp", 60)])
+    card = cd.player_card("star", feats=_feats(), counts=cd.weapon_counts(du), nickname="s", level=8)
+    d = card.to_dict()
+    for w in d["weapons"].values():
+        assert set(w) == {"wins", "n", "lo", "hi", "label", "validated"} and w["validated"] is False
+    assert set(d) == {"nickname", "steam_id", "faceit_level", "elo", "general", "weapons", "descriptive", "counts"}
+    assert set(d["weapons"]) == set(cd.SHOWN_SKILLS)
+    assert set(d["counts"]) == {"demos", "rounds", "duels"} and d["faceit_level"] == 8
+    assert d["elo"] == 1700.0 and {"score", "lo", "hi", "conf"} <= set(d["general"])
 
 
 def test_no_data_cases() -> None:
-    card = cd.player_card("yok", feats=None, card_model=None)
-    assert card.general.value is None and card.general.label == "veri yok"
-    assert all(s.score.value is None and s.n == 0 for s in card.skills.values())
-    assert set(card.skills) == set(cd.SHOWN_SKILLS)
+    card = cd.player_card("yok", feats=None)
+    assert card.general.value is None and card.general.label == "veri yok" and card.elo is None
+    assert all(w.n == 0 and w.label == "veri yok" for w in card.weapons.values())
+    assert set(card.weapons) == set(cd.SHOWN_SKILLS)
     # boş düello tablosu da çökmez
     empty = pl.DataFrame(schema={"match_id": pl.String, "winner": pl.String, "loser": pl.String,
                                  "winner_side": pl.String, "winner_cls": pl.String,
                                  "loser_cls": pl.String, "dist": pl.Float64})
-    cm = cd.fit_card_model(empty, {})
-    assert cm.n_duels == 0 and cd.skill_of(cm, "a", "rifle", _feats()).score.value is None
+    assert cd.fit_card_model(empty, {}).n_duels == 0 and cd.weapon_counts(empty) == {}
 
 
 def test_general_uses_combined_elo_with_interval() -> None:
@@ -110,5 +117,24 @@ def test_general_uses_combined_elo_with_interval() -> None:
     card = cd.player_card("a", feats=f)
     assert card.general.value == cd.elo_to_score(f.combined_elo)
     assert card.general.lo <= card.general.value <= card.general.hi
-    hi_card = cd.player_card("b", feats=_feats(2300.0))
-    assert hi_card.general.value > card.general.value                  # daha yüksek ELO → daha yüksek puan
+    assert cd.player_card("b", feats=_feats(2300.0)).general.value > card.general.value
+
+
+def test_matchup_unaffected_by_cards() -> None:
+    """Kart hesabı rating.matchup çıktısını değiştirmez; arena_duel kart modülünü çağırmaz."""
+    model = rt.fit_model(pl.DataFrame(schema={"match_id": pl.String, "winner": pl.String, "loser": pl.String,
+                                              "winner_side": pl.String, "line": pl.String}),
+                         lambda m, s: _feats())
+    fa, fb = _feats(1900.0), _feats(1500.0)
+    before = rt.matchup(model, "a", "T", "b", None, fa, fb)
+    du, elo = _duels([("star", "x", "awp", 100)])
+    cd.fit_card_model(du, elo)
+    cd.player_card("star", feats=fa, counts=cd.weapon_counts(du)).to_dict()
+    after = rt.matchup(model, "a", "T", "b", None, fa, fb)
+    assert (before.p, before.lo, before.hi, before.conf) == (after.p, after.lo, after.hi, after.conf)
+    app = pathlib.Path(__file__).resolve().parents[1] / "src" / "squadmind" / "web" / "app.py"
+    text = app.read_text(encoding="utf-8")
+    start = text.index("async def arena_duel")
+    end = text.find("\n    @", start)
+    body = text[start:end if end > 0 else len(text)]
+    assert "cards" not in body and "analysis.cards" not in text

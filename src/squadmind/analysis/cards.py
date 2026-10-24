@@ -1,28 +1,32 @@
-"""Oyuncu kartı: genel puan + silah yetenekleri + betimleyici sayılar, hepsi n ve güven etiketiyle.
+"""Oyuncu kartı: genel puan (seviye ölçeği) + silah kayıtları (ham, doğrulanmadı) + betimleyiciler.
 
-Ölçek (tek, sabit, havuzdan bağımsız): ELO → 0-100, FACEIT seviye sınırlarından parçalı doğrusal.
-Seviye L'nin ELO aralığı [10·(L−1), 10·L] puana düşer (seviye 9 = 80-90, seviye 10 = 90-100 ve
-2401+ → 100); 100 ELO → 0 puan. Seviye sınırlarında kırılır, aralarında doğrusaldır, tek yönlü
-(artan) ve oyuncu havuzundan bağımsızdır: iki ayrı havuzdaki oyuncular aynı ölçekte kıyaslanır.
-Neden olasılık ölçeği değil: tek düello β = 0,047 / 100 ELO ile %46-54 arasına sıkışır (ayırt
-etmez); havuz-ortalamalı z ölçeği de havuz değişince oyuncunun puanını oynatırdı.
+Kartta PUAN olarak yalnız genel puan vardır (profesör kararı 24.10). Silah satırlarında puan ve
+oyuncu×silah kayması YOKTUR (kayma iç hesapta `fit_card_model`de kalır, dışa verilmez).
 
-Genel puan = `rating.PlayerFeatures.combined_elo` (FACEIT ELO + küçültmeli stat eki, sınanmış),
-%90 aralığı `combined_sd`'den. Silah yeteneği = AYNI ölçekte "genel + o silahtaki kayma":
-    kayma_logit = oyuncu×silah artığı d  (hiyerarşik küçültme, bkz. `fit_card_model`)
-    kayma_ELO   = 300·tanh( (d / β·100) / 300 )   (β = ELO başına düello logit'i; ±300 ELO sınırı,
-                  `rating.MAX_STAT_ADJ` ile aynı gerekçe)
-    silah puanı = ölçek(birleşik ELO + kayma_ELO)
-Yani "genele göre fark", az düelloda ≈ 0 (genel puana yapışır), düello arttıkça açılır.
+Seviye ölçeği (tek, sabit, havuzdan bağımsız): ELO → 0-100, FACEIT seviye sınırlarından parçalı
+doğrusal. Seviye L'nin ELO aralığı [10·(L−1), 10·L] puana düşer (seviye 9 = 80-90, seviye 10 =
+90-100; 100 ELO = 0, 2401+ = 100). DİKKAT: ölçek doğrusal DEĞİL (eğim seviyeye göre 220-400 ELO
+/ 10 puan); puan farkı güç oranı gibi okunmamalı (80 puan, 40 puanın "iki katı güçlü" değildir),
+yalnız sıralama ve seviye içi konum içindir. Genel puan = `rating.PlayerFeatures.combined_elo`
+(FACEIT ELO + küçültmeli stat eki, sınanmış) ve %90 aralığı (`combined_sd`).
 
-Eşikler (düello sayısı n): n < 20 "veri yok" (değer verilmez), 20-49 "az veri", ≥ 50 "yeterli".
-"belirgin" ayrıca: kaymanın %90 aralığı 0'ı dışlıyor.
+Silah satırı: o sınıftaki ham düello (galibiyet / n) + Wilson %90 aralığı; n < 20 "veri yok"
+(aralık verilmez), 20-49 "az veri", ≥ 50 "yeterli". `validated` her zaman False
+("doğrulanmadı"): silah yeteneği kayması sınamayı geçmedi (18 Dust2 maçı, g'ye göre log-kayıp
+ileri −0,0001 [−0,0007; +0,0004], bir-maç-dışarıda −0,0001 [−0,0008; +0,0007]).
+Betimleyiciler (açılış kazanma, trade, clutch, öldürmeden hasar/round): n < 20 "veri yok".
+Peek / tutma kartta yok. Kart düello olasılığını etkilemez (`rating.matchup` ayrı).
 
-Dürüstlük: silah kayması düello olasılığına GİRMEDEN ÖNCE sınanır (scripts/eval_cards.py).
-Sonuç (18 Dust2 maçı, 24.10): kayma ek katkı vermedi (g'ye göre ileri −0,0001 [−0,0007; +0,0004],
-bir-maç-dışarıda −0,0001 [−0,0008; +0,0007]) → `SKILL_VALIDATED = False`: silah puanları
-BETİMLEYİCİDİR, düello olasılığına girmez ve arayüzde "doğrulanmadı" diye gösterilmelidir. Sınır: kayma sadece kill'le biten
-düellolardan (gözlenen bir yan etki: silah seçimi seçilimlidir).
+Veri sözleşmesi (`PlayerCard.to_dict()`), arayüz bunu kullanır:
+    {"nickname": str|null, "steam_id": str, "faceit_level": int|null, "elo": float|null,
+     "general": {"score": 0-100|null, "lo": .., "hi": .., "conf": "veri yok"|"az veri"|"yeterli",
+                 "combined_elo": float|null, "scale": "seviye ölçeği"},
+     "weapons": {"rifle"|"awp"|"pistol"|"scout": {"wins": int, "n": int, "lo": 0-1|null,
+                 "hi": 0-1|null, "label": "veri yok"|"az veri"|"yeterli", "validated": false}},
+     "descriptive": {"opening_win"|"trade_kill"|"clutch_win"|"support_dmg_per_round":
+                 {"value": ..|null, "lo": ..|null, "hi": ..|null, "n": int, "label": str}},
+     "counts": {"demos": int, "rounds": int, "duels": int}}
+Sınır: kayma modeli sadece kill'le biten düellolardan; silah seçimi seçilimlidir.
 """
 
 from __future__ import annotations
@@ -54,8 +58,6 @@ def elo_to_score(elo: float) -> float:
 
 MIN_N = 20        # altında "veri yok"
 OK_N = 50         # altında "az veri", üstü "yeterli"
-MAX_SKILL_SHIFT = rt.MAX_STAT_ADJ   # silah kaymasının ELO karşılığı sınırı
-MIN_BETA = 0.01   # logit / 100 ELO; altında ELO'ya çevirme anlamsız (belirsiz)
 
 # Kartta gösterilen silah yetenekleri; smg ve ağır silah modelde "smg" altında toplanır (kartta yok)
 SHOWN_SKILLS = ("rifle", "awp", "pistol", "scout")
@@ -173,64 +175,73 @@ class Stat:
 
 
 @dataclass(frozen=True)
-class Skill:
-    """Silah yeteneği: 0-100 puan, genele göre kayma (ELO eşdeğeri ve logit), n, etiket."""
+class Weapon:
+    """Silah sınıfında HAM düello kaydı (kazanma / n) + Wilson %90 aralığı. Puan YOK, kayma YOK.
 
-    score: Stat
-    shift_elo: float | None
-    shift_logit: float | None
+    validated her zaman False: silah yeteneği sınamayı geçmedi (modül başlığı)."""
+
     wins: int
     n: int
-    clear: bool          # kaymanın %90 aralığı 0'ı dışlıyor mu
+    lo: float | None
+    hi: float | None
+    label: str
+    validated: bool = False
 
 
 @dataclass(frozen=True)
 class PlayerCard:
-    """Bir oyuncunun kartı."""
+    """Bir oyuncunun kartı (dışa `to_dict()` ile verilir)."""
 
     steam_id: str
     nickname: str | None
-    general: Stat                       # birleşik ELO'nun 0-100 puanı
+    faceit_level: int | None
+    elo: float | None                   # FACEIT ELO (kesin değilse None)
+    general: Stat                       # birleşik ELO'nun seviye ölçeğindeki puanı (0-100)
     combined_elo: float | None
-    duel_pct: Stat                      # ortalama rakibe karşı beklenen düello % (rating_score)
-    skills: dict[str, Skill]
+    weapons: dict[str, Weapon]
     descriptives: dict[str, Stat]
     demos: int
     rounds: int
     duels: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Arayüz sözleşmesi (modül başlığındaki JSON şekli)."""
+        g = self.general
+        return {
+            "nickname": self.nickname, "steam_id": self.steam_id,
+            "faceit_level": self.faceit_level, "elo": self.elo,
+            "general": {"score": g.value, "lo": g.lo, "hi": g.hi, "conf": g.label,
+                        "combined_elo": self.combined_elo, "scale": "seviye ölçeği"},
+            "weapons": {c: {"wins": w.wins, "n": w.n, "lo": w.lo, "hi": w.hi, "label": w.label,
+                            "validated": w.validated} for c, w in self.weapons.items()},
+            "descriptive": {k: {"value": v.value, "lo": v.lo, "hi": v.hi, "n": v.n, "label": v.label}
+                            for k, v in self.descriptives.items()},
+            "counts": {"demos": self.demos, "rounds": self.rounds, "duels": self.duels},
+        }
 
 
 def _score_stat(elo: float, sd: float, n: int, label: str) -> Stat:
     return Stat(elo_to_score(elo), elo_to_score(elo - rt.Z90 * sd), elo_to_score(elo + rt.Z90 * sd), n, label)
 
 
-def skill_of(cm: CardModel | None, steam_id: str, cls: str, feats: rt.PlayerFeatures | None) -> Skill:
-    """Bir oyuncunun bir silah sınıfındaki yeteneği (genele göre kayma, küçültmeli)."""
-    r, var, _ = (cm.d.get((steam_id, cls)) if cm else None) or (0.0, TAU_D ** 2, 0)
-    wins = cm.wins.get((steam_id, cls), 0) if cm else 0
-    # n: bu sınıftaki düello sayısı (kazanma + kaybetme); küçültme zaten az n'de r ≈ 0 yapar
-    n = _count(cm, steam_id, cls) if cm else 0
-    lab = label_of(n)
-    if cm is None or n < MIN_N:
-        return Skill(Stat(None, n=n, label=lab), None, None, wins, n, False)
-    sd = math.sqrt(max(var, 0.0))
-    clear = abs(r) > rt.Z90 * sd
-    if cm.beta < MIN_BETA or feats is None:
-        # ELO'ya çevrilemez (β belirsiz) ya da genel puan yok: sadece logit kayması
-        return Skill(Stat(None, n=n, label=lab), None, r, wins, n, clear)
-    raw = r / cm.beta * rt.ELO_UNIT                          # kayma, ELO eşdeğeri (sınırsız)
-    shift = rt.bound(raw, MAX_SKILL_SHIFT)
-    slope = 1.0 - math.tanh(raw / MAX_SKILL_SHIFT) ** 2     # sınırın türevi
-    shift_sd = slope * sd / cm.beta * rt.ELO_UNIT
-    elo = feats.combined_elo + shift
-    tot_sd = math.sqrt(feats.combined_sd ** 2 + shift_sd ** 2)
-    return Skill(_score_stat(elo, tot_sd, n, lab), shift, r, wins, n, clear)
+def weapon_counts(du: pl.DataFrame) -> dict[tuple[str, str], tuple[int, int]]:
+    """(oyuncu, silah sınıfı) → (galibiyet, düello). Tüm düellolar (ELO bilinmese de); heavy → smg."""
+    out: dict[tuple[str, str], list[int]] = {}
+    for r in du.iter_rows(named=True):
+        for who, cls, won in ((r["winner"], r["winner_cls"], 1), (r["loser"], r["loser_cls"], 0)):
+            c = out.setdefault((who, _group(cls)), [0, 0])
+            c[0] += won
+            c[1] += 1
+    return {k: (v[0], v[1]) for k, v in out.items()}
 
 
-def _count(cm: CardModel, steam_id: str, cls: str) -> int:
-    """Oyuncunun o sınıftaki düello sayısı (`_residuals` n'i: A ya da B olarak geçen düello)."""
-    hit = cm.d.get((steam_id, cls))
-    return hit[2] if hit else 0
+def weapon_record(counts: Mapping[tuple[str, str], tuple[int, int]] | None, steam_id: str, cls: str) -> Weapon:
+    """Bir oyuncunun bir silah sınıfındaki ham kaydı; n < 20 → aralık yok, "veri yok"."""
+    wins, n = (counts or {}).get((steam_id, cls), (0, 0))
+    if n < MIN_N:
+        return Weapon(wins, n, None, None, label_of(n))
+    lo, hi = wilson(wins, n)
+    return Weapon(wins, n, lo, hi, label_of(n))
 
 
 def wilson(k: float, n: float, z: float = rt.Z90) -> tuple[float, float]:
@@ -283,26 +294,22 @@ def descriptives(d: Any, steam_id: str) -> tuple[dict[str, Stat], int, int]:
     return out, pm.height, rounds
 
 
-def player_card(steam_id: str, *, rating_model: rt.RatingModel | None = None,
-                feats: rt.PlayerFeatures | None = None, card_model: CardModel | None = None,
+def player_card(steam_id: str, *, feats: rt.PlayerFeatures | None = None,
+                counts: Mapping[tuple[str, str], tuple[int, int]] | None = None,
                 desc: tuple[dict[str, Stat], int, int] | None = None,
-                nickname: str | None = None, classes: Iterable[str] = SHOWN_SKILLS) -> PlayerCard:
+                nickname: str | None = None, level: int | None = None,
+                classes: Iterable[str] = SHOWN_SKILLS) -> PlayerCard:
     """Oyuncu kartı. Parçalar ayrı verilir (FACEIT'e ulaşılamazsa genel puan "veri yok" kalır):
-    `feats` = rating.player_features çıktısı, `card_model` = fit_card_model, `desc` = descriptives."""
+    `feats` = rating.player_features çıktısı, `counts` = weapon_counts(düellolar),
+    `desc` = descriptives. Düello olasılığına HİÇ dokunmaz (rating.matchup'tan bağımsız)."""
     if feats is None:
-        general, comb, pct = Stat(None, label="veri yok"), None, Stat(None, label="veri yok")
+        general, comb, elo = Stat(None, label="veri yok"), None, None
     else:
         lab = "az veri" if (not feats.elo_known or feats.n_matches < rt.MIN_MATCHES) else "yeterli"
         general = _score_stat(feats.combined_elo, feats.combined_sd, feats.n_matches, lab)
         comb = feats.combined_elo
-        if rating_model is not None:
-            s, lo, hi = rt.rating_score(rating_model, feats, steam_id)
-            pct = Stat(s, lo, hi, feats.n_matches, lab)
-        else:
-            pct = Stat(None, label="veri yok")
-    skills = {c: skill_of(card_model, steam_id, c, feats) for c in classes}
+        elo = feats.elo if feats.elo_exact else None
+    weapons = {c: weapon_record(counts, steam_id, c) for c in classes}
     stats, demos, rounds = desc if desc else ({}, 0, 0)
-    n_duels = 0
-    if card_model:
-        n_duels = sum(v[2] for k, v in card_model.d.items() if k[0] == steam_id)
-    return PlayerCard(steam_id, nickname, general, comb, pct, skills, stats, demos, rounds, n_duels)
+    n_duels = sum(v[1] for k, v in (counts or {}).items() if k[0] == steam_id)
+    return PlayerCard(steam_id, nickname, level, elo, general, comb, weapons, stats, demos, rounds, n_duels)
