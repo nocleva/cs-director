@@ -1,5 +1,15 @@
 # SquadMind görsel paketi: Gemini prompt'ları
 
+## Durum (24.10.2026, görsel dil v3)
+Kullanıcı Gemini'de referans görseller üretti (`assets/gelen/referans/`: logo, seviye-10 rozeti, avatar; `giris-kapak.jpg`).
+- **Logo: SVG'ye çevrildi** (`logo.svg` ayrıntılı, `logo-mark.svg` 28 px sade; favicon aynı işaretten). Raster siteye konmadı.
+- **Rozet 1-10: SVG'ye çevrildi** (`rozet-N.svg`, referans seviye-10 stili; 1 sade, 4+ çentik, 8+ kanat, 10 taç + diken + ışıltı).
+- **Avatar 1-8: SVG'ye çevrildi** (`avatar-N.svg`, yüzsüz kask + parlayan vizör, 8 farklı arka plan deseni).
+- **Giriş kapağı: üretildi, optimize edildi** (`giris-kapak-1920/960.webp|jpg`, her biri ≤ 300 KB; `assets_yerlestir.py`).
+- **Kart çerçevesi (`kart-cerceve.png`): hâlâ yok**; CSS çerçevesi kullanılıyor.
+- SVG'ler `python scripts/gorsel_uret.py` ile yeniden üretilir (elle çizim kaynağı betiktedir); referans JPEG'ler yalnız stil kaynağıdır.
+- Aşağıdaki PNG prompt'ları, ileride Gemini çıktısı yine de istenirse (SVG yoksa PNG yedeği çalışır) geçerlidir.
+
 Üretim: gemini.google.com (elle). Çıktıları `assets/gelen/` klasörüne **tam bu dosya adlarıyla** koy, sonra:
 
 ```

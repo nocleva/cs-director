@@ -86,7 +86,8 @@ window.SMCard = (function () {
     sv("path", { d: "M2 20l-1 6 1 6M46 20l1 6-1 6", stroke: col, "stroke-width": 1.6, fill: "none", "stroke-linecap": "round" }, s);
     const t = sv("text", { x: 24, y: level === 10 ? 34 : 35, "text-anchor": "middle", fill: col, "font-weight": 700, "font-size": level === 10 ? 17 : 21, style: "font-family:var(--font-display);font-style:italic" }, s);
     t.textContent = level ? String(level) : "?";
-    if (level) whenAssets(() => { if (SMAssets.has("rozet-" + level + ".png")) { const i = new Image(); i.alt = ""; i.src = SMAssets.url("rozet-" + level + ".png"); box.replaceChildren(i); } });
+    // Çizili rozet (static/img/rozet-N.svg); manifestte yoksa yukarıdaki SVG yer tutucu kalır. Seviye rakamı rozetin içindedir.
+    if (level) whenAssets(() => { const f = SMAssets.pick("rozet-" + level); if (f) { const i = new Image(); i.alt = "Seviye " + level; i.src = SMAssets.url(f); box.replaceChildren(i); } });
     return box;
   }
 
@@ -109,7 +110,8 @@ window.SMCard = (function () {
     sv("path", { d: "M6 54Q24 28 42 54Z", fill: "rgba(10,13,22,.62)" }, inner);
     sv("rect", { x: 15.5, y: 19, width: 17, height: 4, rx: 2, fill: "rgba(255,255,255,.85)" }, inner);
     sv("polygon", { points: HEX, fill: "none", stroke: "rgba(255,255,255,.7)", "stroke-width": 1.4, "stroke-linejoin": "round" }, s);
-    whenAssets(() => { const f = "avatar-" + (hs % 8 + 1) + ".png"; if (SMAssets.has(f)) { const i = new Image(); i.alt = ""; i.src = SMAssets.url(f); box.replaceChildren(i); } });
+    // Oyuncu adından türeyen sayıyla 8 çizili avatardan biri (static/img/avatar-N.svg); yoksa yukarıdaki yer tutucu
+    whenAssets(() => { const f = SMAssets.pick("avatar-" + (hs % 8 + 1)); if (f) { const i = new Image(); i.alt = ""; i.src = SMAssets.url(f); box.replaceChildren(i); } });
     return box;
   }
 

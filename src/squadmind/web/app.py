@@ -156,11 +156,17 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     # WASM ayrıştırıcı ve zstd çözücü (kendi sunucumuzdan; CDN yok)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-    # Site simgesi: koyu zemin üstünde turuncu nişangâh (ARENA teması), tek SVG
+    # Site simgesi: logo işareti (static/img/logo-mark.svg) koyu yuvarlak kare üstünde; dosya yoksa eski nişangâh
     _FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
                 '<rect width="32" height="32" rx="7" fill="#0d0f12"/>'
                 '<circle cx="16" cy="16" r="8.5" fill="none" stroke="#ff6a2b" stroke-width="2.5"/>'
                 '<circle cx="16" cy="16" r="2.6" fill="#ff6a2b"/></svg>')
+    try:
+        _mark = (STATIC_DIR / "img" / "logo-mark.svg").read_text(encoding="utf-8")
+        _FAVICON = _mark.replace('viewBox="455 415 1020 1130"', 'viewBox="395 415 1140 1140"').replace(
+            "<defs>", '<rect x="395" y="415" width="1140" height="1140" rx="210" fill="#0d1018"/><defs>', 1)
+    except OSError:
+        pass
 
     @app.get("/favicon.ico", include_in_schema=False)
     @app.get("/favicon.svg", include_in_schema=False)
