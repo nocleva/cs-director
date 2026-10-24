@@ -52,6 +52,8 @@ WEB_SECRET = os.getenv("WEB_SECRET", "").strip()
 WEB_REQUIRED_DEMOS = int(os.getenv("WEB_REQUIRED_DEMOS", "10"))
 # Takım raporu bu oyuncunun takımı için üretilir; analiz bu haritayla sınırlı
 WEB_TEAM_OWNER = os.getenv("WEB_TEAM_OWNER", "").strip()
+# E-posta+şifre / nickname-davet girişi (varsayılan KAPALI: yalnız FACEIT ile giriş)
+WEB_PASSWORD_LOGIN = os.getenv("WEB_PASSWORD_LOGIN", "0").strip().lower() in ("1", "true", "yes")
 WEB_MAP = os.getenv("WEB_MAP", "de_dust2").strip() or None
 # FACEIT ile giriş (FACEIT Connect): geliştirici portalındaki OAuth2 istemcisi. Boşsa
 # nickname ile katılım kullanılır. Dönüş adresi: <WEB_BASE_URL>/giris/faceit/donus

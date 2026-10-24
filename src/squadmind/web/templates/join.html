@@ -89,14 +89,14 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
 
       <div class="card">
         {% if error %}<p class="err" role="alert">{{ error }}</p>{% endif %}
-        {% if closed and not faceit_login %}
+        {% if closed and not faceit_login and password_login %}
           <p class="note" style="margin:0">Katılım şu an kapalı.</p>
         {% elif faceit_login %}
           <a class="btn" href="/giris/faceit{% if davet %}?davet={{ davet | urlencode }}{% endif %}">FACEIT ile giriş yap
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7h8M8 4l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"></path></svg></a>
           <p class="note"><b>Güvenli giriş.</b> Kimlik doğrulama FACEIT üzerinden yapılır; şifren SquadMind ile paylaşılmaz. Profil, seviye ve maç geçmişi hesabından otomatik olarak alınır.</p>
           <p class="note">Giriş yaptıktan sonra kendi takımını kurabilirsin. Verilerin yalnızca katılmayı kabul ettiğin takımlarla paylaşılır.</p>
-          {% if invited %}
+          {% if invited and password_login %}
           <details class="alt" open>
             <summary>FACEIT girişi çalışmıyor mu? Davet koduyla katıl</summary>
             <form method="post" action="/katil">
@@ -107,6 +107,8 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
             </form>
           </details>
           {% endif %}
+        {% elif not password_login %}
+          <p class="note" style="margin:0">FACEIT ile giriş şu an kullanılamıyor. Biraz sonra tekrar dene.</p>
         {% else %}
           <form method="post" action="/katil">
             <input type="hidden" name="davet" value="{{ davet }}">
@@ -118,10 +120,10 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
         {% endif %}
       </div>
 
-      <p class="note" style="margin-top:14px">E-posta ile de girebilirsin: <a href="/giris" style="color:var(--accent)">giriş yap</a> · <a href="/kayit{% if davet %}?davet={{ davet | urlencode }}{% endif %}" style="color:var(--accent)">kayıt ol</a></p>
+      {% if password_login %}<p class="note" style="margin-top:14px">E-posta ile de girebilirsin: <a href="/giris" style="color:var(--accent)">giriş yap</a> · <a href="/kayit{% if davet %}?davet={{ davet | urlencode }}{% endif %}" style="color:var(--accent)">kayıt ol</a></p>{% endif %}
 
       <ol class="steps">
-        <li><span class="n">01</span><div><b>{% if faceit_login %}FACEIT ile gir{% else %}Nickname'inle katıl{% endif %}</b><span>Hesabın ve maç geçmişin FACEIT'ten otomatik gelir.</span></div></li>
+        <li><span class="n">01</span><div><b>{% if faceit_login or not password_login %}FACEIT ile gir{% else %}Nickname'inle katıl{% endif %}</b><span>Hesabın otomatik açılır; her girişte aynı hesaba girersin, yaptıkların orada kayıtlı kalır.</span></div></li>
         <li><span class="n">02</span><div><b>Demolarını yükle</b><span>Aynı maç bir kez yüklenir; takım arkadaşının yüklediği senin için de sayılır.</span></div></li>
         <li><span class="n">03</span><div><b>Raporunu ve tahtayı gör</b><span>Pozisyonların, rolün, takımın stratları ve rakip spotları.</span></div></li>
       </ol>

@@ -101,6 +101,9 @@ class WebSettings:
     mailer: Mailer | None = None                # ayarlı değilse doğrulama / şifre sıfırlama kapalı
     base_url: str = ""                          # e-postadaki bağlantılar için (boşsa istek adresi)
     login_limiter: acc.LoginLimiter | None = None  # testler kendi sınırlayıcısını verebilir
+    # E-posta + şifre / nickname-davet girişi ve kayıt: kullanıcı kararı (24.10) ile arayüzden
+    # kalktı, yalnız FACEIT ile giriş var. Kod duruyor; .env WEB_PASSWORD_LOGIN=1 ile geri açılır
+    password_login: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -139,6 +142,9 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     reset_signer = URLSafeTimedSerializer(settings.secret, salt="squadmind-sifre-sifirla")
     limiter = settings.login_limiter or acc.LoginLimiter()
     mailer = settings.mailer if settings.mailer and settings.mailer.configured else None
+    pw = settings.password_login
+    # Şifre girişi kapalıyken giriş adresi ana sayfadır (orada yalnız FACEIT düğmesi var)
+    login_url = "/giris" if pw else "/"
     store.map_name = settings.map_name
     # WASM ayrıştırıcı ve zstd çözücü (kendi sunucumuzdan; CDN yok)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -192,6 +198,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         ctx.setdefault("me", current_user(request))
         ctx.setdefault("owner", settings.team_owner)
         ctx.setdefault("faceit_downloads", settings.faceit_downloads)
+        ctx.setdefault("password_login", pw)
         return TEMPLATES.TemplateResponse(request, name, ctx)
 
     # --- katılım --------------------------------------------------------------------
@@ -200,6 +207,14 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         return page(request, "join.html", davet=davet, error=error,
                     closed=not settings.invite_code, faceit_login=oauth is not None,
                     invited=bool(davet), board=join_art())
+
+    def need_pw() -> None:
+        """Şifre / nickname girişi kapalıyken bu uçlar yok sayılır (POST'lar 404)."""
+        if not pw:
+            raise HTTPException(404, "Bu giriş yolu kapalı; FACEIT ile giriş yap.")
+
+    def to_home() -> RedirectResponse:
+        return RedirectResponse("/", status_code=303)
 
     def invite_ok(davet: str) -> bool:
         return bool(settings.invite_code) and hmac.compare_digest(davet, settings.invite_code)
@@ -216,6 +231,11 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             JOIN players p ON p.faceit_id = b.player_id
             WHERE a.player_id = ? AND lower(p.nickname) = lower(?)
             """, [faceit_id, settings.team_owner]).fetchone()[0])
+
+    def is_teammate(faceit_id: str, nickname: str | None) -> bool:
+        """Kadro sayfası erişimi: takım sahibinin kendisi ya da sahiple yeterince ortak maç."""
+        return ((settings.team_owner or "").lower() == (nickname or "").lower()
+                or same_team_matches(faceit_id) >= TEAM_MIN_SHARED)
 
     def faceit_email(user: dict) -> str | None:
         """FACEIT kullanıcı bilgisindeki e-posta (varsa, geçerliyse ve FACEIT doğrulanmamış demediyse)."""
@@ -238,17 +258,16 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
               email: str | None = None):
         """FACEIT profiliyle oturum aç.
 
-        FACEIT girişinde (kimlik doğrulanmış) herkes girer ve kendi takımını kurabilir.
-        Nickname ile katılımda kimlik doğrulanmadığı için davet şart. Takım sahibinin kadro
-        sayfaları (takım raporu, taktik tahtası) için erişim: davet kodu, takım sahibinin kendisi
-        ya da onunla aynı tarafta TEAM_MIN_SHARED maç.
+        FACEIT girişinde (kimlik doğrulanmış) davet gerekmeden herkes girer, hesabı açılır ve
+        kendi takımını kurabilir. Nickname ile katılım (yalnız WEB_PASSWORD_LOGIN=1) kimlik
+        doğrulamadığı için davet şart. Takım sahibinin kadro sayfaları (takım raporu, taktik
+        tahtası) için erişim: davet kodu, takım sahibinin kendisi ya da onunla aynı tarafta
+        TEAM_MIN_SHARED maç; erişimi olmayan kendi verisini ve arenayı kullanır.
         """
         row = profile_to_player_row(profile)
         if not row.get("steam_id"):
             return join_page(request, davet, "Bu FACEIT hesabına bağlı CS2 / Steam hesabı bulunamadı.")
-        teammate = verified and (
-            (settings.team_owner or "").lower() == (row["nickname"] or "").lower()
-            or same_team_matches(row["faceit_id"]) >= TEAM_MIN_SHARED)
+        teammate = verified and is_teammate(row["faceit_id"], row["nickname"])
         if not verified and not invited and store.user(row["steam_id"]) is None:
             return join_page(request, davet, "Davet kodu geçersiz. Linki takım arkadaşından tekrar iste.")
         store.run(lambda con: upsert_players(con, [row]))
@@ -270,6 +289,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.post("/katil", response_class=HTMLResponse)
     def join(request: Request, nickname: str = Form(...), davet: str = Form("")):
+        need_pw()
         # Nickname ile katılım her zaman davet kodu ister (kimlik doğrulanmaz); FACEIT girişi
         # açıkken de davet linkiyle gelen için yedek yol olarak durur
         if not invite_ok(davet):
@@ -416,10 +436,23 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         if user is None:
             return None
         found = acc.account_of(store, user.steam_id)
+        if found is None and not pw:
+            found = ensure_plain_account(user.steam_id)  # eski oturum: hesap sessizce açılır
         return (user, found[0], found[1]) if found else (user, None, None)
+
+    def ensure_plain_account(steam_id: str) -> tuple[acc.Account, str | None] | None:
+        """Hesabı olmayan oyuncuya e-postasız hesap açar (bağlantı 'dogrulanmamis')."""
+        try:
+            account_id = acc.create(store, None, None, False)
+            acc.link_user(store, account_id, steam_id, acc.UNVERIFIED)
+        except acc.AccountError:
+            return None
+        return acc.account_of(store, steam_id)
 
     @app.get("/kayit", response_class=HTMLResponse)
     def register_form(request: Request, davet: str = ""):
+        if not pw:
+            return to_home()
         if current_user(request):
             return RedirectResponse("/ben", status_code=303)
         return form_page(request, "auth.html", kind="kayit", davet=davet,
@@ -428,6 +461,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     @app.post("/kayit", response_class=HTMLResponse)
     def register(request: Request, email: str = Form(""), password: str = Form(""),
                  nickname: str = Form(""), davet: str = Form(""), csrf: str = Form("")):
+        need_pw()
         ctx = {"kind": "kayit", "davet": davet, "email": email, "nickname": nickname,
                "closed": not settings.invite_code, "faceit_login": oauth is not None}
         if not csrf_ok(request, csrf):
@@ -473,6 +507,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.get("/giris", response_class=HTMLResponse)
     def login_form(request: Request, m: str = ""):
+        if not pw:
+            return to_home()
         if current_user(request):
             return RedirectResponse("/ben", status_code=303)
         return form_page(request, "auth.html", kind="giris", flash=FLASH.get(m),
@@ -481,6 +517,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     @app.post("/giris", response_class=HTMLResponse)
     def login(request: Request, email: str = Form(""), password: str = Form(""),
               csrf: str = Form("")):
+        need_pw()
         ctx = {"kind": "giris", "email": email, "faceit_login": oauth is not None}
         if not csrf_ok(request, csrf):
             return form_page(request, "auth.html", 400, error=CSRF_MSG, **ctx)
@@ -503,10 +540,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     def account_page(request: Request, m: str = ""):
         ctx = cookie_account(request)
         if ctx is None:
-            return RedirectResponse("/giris", status_code=303)
+            return RedirectResponse(login_url, status_code=303)
         user, account, link = ctx
         if account is None:
-            return RedirectResponse("/hesap/eposta", status_code=303)
+            return RedirectResponse("/hesap/eposta" if pw else "/ben", status_code=303)
         info = store.run(lambda con: con.execute(
             "SELECT level, elo FROM players WHERE faceit_id = ?", [user.faceit_id]).fetchone())
         return form_page(request, "account.html", user=user, account=account, link=link,
@@ -516,6 +553,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.get("/hesap/eposta", response_class=HTMLResponse)
     def add_email_form(request: Request):
+        if not pw:
+            return to_home()
         ctx = cookie_account(request)
         if ctx is None:
             return RedirectResponse("/", status_code=303)
@@ -527,6 +566,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     def add_email(request: Request, email: str = Form(""), password: str = Form(""),
                   csrf: str = Form("")):
         """Eski oturum (hesapsız) ya da e-postasız FACEIT hesabı: e-posta + şifre ekler."""
+        need_pw()
         ctx = cookie_account(request)
         if ctx is None:
             return RedirectResponse("/", status_code=303)
@@ -568,9 +608,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     @app.post("/hesap/sifre", response_class=HTMLResponse)
     def change_password(request: Request, current: str = Form(""), password: str = Form(""),
                         csrf: str = Form("")):
+        need_pw()
         ctx = cookie_account(request)
         if ctx is None or ctx[1] is None:
-            return RedirectResponse("/giris", status_code=303)
+            return RedirectResponse(login_url, status_code=303)
         user, account, link = ctx
         view = {"user": user, "account": account, "link": link, "faceit_login": oauth is not None,
                 "has_password": bool(account.password_hash)}
@@ -595,6 +636,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.post("/hesap/dogrulama-gonder")
     def resend_verification(request: Request, csrf: str = Form("")):
+        need_pw()
         need_mail()
         ctx = cookie_account(request)
         if ctx is None or ctx[1] is None or not ctx[1].email:
@@ -610,6 +652,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.get("/hesap/dogrula")
     def verify_email(request: Request, t: str = ""):
+        if not pw:
+            return to_home()
         need_mail()
         bad = "Doğrulama bağlantısı geçersiz ya da süresi dolmuş."
         try:
@@ -625,11 +669,14 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.get("/sifre-unuttum", response_class=HTMLResponse)
     def forgot_form(request: Request):
+        if not pw:
+            return to_home()
         need_mail()
         return form_page(request, "auth.html", kind="unuttum")
 
     @app.post("/sifre-unuttum", response_class=HTMLResponse)
     def forgot(request: Request, email: str = Form(""), csrf: str = Form("")):
+        need_pw()
         need_mail()
         if not csrf_ok(request, csrf):
             return form_page(request, "auth.html", 400, kind="unuttum", error=CSRF_MSG)
@@ -666,6 +713,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.get("/sifre-sifirla", response_class=HTMLResponse)
     def reset_form(request: Request, t: str = ""):
+        if not pw:
+            return to_home()
         need_mail()
         if reset_account(t) is None:
             return form_page(request, "auth.html", 400, kind="unuttum", error=BAD_LINK)
@@ -673,6 +722,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.post("/sifre-sifirla", response_class=HTMLResponse)
     def reset(request: Request, t: str = Form(""), password: str = Form(""), csrf: str = Form("")):
+        need_pw()
         need_mail()
         if not csrf_ok(request, csrf):
             return form_page(request, "auth.html", 400, kind="sifirla", token=t, error=CSRF_MSG)
@@ -699,22 +749,37 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     @app.get("/giris/link")
     def login_link(request: Request, t: str = ""):
-        """`squadmind login-link <nick>` ile üretilen imzalı link: kayıtlı kullanıcıya oturum açar.
+        """`squadmind login-link <nick>` ile üretilen imzalı link: oturum açar (FACEIT yedeği).
 
-        Link WEB_SECRET ile imzalı ve LINK_SECONDS geçerli; sadece siteye daha önce katılmış
-        hesaplar için çalışır (yeni hesap açmaz, erişim yetkisi vermez).
+        Link WEB_SECRET ile imzalı (yönetici üretir) ve LINK_SECONDS geçerli. Yük: yeni biçimde
+        {s: steam_id, f: faceit_id, n: nickname}, eski biçimde düz steam_id. Kayıtlı olmayan
+        oyuncu için kullanıcı + e-postasız hesap açılır ('dogrulanmamis': kimliği FACEIT değil
+        yönetici doğruladı); kadro erişimi FACEIT girişiyle aynı kuralla.
         """
         try:
-            steam_id = URLSafeTimedSerializer(settings.secret, salt=LINK_SALT).loads(
+            payload = URLSafeTimedSerializer(settings.secret, salt=LINK_SALT).loads(
                 t, max_age=LINK_SECONDS)
         except BadSignature:
             return join_page(request, "", "Giriş linkinin süresi dolmuş ya da geçersiz.")
+        if isinstance(payload, dict):
+            steam_id = str(payload.get("s", ""))
+            faceit_id, nickname = str(payload.get("f", "")), str(payload.get("n", ""))
+        else:  # eski biçim: yalnız kayıtlı kullanıcı
+            steam_id, faceit_id, nickname = str(payload), "", ""
+        if not steam_id:
+            return join_page(request, "", "Giriş linkinin süresi dolmuş ya da geçersiz.")
         if store.user(steam_id) is None:
-            return join_page(request, "", "Bu hesap siteye kayıtlı değil.")
-        resp = RedirectResponse("/ben", status_code=303)
-        resp.set_cookie(COOKIE, session_token(steam_id), max_age=SESSION_DAYS * 86400,
-                        httponly=True, samesite="lax", secure=request.url.scheme == "https")
-        return resp
+            if not (faceit_id and nickname):
+                return join_page(request, "", "Bu hesap siteye kayıtlı değil.")
+            store.add_user(steam_id, faceit_id, nickname,
+                           team_access=is_teammate(faceit_id, nickname))
+            worker.submit(Job("sync", steam_id))
+        if acc.account_of(store, steam_id) is None:
+            ensure_plain_account(steam_id)
+        found = acc.account_of(store, steam_id)
+        if found:
+            acc.touch_login(store, found[0].account_id)
+        return session_response(request, steam_id)
 
     @app.get("/cikis")
     def logout():
@@ -742,7 +807,9 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         if user is None:
             return RedirectResponse("/", status_code=303)
         found = acc.account_of(store, user.steam_id)
-        if found is None and not request.cookies.get(SKIP_COOKIE):
+        if found is None and not pw:
+            found = ensure_plain_account(user.steam_id)  # eski oturum: hesap sessizce açılır
+        if found is None and pw and not request.cookies.get(SKIP_COOKIE):
             return RedirectResponse("/hesap/eposta", status_code=303)  # eski oturum: hesap burada açılır
         uploads = store.uploads_of(user.steam_id)
         cards = map_cards(user)
@@ -1602,9 +1669,12 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     return app
 
 
-def make_login_link(secret: str, base_url: str, steam_id: str) -> str:
-    """Yönetici giriş linki (bkz. /giris/link)."""
-    token = URLSafeTimedSerializer(secret, salt=LINK_SALT).dumps(steam_id)
+def make_login_link(secret: str, base_url: str, steam_id: str, faceit_id: str = "",
+                    nickname: str = "") -> str:
+    """Yönetici giriş linki (bkz. /giris/link). faceit_id + nickname verilirse kayıtsız oyuncu da girer."""
+    payload: str | dict = ({"s": steam_id, "f": faceit_id, "n": nickname}
+                           if faceit_id and nickname else steam_id)
+    token = URLSafeTimedSerializer(secret, salt=LINK_SALT).dumps(payload)
     return f"{base_url.rstrip('/')}/giris/link?t={token}"
 
 

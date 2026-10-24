@@ -52,7 +52,7 @@ def build(tmp_path, make_client, *, enabled: bool, secret: str = SECRET, handler
                 for t in ("matches", "match_player_stats")])
 
     worker.submit = run_now
-    settings = WebSettings(invite_code=INVITE, secret="test-secret", required_demos=10,
+    settings = WebSettings(password_login=True, invite_code=INVITE, secret="test-secret", required_demos=10,
                            team_owner=None, map_name=None, uploads_dir=tmp_path / "uploads",
                            faceit_downloads=enabled, webhook_secret=secret, webhook_header=HEADER)
     app = create_app(settings, store, worker, client_factory=lambda: make_client(handler))

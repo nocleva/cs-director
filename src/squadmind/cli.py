@@ -389,6 +389,7 @@ def web(
         WEB_BASE_URL,
         WEB_INVITE_CODE,
         WEB_MAP,
+        WEB_PASSWORD_LOGIN,
         WEB_REQUIRED_DEMOS,
         WEB_SECRET,
         WEB_TEAM_OWNER,
@@ -414,7 +415,7 @@ def web(
                            faceit_downloads=FACEIT_DOWNLOADS_ENABLED,
                            webhook_secret=FACEIT_WEBHOOK_SECRET,
                            webhook_header=FACEIT_WEBHOOK_HEADER,
-                           base_url=WEB_BASE_URL,
+                           base_url=WEB_BASE_URL, password_login=WEB_PASSWORD_LOGIN,
                            mailer=Mailer(SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, MAIL_FROM),
                            oauth=FaceitOAuth(FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL,
                                              pkce=FACEIT_PKCE,
@@ -467,8 +468,10 @@ def accounts(db: Path = DbOption) -> None:
 
 
 @app.command("login-link")
-def login_link(nickname: str = typer.Argument(..., help="Siteye kayıtlı FACEIT nickname")) -> None:
-    """Siteye kayıtlı bir hesap için 15 dk geçerli giriş linki (DB açmaz; web açıkken çalışır)."""
+def login_link(nickname: str = typer.Argument(..., help="FACEIT nickname (siteye kayıtlı olması gerekmez)")) -> None:
+    """Bir FACEIT oyuncusu için 15 dk geçerli yedek giriş linki (DB açmaz; web açıkken çalışır).
+
+    Link yöneticiye özel imzalıdır; kayıtsız oyuncu için ilk kullanımda kullanıcı + hesap açılır."""
     from squadmind.config import WEB_BASE_URL, WEB_SECRET
     from squadmind.faceit.client import FaceitClient
     from squadmind.ingest.matches import profile_to_player_row
@@ -482,7 +485,9 @@ def login_link(nickname: str = typer.Argument(..., help="Siteye kayıtlı FACEIT
     if not row.get("steam_id"):
         console.print("[red]Bu FACEIT hesabına bağlı Steam hesabı yok.[/red]")
         raise typer.Exit(1)
-    console.print(make_login_link(WEB_SECRET, WEB_BASE_URL, row["steam_id"]))
+    console.print(f"Link sahibi: {row['nickname']} (steam {row['steam_id']}, 15 dk geçerli, tek amaç: giriş)")
+    console.print(make_login_link(WEB_SECRET, WEB_BASE_URL, row["steam_id"],
+                                  row["faceit_id"], row["nickname"]))
 
 
 @app.command()

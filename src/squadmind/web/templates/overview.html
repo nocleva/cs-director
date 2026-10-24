@@ -74,15 +74,17 @@
     <div class="card">
       <h2>Hesap</h2>
       {% if acct %}
-      <p style="margin:0 0 8px;font-size:13px">{{ acct.email or "E-posta yok" }}
+      <p style="margin:0 0 8px;font-size:13px">{{ acct.email or ("E-posta yok" if password_login else "FACEIT hesabı") }}
         {% if acct.email and acct.email_verified %}<span class="chip">doğrulandı</span>{% endif %}</p>
       <p style="margin:0 0 10px;font-size:13px">FACEIT: <b>{{ user.nickname }}</b>
         {% if acct_link == "dogrulanmis" %}<span class="chip" style="color:var(--ok)">FACEIT doğrulandı</span>
         {% else %}<span class="chip invite">doğrulanmadı</span>{% endif %}</p>
       <a class="btn small ghost" href="/hesap">Hesabım</a>
       {% else %}
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Hesabın henüz e-postaya bağlı değil.</p>
+      {% if password_login %}<p class="muted" style="margin:0 0 10px;font-size:13px">Hesabın henüz e-postaya bağlı değil.</p>
       <a class="btn small" href="/hesap/eposta">E-posta ekle</a>
+      {% else %}<p class="muted" style="margin:0 0 10px;font-size:13px">FACEIT: <b>{{ user.nickname }}</b></p>
+      <a class="btn small ghost" href="/hesap">Hesabım</a>{% endif %}
       {% endif %}
     </div>
     {% if faceit_downloads %}

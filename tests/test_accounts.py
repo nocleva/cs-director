@@ -63,7 +63,7 @@ def build(tmp_path, make_client, mailer=None, oauth=None, limiter=None):
     store = Store(tmp_path / "web.duckdb")
     worker = Worker(store, tmp_path / "processed", tmp_path / "tmp", client_factory=make_client)
     worker.submit = lambda job: None
-    settings = WebSettings(invite_code=INVITE, secret="test-secret", required_demos=10,
+    settings = WebSettings(password_login=True, invite_code=INVITE, secret="test-secret", required_demos=10,
                            team_owner=None, map_name=None, uploads_dir=tmp_path / "uploads",
                            oauth=oauth, mailer=mailer, base_url="https://app.test",
                            login_limiter=limiter)

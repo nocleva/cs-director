@@ -22,7 +22,7 @@
 {% block body %}
 <div class="eyebrow">Hesap</div>
 <h1>Hesabım</h1>
-<p class="sub">E-posta girişin ve bağlı FACEIT hesabın.</p>
+<p class="sub">{% if password_login %}E-posta girişin ve bağlı FACEIT hesabın.{% else %}FACEIT ile giriş yapılan hesabın. Her FACEIT girişinde aynı hesaba girersin.{% endif %}</p>
 {% if error %}<p class="msg" role="alert">{{ error }}</p>{% endif %}
 {% if flash %}<p class="msg ok" role="status">{{ flash }}</p>{% endif %}
 
@@ -31,11 +31,11 @@
     <h2 id="h-acc">E-posta</h2>
     <div class="row"><span class="k">Adres</span><span>{{ account.email or "yok" }}</span></div>
     <div class="row"><span class="k">Doğrulama</span>
-      {% if not account.email %}<a href="/hesap/eposta">E-posta ekle</a>
+      {% if not account.email %}{% if password_login %}<a href="/hesap/eposta">E-posta ekle</a>{% else %}<span class="muted">FACEIT e-posta vermedi</span>{% endif %}
       {% elif account.email_verified %}<span class="badge ok">E-posta doğrulandı</span>
       {% else %}<span class="badge warn">Doğrulanmadı</span>{% endif %}
     </div>
-    {% if account.email and not account.email_verified and mail_on %}
+    {% if password_login and account.email and not account.email_verified and mail_on %}
     <form method="post" action="/hesap/dogrulama-gonder" style="margin-top:10px">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button class="small ghost" type="submit">Doğrulama e-postasını yeniden yolla</button>
@@ -52,13 +52,13 @@
       {% else %}<span class="badge warn">Doğrulanmadı</span>{% endif %}
     </div>
     {% if link != "dogrulanmis" %}
-      <p class="note">Bu bağlantı nickname yazılarak kuruldu; hesabın senin olduğu FACEIT tarafından doğrulanmadı.
+      <p class="note">Bu bağlantı yönetici linkiyle ya da nickname yazılarak kuruldu; hesabın senin olduğu FACEIT tarafından doğrulanmadı.
         {% if faceit_login %}<a href="/giris/faceit">FACEIT ile giriş yaparak doğrula.</a>{% else %}FACEIT ile giriş açılınca buradan doğrulayabilirsin.{% endif %}</p>
     {% endif %}
   </section>
 </div>
 
-<section class="card acc-form" aria-labelledby="h-pw" style="margin-top:16px; max-width:480px">
+{% if password_login %}<section class="card acc-form" aria-labelledby="h-pw" style="margin-top:16px; max-width:480px">
   <h2 id="h-pw">{% if has_password %}Şifre değiştir{% else %}Şifre belirle{% endif %}</h2>
   <form method="post" action="/hesap/sifre">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -71,5 +71,5 @@
     <p class="note" style="margin:-4px 0 12px">En az 10 karakter.</p>
     <button type="submit">Kaydet</button>
   </form>
-</section>
+</section>{% endif %}
 {% endblock %}

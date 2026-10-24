@@ -32,7 +32,7 @@ def web(tmp_path, make_client):
                 for t in ("matches", "match_player_stats")])
 
     worker.submit = run_now
-    settings = WebSettings(invite_code=INVITE, secret="test-secret", required_demos=10,
+    settings = WebSettings(password_login=True, invite_code=INVITE, secret="test-secret", required_demos=10,
                            team_owner=None, map_name=None, uploads_dir=tmp_path / "uploads")
     app = create_app(settings, store, worker, client_factory=make_client)
     app.state.worker = worker  # testler takım sahibini değiştirebilsin
@@ -164,7 +164,7 @@ def oauth_web(tmp_path, make_client):
     worker = Worker(store, tmp_path / "processed", tmp_path / "tmp", client_factory=make_client)
     worker.submit = lambda job: None
     oauth = FakeOAuth()
-    settings = WebSettings(invite_code=INVITE, secret="test-secret", required_demos=10,
+    settings = WebSettings(password_login=True, invite_code=INVITE, secret="test-secret", required_demos=10,
                            team_owner="Sahip", map_name=None, uploads_dir=tmp_path / "uploads",
                            oauth=oauth)
     client = skip_email(TestClient(create_app(settings, store, worker, client_factory=make_client)))
@@ -390,7 +390,7 @@ def test_faceit_implicit_flow(tmp_path, make_client, monkeypatch):
     store = Store(tmp_path / "web.duckdb")
     worker = Worker(store, tmp_path / "p", tmp_path / "t", client_factory=make_client)
     worker.submit = lambda job: None
-    settings = WebSettings(invite_code=INVITE, secret="s", required_demos=10, team_owner=None,
+    settings = WebSettings(password_login=True, invite_code=INVITE, secret="s", required_demos=10, team_owner=None,
                            map_name=None, uploads_dir=tmp_path / "u", oauth=oauth)
     client = skip_email(TestClient(create_app(settings, store, worker, client_factory=make_client)))
     try:
