@@ -609,6 +609,10 @@ def test_card_pages_render_and_nav(web):
     _join(client)
     page = client.get("/kartlar")
     assert page.status_code == 200 and 'href="/kartlar"' in page.text
-    assert "Silah ve betimleyici satırlar sınamayı geçmedi; düello olasılığını yalnız canlı ELO, silah ve can belirler." in page.text
-    assert "Düello olasılığı bu puanın kaynağı olan canlı ELO'dan hesaplanır." in page.text
+    # Kart bileşeni (JS kaynağı sayfada): ikincil tek güç satırı, doğrulanmadı rozeti, etiket kuralları, yeni alt not
+    for t in ("Düello olasılığı yalnız canlı ELO ve silahtan hesaplanır (iki taraf 100 can varsayılır).",
+              "Tek güç", "ELO'ya göre fark", "doğrulanmadı", "kanıtlanmadı", "çoğunlukla seviye ortalaması",
+              "ölçülemedi", "yetersiz veri"):
+        assert t in page.text, t
+    assert "bu puanın kaynağı olan" not in page.text
     assert "/api/kart/" in client.get("/ben").text

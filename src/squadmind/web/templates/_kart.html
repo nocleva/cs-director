@@ -1,12 +1,12 @@
 {# Oyuncu kartı bileşeni: window.SMCard.render(kart, {compact}), emblem, avatar ve karşılaştırma tablosu. Stil: static/css/squadmind.css (bölüm 5).
    Girdi /api/kart/{steam_id} JSON'u (analysis/cards.py sözleşmesi). Tüm metin textContent ile yazılır. #}
 <script>
-// Kart bileşeni. Sayıları yalnız gösterir; hiçbir puan üretmez (silah satırlarında 0-100 puan yok).
+// Kart bileşeni. Sayıları yalnız gösterir; hiçbir puan üretmez. Ana sayı genel puan; tek güç ikincil ve doğrulanmadı.
 window.SMCard = (function () {
   const WEAPONS = [["awp", "AWP"], ["rifle", "Tüfek"], ["pistol", "Tabanca"], ["scout", "Scout"]];
   const DESC = [["opening_win", "Açılış düellosu kazanma", "pct"], ["trade_kill", "Trade'li kill payı", "pct"],
                 ["clutch_win", "Clutch kazanma", "pct"], ["support_dmg_per_round", "Öldürmeden hasar / round", "num"]];
-  const FOOT = "Silah ve betimleyici satırlar sınamayı geçmedi; düello olasılığını yalnız canlı ELO, silah ve can belirler.";
+  const FOOT = "Düello olasılığı yalnız canlı ELO ve silahtan hesaplanır (iki taraf 100 can varsayılır).";
   const LV_COLOR = { 1: "#CFCFCF", 2: "#1CE400", 3: "#1CE400", 4: "#FFC800", 5: "#FFC800", 6: "#FFC800", 7: "#FFC800", 8: "#FF6309", 9: "#FF6309", 10: "#FE1F00" };
   const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const pct = (v) => "%" + Math.round(v * 100);
@@ -25,40 +25,46 @@ window.SMCard = (function () {
     return b;
   }
 
-  function weaponRow(name, w) {
+  // Etiket kuralı (profesör 24.10): n < 20 "yetersiz veri"; kişisel ağırlık < %50 ise n >= 20 olsa da
+  // "çoğunlukla seviye ortalaması"; aksi halde sunucunun etiketi (az veri / yeterli)
+  function labelOf(x) {
+    if (x.n < 20) return "yetersiz veri";
+    if (x.weight != null && x.weight < 0.5) return "çoğunlukla seviye ortalaması";
+    return x.label;
+  }
+
+  // Küçültülmüş değer + aralık; yanında ham (kendi verisi) ve açıklama satırı
+  function shrunkRow(name, x, kind, rawTxt, unit) {
     const row = h("div", "sk-row");
     const head = h("div", "sk-row-h"); head.appendChild(h("span", "", name));
     const v = h("span", "v");
-    if (w.n < 20 || w.lo == null) {
+    if (x == null || x.value == null) {
       row.classList.add("nodata"); v.textContent = "veri yok"; head.appendChild(v); row.appendChild(head);
-      row.appendChild(bar("raw empty"));
-      const m = h("div", "sk-meta"); m.appendChild(h("span", "", w.n + " düello (en az 20 gerekir)")); row.appendChild(m); return row;
+      const m = h("div", "sk-meta"); m.appendChild(h("span", "", (x ? x.n : 0) + " örnek")); row.appendChild(m); return row;
     }
-    v.textContent = w.wins + " / " + w.n; v.appendChild(h("i", "", pct(w.wins / w.n)));
+    const f = kind === "pct" ? pct : num;
+    v.textContent = f(x.value);
+    if (x.lo != null && x.hi != null) v.appendChild(h("i", "", f(x.lo) + "–" + f(x.hi)));
     head.appendChild(v); row.appendChild(head);
-    row.appendChild(bar("raw", w.wins / w.n, w.lo, w.hi, 1));
+    if (kind === "pct" && x.lo != null) row.appendChild(bar("raw", x.value, x.lo, x.hi, 1));
     const m = h("div", "sk-meta");
-    m.appendChild(h("span", "", "%90 aralık " + pct(w.lo) + "–" + pct(w.hi) + " · " + w.label));
-    m.appendChild(h("span", "sk-chip dash", w.validated ? "doğrulandı" : "doğrulanmadı"));
-    row.appendChild(m); return row;
+    m.appendChild(h("span", "", "ham: " + rawTxt + " · n = " + x.n + (unit || "")));
+    const lb = labelOf(x), weak = lb !== "yeterli" && lb !== "az veri";
+    m.appendChild(h("span", "sk-chip" + (weak ? " warn" : ""), lb));
+    row.appendChild(m);
+    if (x.detail) row.appendChild(h("div", "sk-detail", x.detail));
+    if (x.validated === false) { const m2 = h("div", "sk-meta"); m2.appendChild(h("span", "sk-chip dash", "doğrulanmadı")); row.appendChild(m2); }
+    return row;
+  }
+
+  function weaponRow(name, w) {
+    const raw = w.n > 0 ? w.wins + " / " + w.n + (w.raw != null ? " (" + pct(w.raw) + ")" : "") : "kayıt yok";
+    return shrunkRow(name, w, "pct", raw, " düello");
   }
 
   function descRow(name, kind, d) {
-    const row = h("div", "sk-row");
-    const head = h("div", "sk-row-h"); head.appendChild(h("span", "", name));
-    const v = h("span", "v");
-    if (!d || d.value == null) {
-      row.classList.add("nodata"); v.textContent = "veri yok"; head.appendChild(v); row.appendChild(head);
-      const m = h("div", "sk-meta"); m.appendChild(h("span", "", (d ? d.n : 0) + " örnek (en az 20 gerekir)")); row.appendChild(m); return row;
-    }
-    v.textContent = kind === "pct" ? pct(d.value) : num(d.value);
-    head.appendChild(v); row.appendChild(head);
-    const m = h("div", "sk-meta");
-    if (kind === "pct" && d.lo != null) {
-      row.appendChild(bar("raw", d.value, d.lo, d.hi, 1));
-      m.appendChild(h("span", "", "%90 aralık " + pct(d.lo) + "–" + pct(d.hi) + " · n = " + d.n));
-    } else m.appendChild(h("span", "", "n = " + d.n + (kind === "num" ? " round" : "")));
-    m.appendChild(h("span", "", d.label)); row.appendChild(m); return row;
+    const raw = d && d.raw != null ? (kind === "pct" ? pct(d.raw) : num(d.raw)) : "yok";
+    return shrunkRow(name, d, kind, raw, kind === "num" ? " round" : "");
   }
 
   // ---- Görsel yer tutucular: Gemini görselleri gelene kadar SVG; gelince (assets/gelen → static/img) görselle değişir ----
@@ -107,20 +113,46 @@ window.SMCard = (function () {
     return box;
   }
 
-  // Güç puanı (istatistik ekibinin tek puanı) varsa onu büyük göster; yoksa genel (seviye ölçeği) puanı
-  function powerOf(c) { return c.power && c.power.score != null ? c.power : null; }
+  // Tek güç: İKİNCİL ve doğrulanmamış. Mutlak sayı değil, ELO'ya göre fark (+ %90 aralık).
+  const sgn = (v) => (v >= 0 ? "+" : "−") + Math.abs(Math.round(v));
+  const POWER_NOTE = "Tüm güçlerin harmanı; şu anki veride ELO'nun üstüne katkısı kanıtlanmadı.";
+  const COMP_ORDER = [["stat", "FACEIT istatistik eki"], ["duel", "Düello artığı"], ["opening", "Açılış"], ["trade", "Trade"], ["clutch", "Clutch"], ["support", "Öldürmeden hasar"]];
 
-  function compRow(cp) {
+  function compRow(cp, name) {
     const row = h("div", "sk-row"), head = h("div", "sk-row-h");
-    head.appendChild(h("span", "", cp.label || cp.name || "Bileşen"));
-    const v = h("span", "v"), has = cp.value != null || cp.display != null;
-    v.textContent = !has ? "veri yok" : (cp.display != null ? String(cp.display) : num(cp.value));
-    head.appendChild(v); row.appendChild(head);
-    if (!has) row.classList.add("nodata");
-    else if (cp.lo != null && cp.hi != null) row.appendChild(bar("raw", cp.value, cp.lo, cp.hi, cp.scale || 100));
-    const note = cp.note || (cp.weight != null ? "ağırlık " + pct(cp.weight) : "");
-    if (note) { const m = h("div", "sk-meta"); m.appendChild(h("span", "", note)); row.appendChild(m); }
+    head.appendChild(h("span", "", name));
+    const v = h("span", "v");
+    if (!cp) { row.classList.add("nodata"); v.textContent = "ölçülemedi"; head.appendChild(v); row.appendChild(head); return row; }
+    v.textContent = sgn(cp.contribution_elo) + " ELO"; head.appendChild(v); row.appendChild(head);
+    const bits = [];
+    if (cp.elo_per_sd != null) bits.push("1 sd ≈ " + num(cp.elo_per_sd) + " ELO");
+    if (cp.data_weight != null) bits.push("kişisel veri ağırlığı " + pct(cp.data_weight));
+    bits.push("n = " + cp.n);
+    const m = h("div", "sk-meta"); m.appendChild(h("span", "", bits.join(" · ")));
+    m.appendChild(h("span", "sk-chip dash", cp.tested ? "sınandı" : "sınanmadı")); row.appendChild(m);
     return row;
+  }
+
+  function powerBlock(c) {
+    const pw = c.power;
+    if (!pw || c.elo == null || pw.elo == null) return null;
+    const d = pw.elo - c.elo, lo = pw.lo_elo - c.elo, hi = pw.hi_elo - c.elo;
+    const box = h("div", "sk-power"); box.title = POWER_NOTE;
+    const hd = h("div", "sk-row-h");
+    hd.appendChild(h("span", "sk-tag", "Tek güç"));
+    hd.appendChild(h("span", "sk-chip dash", pw.validated === true ? "doğrulandı" : "doğrulanmadı"));
+    box.appendChild(hd);
+    const line = h("div", "sk-pline tnum");
+    line.textContent = "ELO'ya göre fark " + sgn(d) + " [" + sgn(lo) + "; " + sgn(hi) + "]";
+    box.appendChild(line);
+    box.appendChild(h("p", "sk-note", POWER_NOTE));
+    const det = h("details", "sk-comps");
+    det.appendChild(h("summary", "", "Bileşenler"));
+    const by = {}; for (const cp of pw.components || []) by[cp.key] = cp;
+    for (const [k, nm] of COMP_ORDER) det.appendChild(compRow(by[k], nm));
+    det.appendChild(h("p", "sk-note", "Bileşen başına ayrı aralık verilmez; %90 aralık toplam içindir. Katkılar toplam ±300 ELO ile sınırlıdır."));
+    box.appendChild(det);
+    return box;
   }
 
   function render(c, opts) {
@@ -139,34 +171,23 @@ window.SMCard = (function () {
     const elo = h("div", "sk-elo"); elo.appendChild(h("b", "tnum", c.elo != null ? String(Math.round(c.elo)) + " ELO" : "ELO alınamadı")); elo.appendChild(h("span", "", "canlı FACEIT"));
     inner.appendChild(elo);
 
-    // Ana puan bloğu
-    const g = c.general, pw = powerOf(c), main = pw || g;
+    // Ana puan bloğu: her zaman genel puan (canlı ELO, seviye ölçeği)
+    const g = c.general, main = g;
     const gen = h("div", "sk-gen"), gh = h("div", "sk-gen-h"), big = h("div", "sk-big");
     if (main.score == null) { big.classList.add("nodata"); big.textContent = "veri yok"; }
-    else { big.textContent = String(Math.round(main.score)); big.appendChild(h("small", "", "/" + (main.scale_max || 100))); }
+    else { big.textContent = String(Math.round(main.score)); big.appendChild(h("small", "", "/100")); }
     const side = h("div", ""); side.style.textAlign = "right";
-    side.appendChild(h("div", "sk-tag", pw ? "Güç puanı" : "Genel · " + g.scale));
-    const confTxt = pw ? (pw.conf || pw.confidence || "") : g.conf;
-    if (confTxt) side.appendChild(h("span", "sk-chip" + (confTxt === "yeterli" ? "" : " warn"), confTxt));
+    side.appendChild(h("div", "sk-tag", "Genel · " + g.scale));
+    if (g.conf) side.appendChild(h("span", "sk-chip" + (g.conf === "yeterli" ? "" : " warn"), g.conf));
     gh.append(big, side); gen.appendChild(gh);
-    const lo = main.lo, hi = main.hi, sc = main.scale_max || 100;
-    gen.appendChild(bar("gen", main.score, lo, hi, sc, true));
+    const lo = main.lo, hi = main.hi;
+    gen.appendChild(bar("gen", main.score, lo, hi, 100, true));
     const gm = h("div", "sk-meta");
     const exact = main.score != null && lo != null && Math.abs(hi - lo) < 0.05;   // aralık yok: canlı ELO birebir
     gm.appendChild(h("span", "tnum", main.score == null ? "Puan hesaplanamadı." : (exact ? "Canlı ELO birebir: aralık yok" : lo == null ? "Aralık yok" : "%90 aralık " + Math.round(lo) + "–" + Math.round(hi))));
-    if (pw) gm.appendChild(h("span", "sk-chip dash", pw.validated === true ? "doğrulandı" : pw.validated === false ? "doğrulanmadı" : "doğrulama bilgisi yok"));
-    else gm.appendChild(h("span", "", "çubuk: seviye 1 → 10"));
+    gm.appendChild(h("span", "", "çubuk: seviye 1 → 10"));
     gen.appendChild(gm);
-    if (pw && pw.components && pw.components.length) {
-      const cs = h("div", "sk-comps"); cs.appendChild(h("h3", "sk-tag", "Puanın parçaları"));
-      for (const cp of pw.components) cs.appendChild(compRow(cp));
-      gen.appendChild(cs);
-    }
-    if (pw && g && g.score != null) {
-      const gr = compRow({ label: "Seviye ölçeği (canlı ELO)", value: g.score, lo: g.lo, hi: g.hi, display: Math.round(g.score) });
-      gen.appendChild(gr);
-    }
-    gen.appendChild(h("p", "sk-note", "Düello olasılığı bu puanın kaynağı olan canlı ELO'dan hesaplanır."));
+    const pb = powerBlock(c); if (pb) gen.appendChild(pb);
     inner.appendChild(gen);
 
     // Silah satırları: ham galibiyet / düello, puan yok
@@ -211,7 +232,8 @@ window.SMCard = (function () {
       const ca = cell(x, fmt), cb = cell(y, fmt); r.append(ca, cb);
       let verdict = "veri yok";
       if (x.value != null && y.value != null) {
-        if (x.lo != null && y.lo != null && x.hi - x.lo < 0.05 && y.hi - y.lo < 0.05) {
+        if (x.thin || y.thin) verdict = "yetersiz veri";
+        else if (x.lo != null && y.lo != null && x.hi - x.lo < 0.05 && y.hi - y.lo < 0.05) {
           verdict = "kesin ELO sıralaması";   // iki ELO da birebir: aralık yok, "belirgin" denmez
           if (x.value > y.value) ca.classList.add("win"); else if (y.value > x.value) cb.classList.add("win");
         } else if (x.lo != null && y.lo != null) {
@@ -223,21 +245,15 @@ window.SMCard = (function () {
       r.appendChild(h("td", "sep", verdict)); body.appendChild(r);
     }
     const sc = (c) => ({ value: c.general.score, lo: c.general.lo, hi: c.general.hi });
-    if (a.power && a.power.score != null && b.power && b.power.score != null) {
-      const pwr = (c) => ({ value: c.power.score, lo: c.power.lo, hi: c.power.hi });
-      add("Güç puanı", pwr(a), pwr(b), (v) => String(Math.round(v)));
-    }
     add("Genel (seviye ölçeği)", sc(a), sc(b), (v) => String(Math.round(v)));
     const ev = (c) => ({ value: c.elo, lo: c.elo, hi: c.elo });   // FACEIT'ten birebir: aralık yok
     add("Canlı ELO", ev(a), ev(b), (v) => String(Math.round(v)));
-    for (const [k, nm] of WEAPONS) {
-      const wr = (c) => { const w = c.weapons[k]; return w && w.n >= 20 && w.lo != null ? { value: w.wins / w.n, lo: w.lo, hi: w.hi } : { value: null }; };
-      add(nm + " (galibiyet, doğrulanmadı)", wr(a), wr(b), pct);
-    }
-    for (const [k, nm, kind] of DESC) {
-      const d = (c) => c.descriptive[k] || { value: null };
-      add(nm, d(a), d(b), kind === "pct" ? pct : num);
-    }
+    const pwr = (c) => (c.power && c.elo != null ? { value: c.power.elo - c.elo, lo: c.power.lo_elo - c.elo, hi: c.power.hi_elo - c.elo } : { value: null });
+    add("Tek güç: ELO'ya göre fark (doğrulanmadı)", pwr(a), pwr(b), sgn);
+    // Küçültülmüş satırlar: aralıklar ayrıksa "belirgin"; n < 20 ise kıyas yapılmaz
+    const sh = (x) => (x && x.value != null ? { value: x.value, lo: x.lo, hi: x.hi, thin: x.n < 20 } : { value: null });
+    for (const [k, nm] of WEAPONS) add(nm + " (küçültülmüş, doğrulanmadı)", sh(a.weapons[k]), sh(b.weapons[k]), pct);
+    for (const [k, nm, kind] of DESC) add(nm + " (küçültülmüş)", sh(a.descriptive[k]), sh(b.descriptive[k]), kind === "pct" ? pct : num);
     return tbl;
   }
   return { render, skeleton, compare, emblem, avatar, FOOT, LV_COLOR };

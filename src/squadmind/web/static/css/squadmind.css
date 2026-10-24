@@ -201,7 +201,11 @@ footer.foot a { color: inherit; }
 .sk-row .sk-bar { margin: 6px 0 4px; height: 6px; }
 .sk-row.nodata .sk-row-h { color: var(--muted); }
 /* Güç bileşenleri (istatistik ekibinin tek puanı: parçaları görünür) */
-.sk-comps { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--bg-3); }
+.sk-comps { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--bg-3); }
+.sk-comps summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-2); padding: 4px 0; min-height: 28px; }
+.sk-power { margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--muted); background: color-mix(in srgb, var(--bg-0) 60%, transparent); }
+.sk-pline { font-size: 15px; font-weight: 700; margin-top: 4px; overflow-wrap: anywhere; }
+.sk-detail { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
 .sk-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-top: 1px solid var(--bg-3); padding-top: 10px; text-align: center; }
 .sk-strip b { display: block; font: 700 17px var(--font-display); font-variant-numeric: tabular-nums; }
 .sk-strip span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
