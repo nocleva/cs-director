@@ -194,6 +194,7 @@ kaldırıldı; analiz modülleri ve CLI raporları arka planda sürüyor.
 - Kod `/opt/squadmind` (+`.env`), veri `/var/lib/squadmind` (DuckDB + .wal, cache, logs, backups). Servisler: `squadmind-web`, `squadmind-tunnel`, `squadmind-backup.timer` (her gece 04:17 UTC, `.duckdb` + `.wal` tar.gz, son 14).
 - Güncelleme: commit → `scripts/server/deploy.sh 213.32.17.246`. Kurulum / taşıma betikleri ve geri dönüş adımları `scripts/server/README.md`.
 - Bu bilgisayardaki yerel sunucu ve Görev Zamanlayıcı `SquadMind` görevi KAPALI (aynı tünel iki yerde çalışmasın). Yerelde DB'ye CLI ile çalışmak için sunucudan kopya al; yerel `squadmind-data/squadmind.duckdb` artık eski.
+- **Sunucu dışı yedek:** her gün 07:40 (TR) Görev Zamanlayıcı `SquadMind-Yedek` → `scripts/pull-backup.ps1` sunucunun en yeni gece yedeğini `C:\Users\furka\squadmind-data\sunucu-yedekleri\` altına kopyalar (son 30; günlük `pull.log`). Gerekçe: 24.10.2026 OVH altyapı arızasında sunucu saatlerce erişilemedi; yedekler yalnız sunucudaydı.
 - DuckDB taşırken/yedeklerken `.wal` dosyası da alınmalı (ilk taşımada unutuldu, son yazımlar eksik kaldı; düzeltildi).
 
 ### Veri ve ortam
