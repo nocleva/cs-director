@@ -360,6 +360,9 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     @app.get("/giris/faceit/donus", response_class=HTMLResponse)
     def faceit_callback(request: Request, code: str = "", state: str = "", error: str = "",
                         error_description: str = ""):
+        # Tanı (24.10): FACEIT dönüşe yayıncıyı (iss, RFC 9207) ekliyor; token adresi yayıncıya göre
+        log.warning("FACEIT dönüşü: iss=%s kod=%s hata=%s", request.query_params.get("iss", "-")[:80],
+                    "var" if code else "yok", error[:40] or "-")
         resp = _faceit_callback(request, code, state, error, error_description)
         popup = False
         try:
