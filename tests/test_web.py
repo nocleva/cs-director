@@ -424,7 +424,7 @@ def test_faceit_implicit_flow(tmp_path, make_client, monkeypatch):
 
     oauth = FaceitOAuth("id", "sec", "https://app.squadmind.info", flow="implicit")
     url = oauth.authorize_url("st", "ch")
-    assert "response_type=token" in url and "code_challenge" not in url
+    assert "response_type=token" in url and "code_challenge" in url
 
     def fake_user(self, token):
         if token != "iyi":
