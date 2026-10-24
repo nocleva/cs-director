@@ -1172,6 +1172,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
 
     def builder_model(map_name: str) -> dict:
         """Haritanın düello modeli, bölge ızgarası ve tahta; demo sayısı değişince yenilenir."""
+        from squadmind.analysis import cards as cards_mod
         from squadmind.analysis import duels as du
         from squadmind.analysis.maps import BOARD_PLACES
         from squadmind.analysis.player_metrics import load_demo_data
@@ -1191,6 +1192,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                     "duels": duel_df, "match_ids": d.match_maps.filter(
                         pl.col("map") == map_name)["match_id"].to_list(),
                     "model": du.strengths(duel_df), "grid": tbld.place_grid(d),
+                    # Oyuncu kartı (analysis/cards.py): ham düello kayıtları ve betimleyici girdisi
+                    "data": d, "weapon_counts": cards_mod.weapon_counts(duel_df), "desc": {},
                     "board": render_board(Board(map_name, places=BOARD_PLACES.get(map_name, {}),
                                                 target_places=[]), width=width, pad=pad, theme=ARENA),
                     "proj": {"minx": proj.minx, "maxy": proj.maxy, "s": proj.s, "pad": proj.pad,
@@ -1264,6 +1267,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                             game = (prof.get("games") or {}).get("cs2") or {}
                             hist = rt.summarize_history(client.get_player_match_stats(p["faceit_id"]))
                             elo = rt._num(game.get("faceit_elo"))
+                            _rating_cache.setdefault("level", {})[p["steam_id"]] = game.get("skill_level")
                             kw = {"elo": elo if elo and elo > 0 else None, "level": game.get("skill_level")}
                             feats[p["steam_id"]] = rt.player_features(hist, ctx.pop, **kw)
                             _rating_cache["feats0"][p["steam_id"]] = rt.player_features(
@@ -1320,6 +1324,62 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                    for f, s, n, lv, dm in rows]
             return sorted(out, key=lambda r: (r["rank"], (r["nickname"] or "").lower()))
         return store.run(load, lock=False)
+
+    # --- oyuncu kartı (analysis/cards.py; sayılara dokunulmaz, yalnız sunulur) ------------------
+
+    _card_cache: dict[str, tuple[tuple, float, dict]] = {}   # steam_id → (model anahtarı, an, kart)
+
+    def card_data(map_name: str, player: dict) -> dict:
+        """Bir oyuncunun kartı (JSON sözleşmesi: cards.PlayerCard.to_dict). Genel puan canlı ELO'dan
+        (κ=0; arenadaki ana olasılıkla aynı girdi); canlı ELO 60 sn kuralıyla `builder_ratings`
+        üzerinden gelir. FACEIT'e ulaşılamazsa genel puan "veri yok" kalır ve kart önbelleğe girmez."""
+        from squadmind.analysis import cards as cd
+
+        bm = builder_model(map_name)
+        key = (map_name, len(bm["match_ids"]))
+        sid = player["steam_id"]
+        hit = _card_cache.get(sid)
+        if hit and hit[0] == key and time.time() - hit[1] < 60:
+            return hit[2]
+        builder_ratings(map_name, [player])
+        feats = _rating_cache["feats0"].get(sid)
+        if sid not in bm["desc"]:
+            try:
+                bm["desc"][sid] = cd.descriptives(bm["data"], sid)
+            except Exception:  # noqa: BLE001 - betimleyici başarısızsa kart onsuz açılır
+                log.exception("kart betimleyicileri hesaplanamadı: %s", player.get("nickname"))
+                bm["desc"][sid] = ({}, 0, 0)
+        level = _rating_cache.get("level", {}).get(sid) or player.get("level")
+        card = cd.player_card(sid, feats=feats, counts=bm["weapon_counts"], desc=bm["desc"][sid],
+                              nickname=player.get("nickname"), level=level).to_dict()
+        if feats is not None:
+            _card_cache[sid] = (key, time.time(), card)
+        return card
+
+    @app.get("/api/kart/{steam_id}")
+    def card_api(steam_id: str, request: Request):
+        """Oyuncu kartı. İzin arenadaki `builder_players` kuralıyla aynı (kendisi, kabul etmiş
+        takım üyeleri, kadro erişimi varsa çekirdek)."""
+        user = require_user(request)
+        allowed = {p["steam_id"]: p for p in builder_players(user, "de_dust2")}
+        if steam_id not in allowed:
+            raise HTTPException(403, "Bu oyuncunun kartını görme iznin yok.")
+        try:
+            return card_data("de_dust2", allowed[steam_id])
+        except Exception:  # noqa: BLE001
+            log.exception("kart kurulamadı")
+            raise HTTPException(503, "Kart şu an hazırlanamadı.") from None
+
+    @app.get("/kartlar", response_class=HTMLResponse)
+    def cards_page(request: Request):
+        """İzinli oyuncuların kartları: genel puana göre sıralı ızgara + iki kartı yan yana kıyas (tarayıcıda)."""
+        user = current_user(request)
+        if user is None:
+            return RedirectResponse("/", status_code=303)
+        # Kartlar tarayıcıdan /api/kart/{id} ile paralel çekilir (FACEIT çağrıları sayfayı bekletmesin)
+        players = [{"steam_id": p["steam_id"], "nickname": p["nickname"], "me": p["me"]}
+                   for p in builder_players(user, "de_dust2")]
+        return page(request, "kartlar.html", user=user, payload={"players": players, "me": user.steam_id})
 
     # --- düello arenası ------------------------------------------------------------------
 

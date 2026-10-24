@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Kartlar · SquadMind{% endblock %}
+{% block head %}
+<style>
+  .pagehead { margin-bottom: 18px; }
+  .kgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: start; }
+  .kcell { display: flex; flex-direction: column; gap: 8px; min-width: 0; animation: kin 360ms var(--ease) both; animation-delay: calc(var(--i, 0) * 60ms); }
+  @keyframes kin { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .kcell .pick { align-self: stretch; }
+  .kcell .pick[aria-pressed="true"] { background: var(--accent); color: var(--bg-0); border-color: var(--accent); }
+  .kcell.sel .sk { border-color: var(--accent); }
+  .kcell .rank { font-size: 11px; color: var(--muted); }
+  #cmp { margin-bottom: 18px; }
+  #cmp[hidden] { display: none; }
+  #cmp .table-wrap { margin-top: 8px; }
+  .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  @media (prefers-reduced-motion: reduce) { .kcell { animation: none; } }
+</style>
+{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div class="eyebrow">Kartlar · Dust2</div>
+  <h1>Oyuncu kartları</h1>
+  <p class="sub">Görebildiğin oyuncuların kartları, genel puana göre sıralı. İki kartı seçip yan yana kıyaslayabilirsin.</p>
+  <p class="hint">Genel puan canlı FACEIT ELO'nun seviye ölçeğindeki karşılığıdır; silah ve betimleyici satırlar sınamayı geçmedi, yalnız kayıt olarak gösterilir.</p>
+</div>
+
+<section class="card" id="cmp" hidden aria-live="polite">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0">Kıyas</h2>
+    <button type="button" class="ghost small" id="cmpClear">Seçimi temizle</button>
+  </div>
+  <div class="table-wrap" id="cmpBody"></div>
+  <p class="hint">"Belirgin" yalnız iki oyuncunun %90 aralıkları ayrıkken yazılır; aksi halde fark gürültüden ayrılamaz.</p>
+</section>
+
+<div class="kgrid" id="grid"></div>
+<p class="muted" id="empty" hidden>Henüz görebileceğin başka oyuncu yok. <a href="/takimlar">Takım kur →</a></p>
+
+<script id="payload" type="application/json">{{ payload | tojson }}</script>
+{% include "_kart.html" %}
+<script>
+const P = JSON.parse(document.getElementById("payload").textContent);
+const grid = document.getElementById("grid"), cmp = document.getElementById("cmp"), cmpBody = document.getElementById("cmpBody");
+const cards = new Map(), picked = [];
+if (!P.players.length) document.getElementById("empty").hidden = false;
+
+// Her oyuncu için iskelet; kartlar geldikçe yerine geçer, sonra genel puana göre sıralanır
+const cells = new Map();
+for (const p of P.players) {
+  const cell = document.createElement("div"); cell.className = "kcell"; cell.appendChild(SMCard.skeleton());
+  grid.appendChild(cell); cells.set(p.steam_id, cell);
+}
+Promise.all(P.players.map(async (p) => {
+  try {
+    const res = await fetch("/api/kart/" + encodeURIComponent(p.steam_id));
+    if (!res.ok) throw new Error();
+    cards.set(p.steam_id, await res.json());
+  } catch { cards.set(p.steam_id, null); }
+  paint();
+})).then(() => {
+  // Paylaşılabilir bağlantı: /kartlar?kiyas=<steam_id>,<steam_id> iki kartı baştan seçili açar
+  const want = (new URLSearchParams(location.search).get("kiyas") || "").split(",").filter((s) => cards.get(s));
+  if (want.length === 2) { picked.push(...want); syncSel(); }
+});
+
+function paint() {
+  const done = P.players.filter((p) => cards.has(p.steam_id));
+  const ok = done.filter((p) => cards.get(p.steam_id));
+  ok.sort((a, b) => {
+    const sa = cards.get(a.steam_id).general.score, sb = cards.get(b.steam_id).general.score;
+    return (sa == null) - (sb == null) || (sb ?? 0) - (sa ?? 0);
+  });
+  const order = [...ok, ...done.filter((p) => !cards.get(p.steam_id)), ...P.players.filter((p) => !cards.has(p.steam_id))];
+  order.forEach((p, i) => {
+    const cell = cells.get(p.steam_id), c = cards.get(p.steam_id);
+    if (c !== undefined && !cell.dataset.done) {
+      cell.dataset.done = "1"; cell.replaceChildren(); cell.style.setProperty("--i", i);
+      if (c) {
+        const btn = document.createElement("button"); btn.type = "button"; btn.className = "ghost small pick"; btn.setAttribute("aria-pressed", "false");
+        btn.textContent = "Kıyasla"; btn.onclick = () => toggle(p.steam_id);
+        cell.append(SMCard.render(c), btn);
+      } else {
+        const m = document.createElement("p"); m.className = "muted"; m.textContent = (p.nickname || "Oyuncu") + ": kart şu an hazırlanamadı."; cell.appendChild(m);
+      }
+    }
+    grid.appendChild(cell);   // sıralı yeniden diz (DOM'u taşır, yeniden çizmez)
+  });
+}
+
+function toggle(sid) {
+  const i = picked.indexOf(sid);
+  if (i >= 0) picked.splice(i, 1); else { if (picked.length === 2) picked.shift(); picked.push(sid); }
+  syncSel();
+}
+function syncSel() {
+  for (const [id, cell] of cells) {
+    const on = picked.includes(id); cell.classList.toggle("sel", on);
+    const b = cell.querySelector(".pick"); if (b) { b.setAttribute("aria-pressed", on ? "true" : "false"); b.textContent = on ? "Seçildi" : "Kıyasla"; }
+  }
+  cmp.hidden = picked.length < 2;
+  if (picked.length === 2) { cmpBody.replaceChildren(SMCard.compare(cards.get(picked[0]), cards.get(picked[1]))); cmp.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" }); }
+}
+document.getElementById("cmpClear").onclick = () => { picked.length = 0; syncSel(); };
+</script>
+{% endblock %}

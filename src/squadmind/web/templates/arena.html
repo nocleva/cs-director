@@ -51,6 +51,15 @@
   .note { font-size: 11px; color: var(--muted); margin: 12px 0 0; }
   .nosee { text-align: center; padding: 14px 6px; color: var(--text-2); }
   select { width: 100%; }
+  /* Oyuncu kartı paneli (yan panel, küçük kart) */
+  .cardpane { margin-top: 14px; border-top: 1px solid var(--bg-3); padding-top: 12px; }
+  .cardpane-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .cardpane-h .eyebrow { margin: 0; }
+  #cardSlots { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+  #cardSlots[hidden] { display: none; }
+  #cardSlots .slot { transition: box-shadow 250ms var(--ease); border-radius: 14px; }
+  #cardSlots .slot.focus { box-shadow: 0 0 0 2px var(--accent); }
+  @media (prefers-reduced-motion: reduce) { #cardSlots .slot { transition: none; } }
 </style>
 {% endblock %}
 {% block body %}
@@ -89,10 +98,16 @@
     </div>
     <div id="out"></div>
     <p class="note">Olasılık canlı FACEIT ELO'dan: 100 ELO fark ≈ 1,2 puan. Tek düello büyük ölçüde şanstır; olasılıklar çoğunlukla %40-60 arasında. Aralık oyuncu gücünün belirsizliğidir, tek düellonun sonucunun değil. Peek atma / tutma ve "bu oyuncu şu pozisyonda güçlü" bilgisi gösterilmiyor: 18 Dust2 maçıyla gürültüden ayrılamıyor.</p>
+    <div class="cardpane">
+      <div class="cardpane-h"><div class="eyebrow">Oyuncu kartları</div><button type="button" class="ghost small" id="cardToggle" aria-expanded="false" aria-controls="cardSlots">Göster</button></div>
+      <div id="cardSlots" hidden></div>
+      <p class="note">Bir jetona dokunarak da açabilirsin. Kart düello sonucunu değiştirmez.</p>
+    </div>
   </aside>
 </div>
 
 <script id="payload" type="application/json">{{ payload | tojson }}</script>
+{% include "_kart.html" %}
 <script>
 const P = JSON.parse(document.getElementById("payload").textContent);
 const NS = "http://www.w3.org/2000/svg", ov = document.getElementById("ov");
@@ -137,14 +152,19 @@ function token(key, color) {
   el("circle", { class: "body", r: 21, fill: color, stroke: "#FFFFFF", "stroke-width": 3 }, g);
   const t = el("text", { y: 5, "text-anchor": "middle", "font-size": 14, "font-weight": 800, fill: C.bg0, "font-family": "Inter, sans-serif" }, g);
   const n = el("text", { y: 38, "text-anchor": "middle", "font-size": 12, "font-weight": 700, fill: C.line, "paint-order": "stroke", stroke: C.bg0, "stroke-width": 4, "stroke-linejoin": "round", "font-family": "Inter, sans-serif" }, g);
-  g.addEventListener("pointerdown", (e) => { drag = key; ov.setPointerCapture(e.pointerId); });
+  g.addEventListener("pointerdown", (e) => { drag = key; moved = false; downAt = [e.clientX, e.clientY]; ov.setPointerCapture(e.pointerId); });
   return { g, t, n };
 }
 const tokA = token("a", C.a), tokB = token("b", C.b);
-let drag = null;
+let drag = null, moved = false, downAt = [0, 0];
 function svgPoint(e) { const pt = ov.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; return pt.matrixTransform(ov.getScreenCTM().inverse()); }
-ov.addEventListener("pointermove", (e) => { if (!drag) return; const p = svgPoint(e); [state[drag].x, state[drag].y] = toWorld(p.x, p.y); draw(); });
-const drop = () => { if (drag) { drag = null; refresh(); } };
+ov.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  if (!moved && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 5) return;   // küçük titreme tıklama sayılır
+  moved = true; const p = svgPoint(e); [state[drag].x, state[drag].y] = toWorld(p.x, p.y); draw();
+});
+// Sürükleme bitince hesapla; sürüklenmediyse (tıklama) o jetonun kartını aç
+const drop = () => { if (drag) { const k = drag; drag = null; if (moved) refresh(); else showCard(k); } };
 ov.addEventListener("pointerup", drop); ov.addEventListener("pointercancel", drop);
 
 function names() {
@@ -224,6 +244,50 @@ function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&am
 // Can girdisi: 1-100 (boş / geçersiz → 100)
 function hpVal(id) { const v = Math.round(Number(document.getElementById(id).value)); return v >= 1 && v <= 100 ? v : 100; }
 ["wA", "wB", "hpA", "hpB"].forEach((id) => document.getElementById(id).addEventListener("change", refresh));
+
+// Oyuncu kartları (yan panel): seçili iki oyuncunun küçük kartı. Düello sonucuna dokunmaz;
+// kartlar /api/kart/{id}'den gelir (sunucuda 60 sn önbellekli, burada da 60 sn)
+const slots = document.getElementById("cardSlots"), toggleBtn = document.getElementById("cardToggle");
+const cardCache = new Map(), slotEls = {};
+let cardsOpen = false;
+function cardOf(sid) {
+  const hit = cardCache.get(sid);
+  if (hit && Date.now() - hit.t < 60000) return hit.p;
+  const p = fetch("/api/kart/" + encodeURIComponent(sid)).then((r) => { if (!r.ok) throw new Error(); return r.json(); }).catch(() => { cardCache.delete(sid); return null; });
+  cardCache.set(sid, { t: Date.now(), p }); return p;
+}
+function syncCards() {
+  slots.hidden = !cardsOpen; toggleBtn.textContent = cardsOpen ? "Gizle" : "Göster"; toggleBtn.setAttribute("aria-expanded", cardsOpen ? "true" : "false");
+  if (!cardsOpen) return;
+  for (const key of ["a", "b"]) {
+    const sid = state[key].sid || "";
+    let slot = slotEls[key];
+    if (!slot) { slot = slotEls[key] = document.createElement("div"); slot.className = "slot"; slots.appendChild(slot); }
+    if (slot.dataset.sid === sid && slot.dataset.ready) continue;
+    slot.dataset.sid = sid; slot.dataset.ready = ""; slot.replaceChildren();
+    if (!sid) {
+      const lv = P.levels.find((l) => l.elo === state.b.elo), m = document.createElement("p");
+      m.className = "note"; m.textContent = `Rakip: seviye ${lv ? lv.level : ""} ortalama oyuncu. Gerçek bir oyuncu olmadığı için kartı yok.`; slot.appendChild(m); slot.dataset.ready = "1"; continue;
+    }
+    slot.appendChild(SMCard.skeleton());
+    cardOf(sid).then((c) => {
+      if (slot.dataset.sid !== sid) return;   // bu arada oyuncu değişti
+      slot.replaceChildren();
+      if (c) slot.appendChild(SMCard.render(c, { compact: true }));
+      else { const m = document.createElement("p"); m.className = "note"; m.textContent = "Kart şu an hazırlanamadı."; slot.appendChild(m); }
+      slot.dataset.ready = "1";
+    });
+  }
+}
+function showCard(key) {
+  cardsOpen = true; syncCards();
+  for (const k of ["a", "b"]) if (slotEls[k]) slotEls[k].classList.toggle("focus", k === key);
+  if (slotEls[key]) slotEls[key].scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+if (new URLSearchParams(location.search).get("kart") === "1") { cardsOpen = true; syncCards(); }   // kart panelini açık başlat
+toggleBtn.onclick =() => { cardsOpen = !cardsOpen; syncCards(); };
+playerSel.addEventListener("change", syncCards); oppSel.addEventListener("change", syncCards);
+document.getElementById("levels").addEventListener("click", syncCards);
 renderLevels(); refresh();
 </script>
 {% endblock %}

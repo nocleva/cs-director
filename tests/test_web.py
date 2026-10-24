@@ -569,3 +569,46 @@ def test_taktik_page_renders_with_fixed_label(web):
     page = client.get("/arena/taktik")
     assert page.status_code == 200
     assert "Örnek akış: tahmin değil, betimleme. Sınamayı geçmedi." in page.text
+
+
+# --- Oyuncu kartı arayüzü: /api/kart, /kartlar (sözleşme analysis/cards.py) ------------------
+
+_CARD_KEYS = {"nickname", "steam_id", "faceit_level", "elo", "general", "weapons", "descriptive", "counts"}
+_GENERAL_KEYS = {"score", "lo", "hi", "conf", "combined_elo", "scale"}
+_WEAPON_KEYS = {"wins", "n", "lo", "hi", "label", "validated"}
+
+
+def test_card_api_requires_login_and_permission(web):
+    client, _ = web
+    assert client.get(f"/api/kart/{SELF}").status_code == 401           # oturumsuz
+    _join(client)
+    assert client.get("/api/kart/76561100000000099").status_code == 403  # izinsiz oyuncu
+    assert client.get("/api/kart/yok").status_code == 403
+
+
+def test_card_api_follows_contract_and_has_no_weapon_score(web):
+    client, _ = web
+    _join(client)
+    r = client.get(f"/api/kart/{SELF}")
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert set(c) == _CARD_KEYS and c["steam_id"] == SELF
+    assert set(c["general"]) == _GENERAL_KEYS and c["general"]["scale"] == "seviye ölçeği"
+    assert set(c["weapons"]) == {"rifle", "awp", "pistol", "scout"}
+    for w in c["weapons"].values():
+        assert set(w) == _WEAPON_KEYS          # 0-100 puan / kayma alanı yok
+        assert w["validated"] is False
+        assert w["n"] < 20 and w["lo"] is None and w["label"] == "veri yok"   # fixture'da düello yok
+    assert set(c["descriptive"]) <= {"opening_win", "trade_kill", "clutch_win", "support_dmg_per_round"}
+    assert set(c["counts"]) == {"demos", "rounds", "duels"}
+
+
+def test_card_pages_render_and_nav(web):
+    client, _ = web
+    assert client.get("/kartlar", follow_redirects=False).status_code == 303
+    _join(client)
+    page = client.get("/kartlar")
+    assert page.status_code == 200 and 'href="/kartlar"' in page.text
+    assert "Silah ve betimleyici satırlar sınamayı geçmedi; düello olasılığını yalnız canlı ELO, silah ve can belirler." in page.text
+    assert "Düello olasılığı bu puanın kaynağı olan canlı ELO'dan hesaplanır." in page.text
+    assert "/api/kart/" in client.get("/ben").text
