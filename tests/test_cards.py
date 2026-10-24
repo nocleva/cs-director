@@ -138,3 +138,19 @@ def test_matchup_unaffected_by_cards() -> None:
     end = text.find("\n    @", start)
     body = text[start:end if end > 0 else len(text)]
     assert "cards" not in body and "analysis.cards" not in text
+
+
+def test_general_score_uses_live_elo_not_combined():
+    """Profesör 24.10 (a): genel puan canlı ELO'dan; stat eki genel puanı değiştirmez."""
+    from squadmind.analysis import cards
+    from squadmind.analysis import rating as rt
+    base = dict(x=None, var=(0.0, 0.0, 0.0, 0.0), elo=1885.0, elo_known=True, share=0.5, share_raw=0.5,
+                adr=80.0, weight=0.5, n_matches=100, stat_adj=0.0, combined_elo=1885.0, combined_sd=0.0,
+                elo_exact=True)
+    fields = rt.PlayerFeatures.__dataclass_fields__
+    plain = rt.PlayerFeatures(**{k: v for k, v in base.items() if k in fields})
+    boosted = rt.PlayerFeatures(**{**{k: v for k, v in base.items() if k in fields},
+                                   "stat_adj": 250.0, "combined_elo": 2135.0})
+    a = cards.player_card("x", feats=plain).general.value
+    b = cards.player_card("x", feats=boosted).general.value
+    assert a == b and abs(a - cards.elo_to_score(1885.0)) < 1e-9

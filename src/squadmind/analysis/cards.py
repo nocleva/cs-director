@@ -7,8 +7,9 @@ Seviye ölçeği (tek, sabit, havuzdan bağımsız): ELO → 0-100, FACEIT seviy
 doğrusal. Seviye L'nin ELO aralığı [10·(L−1), 10·L] puana düşer (seviye 9 = 80-90, seviye 10 =
 90-100; 100 ELO = 0, 2401+ = 100). DİKKAT: ölçek doğrusal DEĞİL (eğim seviyeye göre 220-400 ELO
 / 10 puan); puan farkı güç oranı gibi okunmamalı (80 puan, 40 puanın "iki katı güçlü" değildir),
-yalnız sıralama ve seviye içi konum içindir. Genel puan = `rating.PlayerFeatures.combined_elo`
-(FACEIT ELO + küçültmeli stat eki, sınanmış) ve %90 aralığı (`combined_sd`).
+yalnız sıralama ve seviye içi konum içindir. Genel puan = canlı FACEIT ELO'su (κ=0; arenadaki ana
+düello olasılığıyla aynı girdi, profesör kararı 24.10) ve belirsizliği; birleşik ELO (stat ekli,
+kanıtı zayıf) `general.combined_elo` alanında ayrıca verilir.
 
 Silah satırı: o sınıftaki ham düello (galibiyet / n) + Wilson %90 aralığı; n < 20 "veri yok"
 (aralık verilmez), 20-49 "az veri", ≥ 50 "yeterli". `validated` her zaman False
@@ -196,7 +197,7 @@ class PlayerCard:
     nickname: str | None
     faceit_level: int | None
     elo: float | None                   # FACEIT ELO (kesin değilse None)
-    general: Stat                       # birleşik ELO'nun seviye ölçeğindeki puanı (0-100)
+    general: Stat                       # canlı ELO'nun seviye ölçeğindeki puanı (0-100; düelloyla aynı girdi)
     combined_elo: float | None
     weapons: dict[str, Weapon]
     descriptives: dict[str, Stat]
@@ -211,7 +212,8 @@ class PlayerCard:
             "nickname": self.nickname, "steam_id": self.steam_id,
             "faceit_level": self.faceit_level, "elo": self.elo,
             "general": {"score": g.value, "lo": g.lo, "hi": g.hi, "conf": g.label,
-                        "combined_elo": self.combined_elo, "scale": "seviye ölçeği"},
+                        "combined_elo": self.combined_elo,          # stat ekiyle (kanıtı zayıf)
+                        "scale": "seviye ölçeği"},
             "weapons": {c: {"wins": w.wins, "n": w.n, "lo": w.lo, "hi": w.hi, "label": w.label,
                             "validated": w.validated} for c, w in self.weapons.items()},
             "descriptive": {k: {"value": v.value, "lo": v.lo, "hi": v.hi, "n": v.n, "label": v.label}
@@ -306,7 +308,11 @@ def player_card(steam_id: str, *, feats: rt.PlayerFeatures | None = None,
         general, comb, elo = Stat(None, label="veri yok"), None, None
     else:
         lab = "az veri" if (not feats.elo_known or feats.n_matches < rt.MIN_MATCHES) else "yeterli"
-        general = _score_stat(feats.combined_elo, feats.combined_sd, feats.n_matches, lab)
+        # Profesör kararı 24.10 (a): genel puan YALNIZ canlı ELO'dan (κ=0), arenadaki ana düello
+        # olasılığıyla aynı girdi; ELO'nun belirsizliği var[0] (kesin ELO'da 0, seviye ortasında
+        # seviye aralığı). Birleşik ELO (stat ekli, kanıtı zayıf) ayrı alanda kalır.
+        elo_sd = math.sqrt(max(float(feats.var[0]), 0.0)) * rt.ELO_UNIT
+        general = _score_stat(feats.elo, elo_sd, feats.n_matches, lab)
         comb = feats.combined_elo
         elo = feats.elo if feats.elo_exact else None
     weapons = {c: weapon_record(counts, steam_id, c) for c in classes}
