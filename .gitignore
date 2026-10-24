@@ -233,3 +233,7 @@ data/*.duckdb.wal
 # Üretilen raporlar
 reports/*
 !reports/.gitkeep
+
+# Gemini ham görselleri (büyük); siteye optimize edilmiş kopyaları static/img altında
+assets/gelen/*
+!assets/gelen/.gitkeep
