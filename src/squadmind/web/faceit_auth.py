@@ -81,7 +81,9 @@ class FaceitOAuth:
             "scope": self.scope,
             "state": state,
         }
-        if self.flow == "code" and self.pkce:
+        # FACEIT Connect, PKCE türündeki istemcide akıştan bağımsız challenge istiyor
+        # (24.10: implicit + challenge'sız → onay tepkisiz, büyük olasılıkla pkce_required)
+        if self.pkce:
             params |= {"code_challenge": challenge, "code_challenge_method": "S256"}
         return f"{self.authorize_base}?{urlencode(params)}"
 
