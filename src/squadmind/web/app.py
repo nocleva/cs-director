@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import collections
 import hmac
+import json
 import mimetypes
 import html as html_lib
 import logging
@@ -254,6 +255,28 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         resp.delete_cookie(LOGIN_COOKIE)
         return resp
 
+    def popup_bridge(resp: Response) -> Response:
+        """FACEIT dönüşü açılır pencerede biter: çerezi kur, ana pencereyi hedefe gönder, kapan.
+
+        FACEIT Connect giriş sayfası bir pop-up'ta çalışacak şekilde tasarlanmış (belge v3.0:
+        "A pop-up is opened and directs the user to FACEIT Connect"); tam sayfada açılınca hesap
+        seçimi tepki vermiyor. Pop-up yoksa (engellendiyse, doğrudan açıldıysa) aynı pencere gider.
+        """
+        if not isinstance(resp, RedirectResponse):
+            return resp
+        target = json.dumps(resp.headers.get("location", "/ben"))
+        html = ('<!doctype html><html lang="tr"><meta charset="utf-8"><title>SquadMind</title>'
+                '<body style="background:#0d0f12;color:#e8eaed;font-family:system-ui,sans-serif">'
+                '<p style="margin:40px;text-align:center">Giriş tamamlandı, yönlendiriliyorsun…</p>'
+                '<script>(function(){var t=' + target + ';try{if(window.opener&&!window.opener.closed'
+                '&&window.opener.location.origin===location.origin){window.opener.location.href=t;'
+                'window.close();return;}}catch(e){}location.replace(t);})();</script></body></html>')
+        out = HTMLResponse(html, headers={"Cache-Control": "no-store"})
+        for key, value in resp.raw_headers:
+            if key.lower() == b"set-cookie":
+                out.raw_headers.append((key, value))
+        return out
+
     def enter(request: Request, profile: dict, invited: bool, davet: str, verified: bool = False,
               email: str | None = None):
         """FACEIT profiliyle oturum aç.
@@ -306,13 +329,15 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         return enter(request, profile, True, davet)
 
     @app.get("/giris/faceit")
-    def faceit_login(request: Request, davet: str = ""):
+    def faceit_login(request: Request, davet: str = "", popup: str = ""):
         if oauth is None:
             raise HTTPException(404, "FACEIT ile giriş ayarlı değil.")
         state = secrets.token_urlsafe(24)
         verifier, challenge = pkce_pair()
         resp = RedirectResponse(oauth.authorize_url(state, challenge), status_code=303)
-        resp.set_cookie(LOGIN_COOKIE, login_signer.dumps({"s": state, "v": verifier, "d": davet}),
+        # "p": giriş açılır pencerede başladı (dönüşte ana pencereye köprü sayfası döner)
+        resp.set_cookie(LOGIN_COOKIE, login_signer.dumps({"s": state, "v": verifier, "d": davet,
+                                                          "p": popup == "1"}),
                         max_age=LOGIN_SECONDS, httponly=True, samesite="lax",
                         secure=request.url.scheme == "https")
         return resp
@@ -341,8 +366,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, str(exc))
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
-        return enter(request, profile, invite_ok(davet), davet, verified=True,
-                     email=faceit_email(user))
+        done = enter(request, profile, invite_ok(davet), davet, verified=True, email=faceit_email(user))
+        return popup_bridge(done) if pending.get("p") else done
 
     @app.post("/giris/faceit/anahtar", response_class=HTMLResponse)
     def faceit_token(request: Request, access_token: str = Form(""), state: str = Form(""),
@@ -369,8 +394,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, str(exc))
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
-        return enter(request, profile, invite_ok(davet), davet, verified=True,
-                     email=faceit_email(user))
+        done = enter(request, profile, invite_ok(davet), davet, verified=True, email=faceit_email(user))
+        return popup_bridge(done) if pending.get("p") else done
 
     # --- hesaplar: e-posta ile kayıt / giriş, hesap sayfası ---------------------------------
 

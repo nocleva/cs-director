@@ -7,6 +7,8 @@ FACEIT sahte (test_accounts ile aynı kurgu); gerçek ağ isteği yok.
 from __future__ import annotations
 
 import pytest
+from urllib.parse import parse_qs, urlparse
+
 from fastapi.testclient import TestClient
 from itsdangerous import URLSafeTimedSerializer
 
@@ -136,3 +138,14 @@ def test_password_login_flag_restores_old_behaviour(tmp_path, make_client):
         assert r.status_code == 303 and store.user(SELF) is not None
     finally:
         store.close()
+
+
+def test_popup_login_returns_bridge_page_with_cookie(site):
+    """Açılır pencereden başlayan FACEIT girişi: 200 köprü sayfası + oturum çerezi, ana pencereye yönlendirir."""
+    client = site[0]
+    start = client.get("/giris/faceit?popup=1", follow_redirects=False)
+    assert start.status_code == 303
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+    back = client.get(f"/giris/faceit/donus?code=kod&state={state}", follow_redirects=False)
+    assert back.status_code == 200 and "window.opener" in back.text and '"/ben"' in back.text
+    assert "squadmind_oturum" in back.headers.get("set-cookie", "")

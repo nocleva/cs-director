@@ -140,5 +140,16 @@ footer .wrap { padding-block: 16px 24px; border-top: 1px solid var(--bg-2); disp
 </main>
 
 <footer><div class="wrap"><span>SquadMind · FACEIT / CS2 takım analizi</span><span><a href="/privacy" style="color:inherit">Gizlilik</a> · <a href="/terms" style="color:inherit">Kullanım şartları</a></span></div></footer>
+<script>
+// FACEIT girişi açılır pencerede (FACEIT Connect böyle çalışır); engellenirse normal bağlantı
+document.addEventListener("click", function (e) {
+  var a = e.target.closest && e.target.closest('a[href^="/giris/faceit"]');
+  if (!a || a.getAttribute("href").indexOf("/giris/faceit/") === 0) return;
+  var w = 750, h = 825, x = Math.max(0, (screen.width - w) / 2), y = Math.max(0, (screen.height - h) / 2);
+  var url = a.href + (a.href.indexOf("?") < 0 ? "?" : "&") + "popup=1";
+  var pop = window.open(url, "faceit_giris", "width=" + w + ",height=" + h + ",left=" + x + ",top=" + y);
+  if (pop) { e.preventDefault(); pop.focus(); }
+});
+</script>
 </body>
 </html>
