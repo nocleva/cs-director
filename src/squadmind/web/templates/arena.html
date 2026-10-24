@@ -67,7 +67,7 @@
   <div class="seg modes" style="margin-bottom:10px" role="tablist" aria-label="Arena modu"><a class="mode" href="/arena" aria-current="page">Düello</a><a class="mode" href="/arena/taktik">Taktik</a></div>
   <div class="eyebrow">Arena · Dust2</div>
   <h1>Kim kazanır?</h1>
-  <p class="sub">Kendini ve rakibini haritaya yerleştir. Birbirinizi görüyorsanız, güncel FACEIT ELO'n ve istatistiklerine göre düelloyu kimin alacağı hesaplanır.</p>
+  <p class="sub">Kendini ve rakibini haritaya yerleştir. Birbirinizi görüyorsanız, düelloyu kimin alacağı canlı FACEIT ELO'na, silahına ve canına göre hesaplanır.</p>
 </div>
 
 <div class="controls">
@@ -197,9 +197,9 @@ async function refresh() {
   const nm = names();
   document.getElementById("aName").textContent = nm.a; document.getElementById("bName").textContent = nm.b;
   const ra = P.ratings[state.a.sid];
-  document.getElementById("aElo").textContent = ra ? `FACEIT ELO ${ra.elo ?? "?"} · güç ${ra.score.toFixed(0)}` : "";
+  document.getElementById("aElo").textContent = ra ? `FACEIT ELO ${ra.elo ?? "?"}` : "";
   const rb = state.b.sid ? P.ratings[state.b.sid] : null;
-  document.getElementById("bElo").textContent = rb ? `FACEIT ELO ${rb.elo ?? "?"} · güç ${rb.score.toFixed(0)}` : `ELO ${state.b.elo} (seviyenin ortalaması)`;
+  document.getElementById("bElo").textContent = rb ? `FACEIT ELO ${rb.elo ?? "?"}` : `ELO ${state.b.elo} (seviyenin ortalaması)`;
   const my = ++seq, body = { side_a: state.side, weapon_a: document.getElementById("wA").value, weapon_b: document.getElementById("wB").value,
     a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y, hp: hpVal("hpA") },
     b: state.b.sid ? { steam_id: state.b.sid, x: state.b.x, y: state.b.y, hp: hpVal("hpB") } : { elo: state.b.elo, x: state.b.x, y: state.b.y, hp: hpVal("hpB") } };
