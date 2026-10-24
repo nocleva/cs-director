@@ -64,6 +64,8 @@ WEB_BASE_URL = os.getenv("WEB_BASE_URL", "https://app.squadmind.info").strip()
 FACEIT_PKCE = os.getenv("FACEIT_PKCE", "1").strip() in ("1", "true", "evet")
 # PKCE yöntemi: "plain" (FACEIT'in çalışan örnekleri, 24.10) ya da "S256"
 FACEIT_PKCE_METHOD = os.getenv("FACEIT_PKCE_METHOD", "plain").strip() or "plain"
+# Onay adresi sade (redirect_uri / scope yok), OAuth2-Template örneği gibi
+FACEIT_AUTHORIZE_MINIMAL = os.getenv("FACEIT_AUTHORIZE_MINIMAL", "0").strip() in ("1", "true", "evet")
 FACEIT_FLOW = os.getenv("FACEIT_FLOW", "code").strip() or "code"
 FACEIT_AUTHORIZE_URL = os.getenv("FACEIT_AUTHORIZE_URL", "https://accounts.faceit.com").strip()
 # FACEIT Downloads API ile "FACEIT'ten getir" ve DEMO_READY webhook'u. Yetki açılana kadar KAPALI

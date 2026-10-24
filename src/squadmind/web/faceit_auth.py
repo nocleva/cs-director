@@ -60,6 +60,9 @@ class FaceitOAuth:
     # kullanıyor (challenge = verifier) ve token isteğinde redirect_uri göndermiyor. S256 ile
     # doğrulayıcılı her token isteği 401 almıştı. FACEIT_PKCE_METHOD=S256 ile değiştirilir.
     pkce_method: str = "plain"
+    # True: onay adresi OAuth2-Template'teki gibi en sade (redirect_uri ve scope yok; FACEIT kayıtlı
+    # tek dönüş adresini ve varsayılan kapsamı kullanır). FACEIT_AUTHORIZE_MINIMAL=1 ile açılır
+    minimal_authorize: bool = False
     authorize_base: str = AUTHORIZE_URL
     # Akış: "code" (yetki kodu + token adımı, standart) ya da "implicit" (anahtar dönüş adresinin
     # # kısmında). 24.10.2026: eski 401'lerin çoğu geçersiz secret'tandı; varsayılan code
@@ -93,6 +96,9 @@ class FaceitOAuth:
         # (24.10: implicit + challenge'sız → onay tepkisiz, büyük olasılıkla pkce_required)
         if self.pkce:
             params |= {"code_challenge": challenge, "code_challenge_method": self.pkce_method}
+        if self.minimal_authorize:
+            params.pop("redirect_uri", None)
+            params.pop("scope", None)
         return f"{self.authorize_base}?{urlencode(params)}"
 
     def _token(self, http: httpx.Client, form: dict[str, str]) -> httpx.Response:
