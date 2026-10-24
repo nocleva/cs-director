@@ -573,9 +573,9 @@ def test_taktik_page_renders_with_fixed_label(web):
 
 # --- Oyuncu kartı arayüzü: /api/kart, /kartlar (sözleşme analysis/cards.py) ------------------
 
-_CARD_KEYS = {"nickname", "steam_id", "faceit_level", "elo", "general", "weapons", "descriptive", "counts"}
+_CARD_KEYS = {"nickname", "steam_id", "faceit_level", "elo", "general", "power", "weapons", "descriptive", "counts"}
 _GENERAL_KEYS = {"score", "lo", "hi", "conf", "combined_elo", "scale"}
-_WEAPON_KEYS = {"wins", "n", "lo", "hi", "label", "validated"}
+_WEAPON_KEYS = {"wins", "n", "lo", "hi", "label", "validated", "value", "raw", "weight", "detail"}
 
 
 def test_card_api_requires_login_and_permission(web):
@@ -598,7 +598,7 @@ def test_card_api_follows_contract_and_has_no_weapon_score(web):
     for w in c["weapons"].values():
         assert set(w) == _WEAPON_KEYS          # 0-100 puan / kayma alanı yok
         assert w["validated"] is False
-        assert w["n"] < 20 and w["lo"] is None and w["label"] == "veri yok"   # fixture'da düello yok
+        assert w["n"] < 20 and w["label"] == "yetersiz veri" and w["value"] is not None   # fixture'da düello yok: ortalama değer
     assert set(c["descriptive"]) <= {"opening_win", "trade_kill", "clutch_win", "support_dmg_per_round"}
     assert set(c["counts"]) == {"demos", "rounds", "duels"}
 

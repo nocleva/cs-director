@@ -675,6 +675,8 @@ class RatingContext:
     pop: Population
     features: dict[str, PlayerFeatures]
     nicknames: dict[str, str] = field(default_factory=dict)
+    # (maç, oyuncu) → (maçtan ÖNCEKİ FACEIT geçmişi, o maçtaki seviye): tek güç eğitimi (cards.py) kullanır
+    hist: dict[tuple[str, str], tuple[History, int | None]] = field(default_factory=dict)
 
     def matchup(self, a: str, side_a: str, b: str, line: str | None = None,
                 band: str | None = None) -> Matchup | None:
@@ -719,7 +721,7 @@ def build_context(du: pl.DataFrame, client: Any, roster: Iterable[Mapping[str, A
         out[c["steam_id"]] = player_features(summarize_history(items), pop, elo=game.get("faceit_elo"),
                                              level=game.get("skill_level"))
         names[c["steam_id"]] = prof.get("nickname", c["steam_id"])
-    return RatingContext(model, pop, out, names)
+    return RatingContext(model, pop, out, names, hist)
 
 
 # --- 7. Siteye katılmamış oyuncu: FACEIT geçmişinden puan -------------------------------------

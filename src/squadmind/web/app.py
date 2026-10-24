@@ -1350,8 +1350,20 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
                 log.exception("kart betimleyicileri hesaplanamadı: %s", player.get("nickname"))
                 bm["desc"][sid] = ({}, 0, 0)
         level = _rating_cache.get("level", {}).get(sid) or player.get("level")
+        # Tek güç (cards.fit_power): ağırlıklar demo sayısı değişince bir kez öğrenilir; başarısızsa
+        # kart yalnız ELO'lu güçle açılır. ARENA OLASILIĞINA GİRMEZ (sınamayı geçmedi).
+        ctx = _rating_cache.get("ctx")
+        if "power" not in bm and ctx is not None:
+            try:
+                eo, so = cd.power_inputs(ctx.hist, ctx.pop)
+                bm["power"] = cd.fit_power(bm["duels"], cd.component_counts(bm["data"]), eo, so)
+            except Exception:  # noqa: BLE001 - tek güç kurulamazsa kart güçsüz bileşenle açılır
+                log.exception("tek güç modeli kurulamadı")
+                bm["power"] = None
+        f1 = _rating_cache["feats"].get(sid)
         card = cd.player_card(sid, feats=feats, counts=bm["weapon_counts"], desc=bm["desc"][sid],
-                              nickname=player.get("nickname"), level=level).to_dict()
+                              nickname=player.get("nickname"), level=level, power_model=bm.get("power"),
+                              stat_adj=f1.stat_adj if f1 is not None else 0.0).to_dict()
         if feats is not None:
             _card_cache[sid] = (key, time.time(), card)
         return card
