@@ -371,24 +371,30 @@ def test_faceit_default_scope_has_no_email_and_flow_is_code():
 
 
 def test_faceit_exchange_basic_pkce_then_single_fallback():
-    # Token: Basic + redirect_uri + code_verifier; yalnız 401'de bir kez doğrulayıcısız, fazlası yok
+    # PKCE açık: sırayla public (gövdede client_id + doğrulayıcı) → client_secret_post → Basic;
+    # hepsi doğrulayıcılı, ilk 200'de durur, 400/401 dışı hatada bırakır (24.10 bulgusu)
     import httpx
     from urllib.parse import parse_qs
     from squadmind.web.faceit_auth import FaceitOAuth
-    for statuses, calls, verifiers in (([200], 1, [True]), ([401, 200], 2, [True, False]),
-                                       ([401, 401], 2, [True, False]), ([400], 1, [True])):
+    kinds = ["public", "post", "basic"]
+    for statuses, calls in (([200], 1), ([401, 200], 2), ([401, 400, 200], 3), ([401, 401, 401], 3),
+                            ([500], 1)):
         seen = []
 
         def handler(req: httpx.Request, statuses=statuses, seen=seen) -> httpx.Response:
-            assert req.headers["authorization"].startswith("Basic ")
             body = parse_qs(req.content.decode())
             assert body["redirect_uri"] == ["https://app.squadmind.info/giris/faceit/donus"]
             assert body["grant_type"] == ["authorization_code"] and body["code"] == ["abc123"]
-            seen.append("code_verifier" in body)
+            assert body["code_verifier"] == ["ver"]
+            basic = req.headers.get("authorization", "").startswith("Basic ")
+            kind = "basic" if basic else ("post" if "client_secret" in body else "public")
+            if not basic:
+                assert body["client_id"] == ["id"]
+            seen.append(kind)
             return httpx.Response(statuses[len(seen) - 1], json={})
         with httpx.Client(transport=httpx.MockTransport(handler)) as http:
             tok = FaceitOAuth("id", "sec", "https://app.squadmind.info")._exchange(http, "abc123", "ver")
-        assert len(seen) == calls and seen == verifiers and tok.status_code == statuses[-1]
+        assert seen == kinds[:calls] and tok.status_code == statuses[-1]
     # PKCE kapalıyken tek istek, doğrulayıcısız
     seen2 = []
     def h2(req: httpx.Request) -> httpx.Response:

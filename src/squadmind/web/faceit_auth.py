@@ -100,14 +100,33 @@ class FaceitOAuth:
         art arda başarısız token istekleri istemciyi geçici kilitliyor.
         """
         form = {"grant_type": "authorization_code", "code": code, "redirect_uri": self.redirect_uri}
-        kind = "PKCE'li" if self.pkce else "PKCE'siz"
-        tok = self._token(http, {**form, "code_verifier": verifier} if self.pkce else form)
-        if tok.status_code == 401 and self.pkce:
-            self._log_token_failure(tok, len(code), kind)
-            kind = "doğrulayıcısız yedek"
+        if not self.pkce:
             tok = self._token(http, form)
-        if tok.status_code != 200:
+            if tok.status_code != 200:
+                self._log_token_failure(tok, len(code), "PKCE'siz")
+            return tok
+        # 24.10.2026 (geçerli secret ile): Basic + code_verifier → 401; Basic, doğrulayıcısız →
+        # 400 "PKCE mismatch" (secret geçerli, doğrulayıcı şart). Doğrulayıcı varken FACEIT kimliği
+        # gövdede bekliyor (PKCE'li public client). Kod 401'den sonra geçerli kaldığı için aynı
+        # girişte sırayla: gövdede client_id + doğrulayıcı → gövdede client_id + secret +
+        # doğrulayıcı → Basic + doğrulayıcı. İlk 200'de durur; en fazla 3 istek.
+        pk = {**form, "code_verifier": verifier, "client_id": self.client_id}
+        attempts: list[tuple[str, dict[str, Any]]] = [("public (client_id + doğrulayıcı)", {"data": pk})]
+        if self.client_secret:
+            attempts.append(("client_secret_post + doğrulayıcı",
+                             {"data": {**pk, "client_secret": self.client_secret}}))
+            attempts.append(("Basic + doğrulayıcı",
+                             {"data": {**form, "code_verifier": verifier},
+                              "auth": (self.client_id, self.client_secret)}))
+        tok = None
+        for kind, kw in attempts:
+            tok = http.post(TOKEN_URL, **kw)
+            if tok.status_code == 200:
+                log.info("FACEIT token alındı (%s)", kind)
+                return tok
             self._log_token_failure(tok, len(code), kind)
+            if tok.status_code not in (400, 401):
+                break
         return tok
 
     @staticmethod
