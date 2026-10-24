@@ -1,63 +1,5 @@
-{# Oyuncu kartı bileşeni: stil + window.SMCard.render(kart, {compact}) ve karşılaştırma tablosu.
+{# Oyuncu kartı bileşeni: window.SMCard.render(kart, {compact}), emblem, avatar ve karşılaştırma tablosu. Stil: static/css/squadmind.css (bölüm 5).
    Girdi /api/kart/{steam_id} JSON'u (analysis/cards.py sözleşmesi). Tüm metin textContent ile yazılır. #}
-<style>
-  /* Oyuncu kartı: oyun kartı hissi (başlık şeridi, büyük sayı, seviye rozeti), ama her sayının yanında aralığı ve güveni var */
-  .sk { --sk-line: rgba(242,245,248,.10); position: relative; display: flex; flex-direction: column; gap: 14px; background: linear-gradient(180deg, var(--bg-2), var(--bg-1)); border: 1px solid var(--bg-3); border-radius: 18px; padding: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.28); }
-  .sk::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-  .sk.compact { padding: 12px; gap: 10px; border-radius: 14px; }
-  .sk-top { display: flex; align-items: center; gap: 12px; }
-  .sk-lvl { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 18px; color: #10141a; background: var(--lv, #8E9AA8); box-shadow: 0 0 0 3px var(--bg-1), 0 0 0 4px var(--lv, #8E9AA8); }
-  .sk-lvl.none { background: var(--bg-3); color: var(--muted); box-shadow: 0 0 0 3px var(--bg-1), 0 0 0 4px var(--bg-3); }
-  .sk-id { min-width: 0; flex: 1; }
-  .sk-nm { font-size: 18px; font-weight: 700; letter-spacing: -.3px; line-height: 1.2; overflow-wrap: anywhere; }
-  .sk-sub { font-size: 11px; color: var(--muted); }
-  .sk-elo { text-align: right; flex: none; }
-  .sk-elo b { display: block; font-size: 18px; font-weight: 700; line-height: 1.2; }
-  .sk-elo span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
-  .sk-gen { background: var(--bg-0); border: 1px solid var(--sk-line); border-radius: 14px; padding: 12px 14px; }
-  .sk-gen-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-  .sk-big { font-size: 48px; font-weight: 800; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
-  .sk.compact .sk-big { font-size: 36px; }
-  .sk-big small { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0; margin-left: 2px; }
-  .sk-big.nodata { font-size: 24px; color: var(--muted); letter-spacing: -.3px; }
-  .sk-chip { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg-3); color: var(--text-2); white-space: nowrap; }
-  .sk-chip.warn { background: rgba(255,138,61,.16); color: var(--accent); }
-  .sk-chip.dash { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
-  .sk-tag { font-size: 10px; font-weight: 600; letter-spacing: 1.3px; text-transform: uppercase; color: var(--muted); }
-  /* Aralık çubuğu: iz, %90 aralık dilimi, nokta tahmin */
-  .sk-bar { position: relative; height: 8px; border-radius: 4px; background: var(--bg-3); margin: 10px 0 6px; overflow: hidden; }
-  .sk-bar.gen { height: 10px; }
-  .sk-bar .tk { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,.45); }
-  .sk-bar .rng { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; transform-origin: left center; animation: sk-grow 400ms var(--ease) both; }
-  .sk-bar.raw .rng { background: repeating-linear-gradient(135deg, rgba(180,192,206,.55) 0 4px, rgba(180,192,206,.28) 4px 8px); }
-  .sk-bar .pt { position: absolute; top: -1px; bottom: -1px; width: 3px; margin-left: -1.5px; background: var(--line); border-radius: 2px; transition: left 400ms var(--ease); }
-  @keyframes sk-grow { from { opacity: 0; transform: scaleX(.2); } to { opacity: 1; transform: none; } }
-  .sk-bar.empty { opacity: .5; }
-  .sk-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-2); flex-wrap: wrap; }
-  .sk-note { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
-  .sk-sec h3 { margin: 0 0 8px; }
-  .sk-row { padding: 8px 0; border-top: 1px solid var(--sk-line); }
-  .sk-row:first-of-type { border-top: 0; }
-  .sk-row-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 13px; }
-  .sk-row-h .v { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-  .sk-row-h .v i { font-style: normal; color: var(--muted); font-weight: 500; margin-left: 4px; }
-  .sk-row .sk-bar { margin: 6px 0 4px; height: 6px; }
-  .sk-row.nodata .sk-row-h { color: var(--muted); }
-  .sk-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-top: 1px solid var(--sk-line); padding-top: 10px; text-align: center; }
-  .sk-strip b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
-  .sk-strip span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
-  .sk-comb { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-  .sk-foot { font-size: 10.5px; color: var(--muted); margin: 0; line-height: 1.45; }
-  .sk-skel { height: 220px; border-radius: 18px; background: linear-gradient(100deg, var(--bg-2) 30%, var(--bg-3) 50%, var(--bg-2) 70%); background-size: 200% 100%; animation: sk-shimmer 1400ms linear infinite; }
-  @keyframes sk-shimmer { to { background-position: -200% 0; } }
-  /* Karşılaştırma tablosu */
-  .sk-cmp td, .sk-cmp th { vertical-align: middle; }
-  .sk-cmp td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .sk-cmp td.num i { font-style: normal; color: var(--muted); font-size: 11px; margin-left: 4px; }
-  .sk-cmp .win { color: var(--ok); font-weight: 700; }
-  .sk-cmp .sep { color: var(--muted); font-size: 11px; }
-  @media (prefers-reduced-motion: reduce) { .sk-bar .rng { animation: none; } .sk-bar .pt { transition: none; } .sk-skel { animation: none; } }
-</style>
 <script>
 // Kart bileşeni. Sayıları yalnız gösterir; hiçbir puan üretmez (silah satırlarında 0-100 puan yok).
 window.SMCard = (function () {
@@ -119,49 +61,124 @@ window.SMCard = (function () {
     m.appendChild(h("span", "", d.label)); row.appendChild(m); return row;
   }
 
+  // ---- Görsel yer tutucular: Gemini görselleri gelene kadar SVG; gelince (assets/gelen → static/img) görselle değişir ----
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const sv = (tag, at, parent) => { const e = document.createElementNS(SVGNS, tag); for (const k in at) e.setAttribute(k, at[k]); if (parent) parent.appendChild(e); return e; };
+  let uid = 0;
+  const hash = (s) => { let x = 2166136261; for (const ch of String(s || "?")) { x ^= ch.codePointAt(0); x = Math.imul(x, 16777619); } return x >>> 0; };
+  const HEX = "24,1 46,13 46,39 24,51 2,39 2,13";
+  // Görsel varsa kullan (manifest yüklenince); yoksa hiçbir şey yapma
+  const whenAssets = (fn) => { const go = () => window.SMAssets && SMAssets.onReady(fn); if (window.SMAssets) go(); else document.addEventListener("DOMContentLoaded", go, { once: true }); };
+
+  // Seviye amblemi: altıgen kalkan + elmas + numara. Renk FACEIT seviye bandı renginden (logo değil).
+  function emblem(level) {
+    const box = h("div", "sk-emblem"), col = level ? (LV_COLOR[level] || "#8E9AA8") : "#5A6485";
+    const s = sv("svg", { viewBox: "0 0 48 52", "aria-hidden": "true" }, box);
+    sv("polygon", { points: HEX, fill: col, stroke: "#0D1018", "stroke-width": 2, "stroke-linejoin": "round" }, s);
+    sv("polygon", { points: "24,6 41,15.5 41,36.5 24,46 7,36.5 7,15.5", fill: "rgba(10,13,22,.82)", stroke: col, "stroke-width": 1.4 }, s);
+    sv("polygon", { points: "24,8 27.5,11.5 24,15 20.5,11.5", fill: col }, s);
+    sv("path", { d: "M2 20l-1 6 1 6M46 20l1 6-1 6", stroke: col, "stroke-width": 1.6, fill: "none", "stroke-linecap": "round" }, s);
+    const t = sv("text", { x: 24, y: level === 10 ? 34 : 35, "text-anchor": "middle", fill: col, "font-weight": 700, "font-size": level === 10 ? 17 : 21, style: "font-family:var(--font-display);font-style:italic" }, s);
+    t.textContent = level ? String(level) : "?";
+    if (level) whenAssets(() => { if (SMAssets.has("rozet-" + level + ".png")) { const i = new Image(); i.alt = ""; i.src = SMAssets.url("rozet-" + level + ".png"); box.replaceChildren(i); } });
+    return box;
+  }
+
+  // Soyut oyuncu avatarı: addan türeyen renk çifti, çapraz çizgiler, maskeli siluet (karakter değil, geometrik)
+  const AV_COLORS = ["#FF6A1F", "#8B6CFF", "#38E1D0", "#FF5C62", "#3FD07A", "#F5C542"];
+  function avatar(name) {
+    const hs = hash(name), i1 = hs % AV_COLORS.length;
+    let i2 = (hs >> 3) % AV_COLORS.length; if (i2 === i1) i2 = (i2 + 2) % AV_COLORS.length;   // iki renk hep farklı
+    const c1 = AV_COLORS[i1], c2 = AV_COLORS[i2];
+    const box = h("div", "sk-avatar"), id = "av" + (++uid);
+    const s = sv("svg", { viewBox: "0 0 48 52", "aria-hidden": "true" }, box);
+    const defs = sv("defs", {}, s);
+    const g = sv("linearGradient", { id: id + "g", x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
+    sv("stop", { offset: 0, "stop-color": c1 }, g); sv("stop", { offset: 1, "stop-color": c2 }, g);
+    const cp = sv("clipPath", { id: id + "c" }, defs); sv("polygon", { points: HEX }, cp);
+    sv("polygon", { points: HEX, fill: "url(#" + id + "g)" }, s);
+    const inner = sv("g", { "clip-path": "url(#" + id + "c)" }, s);
+    for (let i = -2; i < 6; i++) sv("path", { d: "M" + (i * 10) + " 52L" + (i * 10 + 30) + " 0", stroke: "rgba(255,255,255,.14)", "stroke-width": 3 }, inner);
+    sv("circle", { cx: 24, cy: 21, r: 9, fill: "rgba(10,13,22,.62)" }, inner);
+    sv("path", { d: "M6 54Q24 28 42 54Z", fill: "rgba(10,13,22,.62)" }, inner);
+    sv("rect", { x: 15.5, y: 19, width: 17, height: 4, rx: 2, fill: "rgba(255,255,255,.85)" }, inner);
+    sv("polygon", { points: HEX, fill: "none", stroke: "rgba(255,255,255,.7)", "stroke-width": 1.4, "stroke-linejoin": "round" }, s);
+    whenAssets(() => { const f = "avatar-" + (hs % 8 + 1) + ".png"; if (SMAssets.has(f)) { const i = new Image(); i.alt = ""; i.src = SMAssets.url(f); box.replaceChildren(i); } });
+    return box;
+  }
+
+  // Güç puanı (istatistik ekibinin tek puanı) varsa onu büyük göster; yoksa genel (seviye ölçeği) puanı
+  function powerOf(c) { return c.power && c.power.score != null ? c.power : null; }
+
+  function compRow(cp) {
+    const row = h("div", "sk-row"), head = h("div", "sk-row-h");
+    head.appendChild(h("span", "", cp.label || cp.name || "Bileşen"));
+    const v = h("span", "v"), has = cp.value != null || cp.display != null;
+    v.textContent = !has ? "veri yok" : (cp.display != null ? String(cp.display) : num(cp.value));
+    head.appendChild(v); row.appendChild(head);
+    if (!has) row.classList.add("nodata");
+    else if (cp.lo != null && cp.hi != null) row.appendChild(bar("raw", cp.value, cp.lo, cp.hi, cp.scale || 100));
+    const note = cp.note || (cp.weight != null ? "ağırlık " + pct(cp.weight) : "");
+    if (note) { const m = h("div", "sk-meta"); m.appendChild(h("span", "", note)); row.appendChild(m); }
+    return row;
+  }
+
   function render(c, opts) {
     opts = opts || {};
     const root = h("article", "sk" + (opts.compact ? " compact" : ""));
     root.setAttribute("aria-label", (c.nickname || "Oyuncu") + " kartı");
-    // Üst şerit: seviye rozeti, ad, canlı ELO
-    const top = h("div", "sk-top");
-    const lvl = h("div", "sk-lvl" + (c.faceit_level ? "" : " none"), c.faceit_level ? String(c.faceit_level) : "?");
-    if (c.faceit_level) lvl.style.setProperty("--lv", LV_COLOR[c.faceit_level] || "#8E9AA8");
-    lvl.title = c.faceit_level ? "FACEIT seviye " + c.faceit_level : "Seviye bilinmiyor";
-    const id = h("div", "sk-id"); id.appendChild(h("div", "sk-nm", c.nickname || "Bilinmeyen oyuncu"));
-    id.appendChild(h("div", "sk-sub", c.faceit_level ? "FACEIT seviye " + c.faceit_level : "FACEIT seviyesi alınamadı"));
-    const elo = h("div", "sk-elo"); elo.appendChild(h("b", "tnum", c.elo != null ? String(Math.round(c.elo)) : "?")); elo.appendChild(h("span", "", "canlı ELO"));
-    top.append(lvl, id, elo); root.appendChild(top);
+    root.style.setProperty("--lv", c.faceit_level ? (LV_COLOR[c.faceit_level] || "#8E9AA8") : "#5A6485");
+    const inner = h("div", "sk-in"); root.appendChild(inner);
 
-    // Genel puan
-    const g = c.general, gen = h("div", "sk-gen");
-    const gh = h("div", "sk-gen-h");
-    const big = h("div", "sk-big");
-    if (g.score == null) { big.classList.add("nodata"); big.textContent = "veri yok"; }
-    else { big.textContent = String(Math.round(g.score)); big.appendChild(h("small", "", "/100")); }
+    // Afiş: avatar, ad, seviye amblemi
+    const ban = h("div", "sk-banner");
+    const id = h("div", "sk-id"); id.appendChild(h("div", "sk-nm", c.nickname || "Bilinmeyen oyuncu"));
+    id.appendChild(h("div", "sk-sub", c.faceit_level ? "FACEIT seviye " + c.faceit_level + " · CS2" : "FACEIT seviyesi alınamadı"));
+    const emb = emblem(c.faceit_level); emb.title = c.faceit_level ? "FACEIT seviye " + c.faceit_level : "Seviye bilinmiyor";
+    ban.append(avatar(c.nickname), id, emb); inner.appendChild(ban);
+    const elo = h("div", "sk-elo"); elo.appendChild(h("b", "tnum", c.elo != null ? String(Math.round(c.elo)) + " ELO" : "ELO alınamadı")); elo.appendChild(h("span", "", "canlı FACEIT"));
+    inner.appendChild(elo);
+
+    // Ana puan bloğu
+    const g = c.general, pw = powerOf(c), main = pw || g;
+    const gen = h("div", "sk-gen"), gh = h("div", "sk-gen-h"), big = h("div", "sk-big");
+    if (main.score == null) { big.classList.add("nodata"); big.textContent = "veri yok"; }
+    else { big.textContent = String(Math.round(main.score)); big.appendChild(h("small", "", "/" + (main.scale_max || 100))); }
     const side = h("div", ""); side.style.textAlign = "right";
-    side.appendChild(h("div", "sk-tag", "Genel · " + g.scale));
-    side.appendChild(h("span", "sk-chip" + (g.conf === "yeterli" ? "" : " warn"), g.conf));
+    side.appendChild(h("div", "sk-tag", pw ? "Güç puanı" : "Genel · " + g.scale));
+    const confTxt = pw ? (pw.conf || pw.confidence || "") : g.conf;
+    if (confTxt) side.appendChild(h("span", "sk-chip" + (confTxt === "yeterli" ? "" : " warn"), confTxt));
     gh.append(big, side); gen.appendChild(gh);
-    gen.appendChild(bar("gen", g.score, g.lo, g.hi, 100, true));
+    const lo = main.lo, hi = main.hi, sc = main.scale_max || 100;
+    gen.appendChild(bar("gen", main.score, lo, hi, sc, true));
     const gm = h("div", "sk-meta");
-    const exact = g.score != null && Math.abs(g.hi - g.lo) < 0.05;   // canlı ELO kesin: ölçekte belirsizlik yok
-    gm.appendChild(h("span", "tnum", g.score == null ? "Canlı ELO alınamadı." : (exact ? "Canlı ELO birebir: aralık yok" : "%90 aralık " + Math.round(g.lo) + "–" + Math.round(g.hi))));
-    gm.appendChild(h("span", "", "çubuk: seviye 1 → 10"));
+    const exact = main.score != null && lo != null && Math.abs(hi - lo) < 0.05;   // aralık yok: canlı ELO birebir
+    gm.appendChild(h("span", "tnum", main.score == null ? "Puan hesaplanamadı." : (exact ? "Canlı ELO birebir: aralık yok" : lo == null ? "Aralık yok" : "%90 aralık " + Math.round(lo) + "–" + Math.round(hi))));
+    if (pw) gm.appendChild(h("span", "sk-chip dash", pw.validated === true ? "doğrulandı" : pw.validated === false ? "doğrulanmadı" : "doğrulama bilgisi yok"));
+    else gm.appendChild(h("span", "", "çubuk: seviye 1 → 10"));
     gen.appendChild(gm);
+    if (pw && pw.components && pw.components.length) {
+      const cs = h("div", "sk-comps"); cs.appendChild(h("h3", "sk-tag", "Puanın parçaları"));
+      for (const cp of pw.components) cs.appendChild(compRow(cp));
+      gen.appendChild(cs);
+    }
+    if (pw && g && g.score != null) {
+      const gr = compRow({ label: "Seviye ölçeği (canlı ELO)", value: g.score, lo: g.lo, hi: g.hi, display: Math.round(g.score) });
+      gen.appendChild(gr);
+    }
     gen.appendChild(h("p", "sk-note", "Düello olasılığı bu puanın kaynağı olan canlı ELO'dan hesaplanır."));
-    root.appendChild(gen);
+    inner.appendChild(gen);
 
     // Silah satırları: ham galibiyet / düello, puan yok
     const ws = h("section", "sk-sec"); ws.appendChild(h("h3", "sk-tag", "Silahla düello kaydı"));
     for (const [k, nm] of WEAPONS) if (c.weapons[k]) ws.appendChild(weaponRow(nm, c.weapons[k]));
-    root.appendChild(ws);
+    inner.appendChild(ws);
 
     // Betimleyiciler
     if (!opts.compact) {
       const ds = h("section", "sk-sec"); ds.appendChild(h("h3", "sk-tag", "Betimleyiciler"));
       for (const [k, nm, kind] of DESC) ds.appendChild(descRow(nm, kind, c.descriptive[k]));
-      root.appendChild(ds);
+      inner.appendChild(ds);
     }
 
     // Alt şerit
@@ -169,13 +186,14 @@ window.SMCard = (function () {
     for (const [v, t] of [[c.counts.demos, "yüklü demo"], [c.counts.rounds, "analiz edilen round"], [c.counts.duels, "düello"]]) {
       const d = h("div"); d.appendChild(h("b", "", Number(v).toLocaleString("tr-TR"))); d.appendChild(h("span", "", t)); strip.appendChild(d);
     }
-    root.appendChild(strip);
+    inner.appendChild(strip);
     if (!opts.compact && g.combined_elo != null) {
       const cb = h("div", "sk-comb");
       cb.appendChild(h("span", "", "Stat ekiyle (kanıtı zayıf): birleşik ELO " + Math.round(g.combined_elo)));
-      root.appendChild(cb);
+      inner.appendChild(cb);
     }
-    root.appendChild(h("p", "sk-foot", FOOT));
+    inner.appendChild(h("p", "sk-foot", FOOT));
+    whenAssets(() => { if (SMAssets.has("kart-cerceve.png")) root.style.setProperty("--frame-img", "url(" + SMAssets.url("kart-cerceve.png") + ")"); });
     return root;
   }
 
@@ -205,6 +223,10 @@ window.SMCard = (function () {
       r.appendChild(h("td", "sep", verdict)); body.appendChild(r);
     }
     const sc = (c) => ({ value: c.general.score, lo: c.general.lo, hi: c.general.hi });
+    if (a.power && a.power.score != null && b.power && b.power.score != null) {
+      const pwr = (c) => ({ value: c.power.score, lo: c.power.lo, hi: c.power.hi });
+      add("Güç puanı", pwr(a), pwr(b), (v) => String(Math.round(v)));
+    }
     add("Genel (seviye ölçeği)", sc(a), sc(b), (v) => String(Math.round(v)));
     const ev = (c) => ({ value: c.elo, lo: c.elo, hi: c.elo });   // FACEIT'ten birebir: aralık yok
     add("Canlı ELO", ev(a), ev(b), (v) => String(Math.round(v)));
@@ -218,6 +240,6 @@ window.SMCard = (function () {
     }
     return tbl;
   }
-  return { render, skeleton, compare, FOOT };
+  return { render, skeleton, compare, emblem, avatar, FOOT, LV_COLOR };
 })();
 </script>

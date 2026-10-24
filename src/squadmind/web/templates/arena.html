@@ -17,7 +17,7 @@
   @media (max-width: 560px) { .controls > div, .controls select { width: 100%; } .boardwrap { padding: 8px; border-radius: 16px; } h1 { font-size: 24px; } .big { font-size: 34px; } }
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
   @media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } }
-  .boardwrap { background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 20px; padding: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+  .boardwrap { background: #0F1319; border: 1px solid var(--bg-3); border-radius: 20px; padding: 14px; box-shadow: var(--shadow); }
   .legend { display: flex; justify-content: center; gap: 16px; font-size: 12px; color: var(--text-2); margin-top: 10px; }
   .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
   .board { position: relative; width: 100%; max-width: 760px; margin: 0 auto; touch-action: none; }
@@ -36,16 +36,15 @@
   @media (prefers-reduced-motion: reduce) { .tok.win circle.halo { animation: none; opacity: .5; } .tok, .tok circle.body, #sight, .pbar .a { transition: none; } }
   .result { background: var(--bg-2); border: 1px solid var(--bg-3); border-radius: 20px; padding: 18px; }
   @media (min-width: 1001px) { .result { position: sticky; top: 80px; } }
-  .vs { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-  .side { text-align: center; flex: 1; }
-  .side .nm { font-weight: 700; font-size: 15px; word-break: break-all; }
-  .side .el { font-size: 11px; color: var(--muted); }
-  .vsx { font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: 1px; }
+  .fighter .sk-avatar { width: 46px; height: 46px; }
+  .vsx-slot { display: flex; align-items: center; gap: 6px; flex: none; }
+  .fighter.b .vsx-slot { flex-direction: row-reverse; }
   .pbar { position: relative; height: 14px; border-radius: 7px; background: var(--bg-3); overflow: hidden; margin: 8px 0; }
   .pbar .a { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); transition: width 400ms cubic-bezier(.2,.7,.2,1); }
+  .pbar .a { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 65%, var(--violet))); }
   .pbar .ci { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.18); }
   .pbar .mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line); opacity: .6; }
-  .big { font-size: 40px; font-weight: 800; letter-spacing: -1px; text-align: center; margin: 4px 0; }
+  .big { font: italic 700 44px/1 var(--font-display); letter-spacing: -1px; text-align: center; margin: 4px 0; }
   .facts { font-size: 12px; color: var(--text-2); display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin-top: 10px; }
   .facts dt { color: var(--muted); } .facts dd { margin: 0; }
   .note { font-size: 11px; color: var(--muted); margin: 12px 0 0; }
@@ -79,8 +78,14 @@
   <div><label for="wB">Rakibin silahı</label><select id="wB"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
 </div>
 
+<section class="vsstage" id="vs" aria-label="Düello karşılaşması">
+  <div class="fighter a" id="fA"><span class="tagwin">KAZANAN</span><div class="vsx-slot" id="aGfx"></div><div class="fi"><div class="fn" id="aName"></div><div class="fe" id="aElo"></div><div class="fp" id="aP"></div></div></div>
+  <div class="vsmid"><b>VS</b><span id="vsNote">Dust2 · düello</span></div>
+  <div class="fighter b" id="fB"><span class="tagwin">KAZANAN</span><div class="vsx-slot" id="bGfx"></div><div class="fi"><div class="fn" id="bName"></div><div class="fe" id="bElo"></div><div class="fp" id="bP"></div></div></div>
+</section>
+
 <div class="layout">
-  <section class="boardwrap" aria-label="Arena haritası">
+  <section class="boardwrap on-dark" aria-label="Arena haritası">
     <div class="board" id="board">
       {{ board | safe }}
       <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-label="Oyuncular"></svg>
@@ -89,11 +94,6 @@
     <p class="note" style="text-align:center">Jetonları sürükle; görüş çizgisi ve olasılık anında güncellenir.</p>
   </section>
   <aside class="result" aria-live="polite">
-    <div class="vs">
-      <div class="side"><div class="nm" id="aName"></div><div class="el" id="aElo"></div></div>
-      <div class="vsx">VS</div>
-      <div class="side"><div class="nm" id="bName"></div><div class="el" id="bElo"></div></div>
-    </div>
     <div id="out"></div>
     <p class="note">Olasılık canlı FACEIT ELO'dan: 100 ELO fark ≈ 1,2 puan. Tek düello büyük ölçüde şanstır; olasılıklar çoğunlukla %40-60 arasında. Aralık oyuncu gücünün belirsizliğidir, tek düellonun sonucunun değil. Peek atma / tutma ve "bu oyuncu şu pozisyonda güçlü" bilgisi gösterilmiyor: 18 Dust2 maçıyla gürültüden ayrılamıyor.</p>
     <div class="cardpane">
@@ -146,6 +146,7 @@ document.querySelectorAll("#sideSeg button").forEach((b) => b.onclick = () => {
 const sight = el("line", { id: "sight", stroke: C.muted, "stroke-width": 2.2, "stroke-dasharray": "2 6", "stroke-linecap": "round", opacity: 0 });
 function token(key, color) {
   const g = el("g", { class: "tok" });
+  el("circle", { class: "ring", r: 28, fill: "none", stroke: color, "stroke-width": 1.6, "stroke-dasharray": "5 6", opacity: .75 }, g);
   el("circle", { class: "halo", r: 21, fill: "none", stroke: C.ok, "stroke-width": 2.5 }, g);
   el("circle", { class: "body", r: 21, fill: color, stroke: "#FFFFFF", "stroke-width": 3 }, g);
   const t = el("text", { y: 5, "text-anchor": "middle", "font-size": 14, "font-weight": 800, fill: C.bg0, "font-family": "Inter, sans-serif" }, g);
@@ -185,7 +186,38 @@ function draw(result) {
       tk.g.classList.remove("win", "lose");
       if (vis && result.p != null) tk.g.classList.add((isA ? result.p >= .5 : result.p < .5) ? "win" : "lose");
     }
+    stage(result);
   }
+}
+
+// VS ekranı: iki oyuncu plakası. Yüzdeler sunucunun p / %90 aralığıdır (B için tümleyen); yeni hesap yok.
+const fx = { a: "", b: "" };
+function levelOf(elo) {
+  if (elo == null) return null;
+  let best = null;   // en yüksek alt sınırı elo'yu aşan seviye
+  for (const l of P.levels) { const lo = parseInt(String(l.range), 10); if (!isNaN(lo) && elo >= lo) best = l.level; }
+  return best;
+}
+function fighter(k, name, elo, eloText) {
+  const lv = levelOf(elo), key = name + "|" + lv;
+  document.getElementById(k + "Name").textContent = name;
+  document.getElementById(k + "Elo").textContent = eloText;
+  if (fx[k] === key) return;
+  fx[k] = key;
+  document.getElementById(k + "Gfx").replaceChildren(SMCard.avatar(name), SMCard.emblem(lv));
+}
+function stage(r) {
+  const vs = document.getElementById("vs"), fa = document.getElementById("fA"), fb = document.getElementById("fB");
+  fa.classList.remove("win", "lose"); fb.classList.remove("win", "lose");
+  const pa = document.getElementById("aP"), pb = document.getElementById("bP"), note = document.getElementById("vsNote");
+  if (!r || !r.visible || r.p == null) { pa.textContent = ""; pb.textContent = ""; note.textContent = r && r.visible === false ? "görüş yok" : "Dust2 · düello"; return; }
+  const f = (v) => `%${Math.round(v * 100)}`, aWins = r.p >= .5;
+  pa.replaceChildren(f(r.p)); pb.replaceChildren(f(1 - r.p));
+  const sa = document.createElement("small"); sa.textContent = `aralık ${f(r.lo)}–${f(r.hi)}`; pa.appendChild(sa);
+  const sb = document.createElement("small"); sb.textContent = `aralık ${f(1 - r.hi)}–${f(1 - r.lo)}`; pb.appendChild(sb);
+  (aWins ? fa : fb).classList.add("win"); (aWins ? fb : fa).classList.add("lose");
+  note.textContent = "kazanma olasılığı";
+  vs.classList.remove("hit"); void vs.offsetWidth; vs.classList.add("hit");
 }
 
 // Sunucuya sor: görüş + olasılık
@@ -193,11 +225,10 @@ let seq = 0;
 async function refresh() {
   draw();
   const nm = names();
-  document.getElementById("aName").textContent = nm.a; document.getElementById("bName").textContent = nm.b;
-  const ra = P.ratings[state.a.sid];
-  document.getElementById("aElo").textContent = ra ? `FACEIT ELO ${ra.elo ?? "?"}` : "";
-  const rb = state.b.sid ? P.ratings[state.b.sid] : null;
-  document.getElementById("bElo").textContent = rb ? `FACEIT ELO ${rb.elo ?? "?"}` : `ELO ${state.b.elo} (seviyenin ortalaması)`;
+  const ra = P.ratings[state.a.sid], rb = state.b.sid ? P.ratings[state.b.sid] : null;
+  const eloA = ra ? ra.elo : null, eloB = rb ? rb.elo : state.b.elo;
+  fighter("a", nm.a, eloA, ra ? `Canlı FACEIT ELO ${ra.elo ?? "?"}` : "");
+  fighter("b", nm.b, eloB, rb ? `Canlı FACEIT ELO ${rb.elo ?? "?"}` : `ELO ${state.b.elo} (seviyenin ortalaması)`);
   const my = ++seq, body = { side_a: state.side, weapon_a: document.getElementById("wA").value, weapon_b: document.getElementById("wB").value,
     a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y, hp: 100 },
     b: state.b.sid ? { steam_id: state.b.sid, x: state.b.x, y: state.b.y, hp: 100 } : { elo: state.b.elo, x: state.b.x, y: state.b.y, hp: 100 } };
