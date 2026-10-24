@@ -36,7 +36,10 @@ class FaceitAuthError(Exception):
 
 def pkce_pair() -> tuple[str, str]:
     """(code_verifier, code_challenge): S256, RFC 7636."""
-    verifier = secrets.token_urlsafe(48)
+    # 64 karakter küçük harf hex (OAuth2-Template örneğindeki gibi yalnız 0-9a-f): FACEIT Connect
+    # sayfası değeri iletirken harf / '-' '_' değiştirirse bile bozulacak karakter yok (24.10: base64url
+    # doğrulayıcıyla, S256 ve plain, her token isteği 401)
+    verifier = secrets.token_hex(32)
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return verifier, challenge
