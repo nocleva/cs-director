@@ -62,6 +62,8 @@ TEAM_MIN_SHARED = 3
 MAX_TEAM_MEMBERS = 7
 _TEAM_ID = re.compile(r"[0-9a-f]{12}")
 SESSION_DAYS = 30
+# Spot önerisi sıralaması bu kadar işlenmiş Dust2 maçına kadar KAPALI (kullanıcı kararı 24.10)
+SPOT_MIN_MATCHES = 40
 # CSRF: çerezdeki rastgele değer + forma konan imzalı kopyası (çift gönderim)
 CSRF_COOKIE = "squadmind_csrf"
 CSRF_SECONDS = 12 * 3600
@@ -199,8 +201,32 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             raise HTTPException(401, "Oturum yok; davet linkiyle katıl.")
         return user
 
+    _strip_cache: dict[str, Any] = {"at": 0.0, "v": {"n": 0, "players": 0, "min": SPOT_MIN_MATCHES}}
+
+    def dust2_data_stats() -> dict[str, int]:
+        """İşlenmiş Dust2 maç sayısı ve analiz edilen farklı oyuncu sayısı (30 sn önbellekli)."""
+        if time.time() - _strip_cache["at"] < 30:
+            return _strip_cache["v"]
+
+        def q(con):
+            n = con.execute("SELECT count(*) FROM matches WHERE demo_status = 'processed' "
+                            "AND map = 'de_dust2'").fetchone()[0]
+            m = con.execute("SELECT count(DISTINCT steam_id) FROM demo_player_stats WHERE match_id IN "
+                            "(SELECT match_id FROM matches WHERE demo_status = 'processed' "
+                            "AND map = 'de_dust2')").fetchone()[0]
+            return int(n), int(m)
+        try:
+            n, m = store.run(q, lock=False)
+            _strip_cache["v"] = {"n": n, "players": m, "min": SPOT_MIN_MATCHES}
+        except Exception:  # noqa: BLE001
+            log.exception("veri şeridi sayıları alınamadı")
+        _strip_cache["at"] = time.time()
+        return _strip_cache["v"]
+
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         ctx.setdefault("me", current_user(request))
+        if ctx["me"] is not None:
+            ctx.setdefault("strip", dust2_data_stats())
         ctx.setdefault("owner", settings.team_owner)
         ctx.setdefault("faceit_downloads", settings.faceit_downloads)
         ctx.setdefault("password_login", pw)
@@ -1476,9 +1502,16 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         players = builder_players(user, map_name)
         payload = {"map": map_name, "proj": bm["proj"], "grid": bm["grid"], "players": players,
                    "ratings": builder_ratings(map_name, players), "levels": level_options(),
-                   "me": user.steam_id}
+                   "me": user.steam_id, "spots": dust2_data_stats()}
         return page(request, "arena.html", user=user, board=bm["board"], payload=payload,
                     w=bm["proj"]["w"], h=bm["proj"]["h"])
+
+    @app.get("/api/arena/spot-durumu")
+    def arena_spot_status(request: Request):
+        """Spot önerisi ilerlemesi: işlenmiş Dust2 maçı / eşik (40); eşik altında sıralama kapalı."""
+        require_user(request)
+        v = dust2_data_stats()
+        return {"n": v["n"], "min": v["min"], "players": v["players"], "open": v["n"] >= v["min"]}
 
     @app.post("/api/arena/duel")
     async def arena_duel(request: Request):
@@ -1527,7 +1560,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             fb, fb0, b_key = (_rating_cache["feats"].get(b["steam_id"]),
                               _rating_cache["feats0"].get(b["steam_id"]), b["steam_id"])
         else:
-            elo = max(100.0, min(4000.0, float(b.get("elo") or 1000)))
+            try:
+                elo = max(100.0, min(3000.0, float(b.get("elo") or 1000)))   # ELO karakteri: 100-3000
+            except (TypeError, ValueError):
+                raise HTTPException(400, "ELO sayı olmalı.") from None
             # Ortalama rakip: boş geçmiş → o ELO'nun beklentisi; stat eki 0 (iki model aynı)
             fb = fb0 = rt.player_features(rt.History((), ()), ctx.pop, elo=elo)
             b_key = "ortalama"
