@@ -27,6 +27,9 @@
   .chip { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 100px; background: var(--bg-3); color: var(--text-2); }
   .chip.invite { background: rgba(243, 115, 33, .15); color: var(--accent); }
   .recent td { font-size: 12px; }
+  .mycard { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; margin-bottom: 18px; }
+  @media (max-width: 860px) { .mycard { grid-template-columns: minmax(0, 1fr); } }
+  .mycard-side { padding: 6px 4px; }
   @media (prefers-reduced-motion: reduce) { .stat, .pips i.on { animation: none; } }
 </style>
 {% endblock %}
@@ -50,6 +53,17 @@
   <div class="stat" style="--i:2; --c: var(--ok)"><div class="eyebrow">Hazır harita</div><div class="v tnum"><span data-count="{{ ready }}">{{ ready }}</span> <small>/ {{ pool_size }}</small></div><div class="d">En az {{ min_demos }} demolu haritalar</div></div>
   <div class="stat" style="--i:3; --c: var(--accent-2)"><div class="eyebrow">SquadMind toplamı</div><div class="v tnum" data-count="{{ totals.site_demos }}">{{ totals.site_demos }}</div><div class="d tnum">demo · {{ totals.site_rounds }} round analiz edildi</div></div>
 </div>
+
+<section class="mycard" aria-label="Oyuncu kartın">
+  <div id="myCard"></div>
+  <div class="mycard-side">
+    <div class="eyebrow">Oyuncu kartın · Dust2</div>
+    <h2 style="margin:6px 0 8px">Kartın ne diyor?</h2>
+    <p class="muted" style="margin:0 0 10px">Genel puan canlı FACEIT ELO'nun seviye ölçeğindeki karşılığıdır. Silah ve betimleyici satırlar yüklediğin demolardan ham kayıttır; örnek azsa "veri yok" yazar, aralık hep gösterilir.</p>
+    <p class="muted" style="margin:0 0 14px">Daha çok demo yüklemek satırları doldurur; kart düello olasılığını değiştirmez.</p>
+    <a class="btn small ghost" href="/kartlar">Takım kartlarını gör</a>
+  </div>
+</section>
 
 <div class="cols">
   <div class="card">
@@ -108,7 +122,16 @@
   </div>
 </div>
 
+{% include "_kart.html" %}
 <script>
+// Kendi kartın: /api/kart/{steam_id} (canlı ELO sunucuda 60 sn önbellekli)
+(function () {
+  const box = document.getElementById("myCard");
+  box.appendChild(SMCard.skeleton());
+  fetch("/api/kart/{{ user.steam_id }}").then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+    .then((c) => box.replaceChildren(SMCard.render(c)))
+    .catch(() => { const m = document.createElement("p"); m.className = "muted"; m.textContent = "Kartın şu an hazırlanamadı."; box.replaceChildren(m); });
+})();
 // Sayılar sıfırdan sayarak gelir (oyun skoru hissi); hareket azaltılmışsa doğrudan yazılır
 if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
   document.querySelectorAll("[data-count]").forEach((el) => {

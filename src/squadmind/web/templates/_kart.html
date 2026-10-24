@@ -1,0 +1,223 @@
+{# Oyuncu kartı bileşeni: stil + window.SMCard.render(kart, {compact}) ve karşılaştırma tablosu.
+   Girdi /api/kart/{steam_id} JSON'u (analysis/cards.py sözleşmesi). Tüm metin textContent ile yazılır. #}
+<style>
+  /* Oyuncu kartı: oyun kartı hissi (başlık şeridi, büyük sayı, seviye rozeti), ama her sayının yanında aralığı ve güveni var */
+  .sk { --sk-line: rgba(242,245,248,.10); position: relative; display: flex; flex-direction: column; gap: 14px; background: linear-gradient(180deg, var(--bg-2), var(--bg-1)); border: 1px solid var(--bg-3); border-radius: 18px; padding: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.28); }
+  .sk::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .sk.compact { padding: 12px; gap: 10px; border-radius: 14px; }
+  .sk-top { display: flex; align-items: center; gap: 12px; }
+  .sk-lvl { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 18px; color: #10141a; background: var(--lv, #8E9AA8); box-shadow: 0 0 0 3px var(--bg-1), 0 0 0 4px var(--lv, #8E9AA8); }
+  .sk-lvl.none { background: var(--bg-3); color: var(--muted); box-shadow: 0 0 0 3px var(--bg-1), 0 0 0 4px var(--bg-3); }
+  .sk-id { min-width: 0; flex: 1; }
+  .sk-nm { font-size: 18px; font-weight: 700; letter-spacing: -.3px; line-height: 1.2; overflow-wrap: anywhere; }
+  .sk-sub { font-size: 11px; color: var(--muted); }
+  .sk-elo { text-align: right; flex: none; }
+  .sk-elo b { display: block; font-size: 18px; font-weight: 700; line-height: 1.2; }
+  .sk-elo span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .sk-gen { background: var(--bg-0); border: 1px solid var(--sk-line); border-radius: 14px; padding: 12px 14px; }
+  .sk-gen-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .sk-big { font-size: 48px; font-weight: 800; letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .sk.compact .sk-big { font-size: 36px; }
+  .sk-big small { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0; margin-left: 2px; }
+  .sk-big.nodata { font-size: 24px; color: var(--muted); letter-spacing: -.3px; }
+  .sk-chip { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg-3); color: var(--text-2); white-space: nowrap; }
+  .sk-chip.warn { background: rgba(255,138,61,.16); color: var(--accent); }
+  .sk-chip.dash { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
+  .sk-tag { font-size: 10px; font-weight: 600; letter-spacing: 1.3px; text-transform: uppercase; color: var(--muted); }
+  /* Aralık çubuğu: iz, %90 aralık dilimi, nokta tahmin */
+  .sk-bar { position: relative; height: 8px; border-radius: 4px; background: var(--bg-3); margin: 10px 0 6px; overflow: hidden; }
+  .sk-bar.gen { height: 10px; }
+  .sk-bar .tk { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(0,0,0,.45); }
+  .sk-bar .rng { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; transform-origin: left center; animation: sk-grow 400ms var(--ease) both; }
+  .sk-bar.raw .rng { background: repeating-linear-gradient(135deg, rgba(180,192,206,.55) 0 4px, rgba(180,192,206,.28) 4px 8px); }
+  .sk-bar .pt { position: absolute; top: -1px; bottom: -1px; width: 3px; margin-left: -1.5px; background: var(--line); border-radius: 2px; transition: left 400ms var(--ease); }
+  @keyframes sk-grow { from { opacity: 0; transform: scaleX(.2); } to { opacity: 1; transform: none; } }
+  .sk-bar.empty { opacity: .5; }
+  .sk-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-2); flex-wrap: wrap; }
+  .sk-note { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+  .sk-sec h3 { margin: 0 0 8px; }
+  .sk-row { padding: 8px 0; border-top: 1px solid var(--sk-line); }
+  .sk-row:first-of-type { border-top: 0; }
+  .sk-row-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 13px; }
+  .sk-row-h .v { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .sk-row-h .v i { font-style: normal; color: var(--muted); font-weight: 500; margin-left: 4px; }
+  .sk-row .sk-bar { margin: 6px 0 4px; height: 6px; }
+  .sk-row.nodata .sk-row-h { color: var(--muted); }
+  .sk-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-top: 1px solid var(--sk-line); padding-top: 10px; text-align: center; }
+  .sk-strip b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .sk-strip span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .sk-comb { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .sk-foot { font-size: 10.5px; color: var(--muted); margin: 0; line-height: 1.45; }
+  .sk-skel { height: 220px; border-radius: 18px; background: linear-gradient(100deg, var(--bg-2) 30%, var(--bg-3) 50%, var(--bg-2) 70%); background-size: 200% 100%; animation: sk-shimmer 1400ms linear infinite; }
+  @keyframes sk-shimmer { to { background-position: -200% 0; } }
+  /* Karşılaştırma tablosu */
+  .sk-cmp td, .sk-cmp th { vertical-align: middle; }
+  .sk-cmp td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sk-cmp td.num i { font-style: normal; color: var(--muted); font-size: 11px; margin-left: 4px; }
+  .sk-cmp .win { color: var(--ok); font-weight: 700; }
+  .sk-cmp .sep { color: var(--muted); font-size: 11px; }
+  @media (prefers-reduced-motion: reduce) { .sk-bar .rng { animation: none; } .sk-bar .pt { transition: none; } .sk-skel { animation: none; } }
+</style>
+<script>
+// Kart bileşeni. Sayıları yalnız gösterir; hiçbir puan üretmez (silah satırlarında 0-100 puan yok).
+window.SMCard = (function () {
+  const WEAPONS = [["awp", "AWP"], ["rifle", "Tüfek"], ["pistol", "Tabanca"], ["scout", "Scout"]];
+  const DESC = [["opening_win", "Açılış düellosu kazanma", "pct"], ["trade_kill", "Trade'li kill payı", "pct"],
+                ["clutch_win", "Clutch kazanma", "pct"], ["support_dmg_per_round", "Öldürmeden hasar / round", "num"]];
+  const FOOT = "Silah ve betimleyici satırlar sınamayı geçmedi; düello olasılığını yalnız canlı ELO, silah ve can belirler.";
+  const LV_COLOR = { 1: "#CFCFCF", 2: "#1CE400", 3: "#1CE400", 4: "#FFC800", 5: "#FFC800", 6: "#FFC800", 7: "#FFC800", 8: "#FF6309", 9: "#FF6309", 10: "#FE1F00" };
+  const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const pct = (v) => "%" + Math.round(v * 100);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const num = (v) => v.toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+
+  // Aralık çubuğu: scale = üst sınır (puan için 100, oran için 1); lo/hi yoksa yalnız nokta
+  function bar(cls, value, lo, hi, scale, ticks) {
+    const b = h("div", "sk-bar " + cls);
+    if (ticks) for (let i = 1; i < 10; i++) { const t = h("i", "tk"); t.style.left = i * 10 + "%"; b.appendChild(t); }
+    if (lo != null && hi != null) {
+      const r = h("span", "rng"); r.style.left = clamp(lo / scale, 0, 1) * 100 + "%";
+      r.style.width = Math.max(0.8, (clamp(hi / scale, 0, 1) - clamp(lo / scale, 0, 1)) * 100) + "%"; b.appendChild(r);
+    }
+    if (value != null) { const p = h("span", "pt"); p.style.left = clamp(value / scale, 0, 1) * 100 + "%"; b.appendChild(p); }
+    return b;
+  }
+
+  function weaponRow(name, w) {
+    const row = h("div", "sk-row");
+    const head = h("div", "sk-row-h"); head.appendChild(h("span", "", name));
+    const v = h("span", "v");
+    if (w.n < 20 || w.lo == null) {
+      row.classList.add("nodata"); v.textContent = "veri yok"; head.appendChild(v); row.appendChild(head);
+      row.appendChild(bar("raw empty"));
+      const m = h("div", "sk-meta"); m.appendChild(h("span", "", w.n + " düello (en az 20 gerekir)")); row.appendChild(m); return row;
+    }
+    v.textContent = w.wins + " / " + w.n; v.appendChild(h("i", "", pct(w.wins / w.n)));
+    head.appendChild(v); row.appendChild(head);
+    row.appendChild(bar("raw", w.wins / w.n, w.lo, w.hi, 1));
+    const m = h("div", "sk-meta");
+    m.appendChild(h("span", "", "%90 aralık " + pct(w.lo) + "–" + pct(w.hi) + " · " + w.label));
+    m.appendChild(h("span", "sk-chip dash", w.validated ? "doğrulandı" : "doğrulanmadı"));
+    row.appendChild(m); return row;
+  }
+
+  function descRow(name, kind, d) {
+    const row = h("div", "sk-row");
+    const head = h("div", "sk-row-h"); head.appendChild(h("span", "", name));
+    const v = h("span", "v");
+    if (!d || d.value == null) {
+      row.classList.add("nodata"); v.textContent = "veri yok"; head.appendChild(v); row.appendChild(head);
+      const m = h("div", "sk-meta"); m.appendChild(h("span", "", (d ? d.n : 0) + " örnek (en az 20 gerekir)")); row.appendChild(m); return row;
+    }
+    v.textContent = kind === "pct" ? pct(d.value) : num(d.value);
+    head.appendChild(v); row.appendChild(head);
+    const m = h("div", "sk-meta");
+    if (kind === "pct" && d.lo != null) {
+      row.appendChild(bar("raw", d.value, d.lo, d.hi, 1));
+      m.appendChild(h("span", "", "%90 aralık " + pct(d.lo) + "–" + pct(d.hi) + " · n = " + d.n));
+    } else m.appendChild(h("span", "", "n = " + d.n + (kind === "num" ? " round" : "")));
+    m.appendChild(h("span", "", d.label)); row.appendChild(m); return row;
+  }
+
+  function render(c, opts) {
+    opts = opts || {};
+    const root = h("article", "sk" + (opts.compact ? " compact" : ""));
+    root.setAttribute("aria-label", (c.nickname || "Oyuncu") + " kartı");
+    // Üst şerit: seviye rozeti, ad, canlı ELO
+    const top = h("div", "sk-top");
+    const lvl = h("div", "sk-lvl" + (c.faceit_level ? "" : " none"), c.faceit_level ? String(c.faceit_level) : "?");
+    if (c.faceit_level) lvl.style.setProperty("--lv", LV_COLOR[c.faceit_level] || "#8E9AA8");
+    lvl.title = c.faceit_level ? "FACEIT seviye " + c.faceit_level : "Seviye bilinmiyor";
+    const id = h("div", "sk-id"); id.appendChild(h("div", "sk-nm", c.nickname || "Bilinmeyen oyuncu"));
+    id.appendChild(h("div", "sk-sub", c.faceit_level ? "FACEIT seviye " + c.faceit_level : "FACEIT seviyesi alınamadı"));
+    const elo = h("div", "sk-elo"); elo.appendChild(h("b", "tnum", c.elo != null ? String(Math.round(c.elo)) : "?")); elo.appendChild(h("span", "", "canlı ELO"));
+    top.append(lvl, id, elo); root.appendChild(top);
+
+    // Genel puan
+    const g = c.general, gen = h("div", "sk-gen");
+    const gh = h("div", "sk-gen-h");
+    const big = h("div", "sk-big");
+    if (g.score == null) { big.classList.add("nodata"); big.textContent = "veri yok"; }
+    else { big.textContent = String(Math.round(g.score)); big.appendChild(h("small", "", "/100")); }
+    const side = h("div", ""); side.style.textAlign = "right";
+    side.appendChild(h("div", "sk-tag", "Genel · " + g.scale));
+    side.appendChild(h("span", "sk-chip" + (g.conf === "yeterli" ? "" : " warn"), g.conf));
+    gh.append(big, side); gen.appendChild(gh);
+    gen.appendChild(bar("gen", g.score, g.lo, g.hi, 100, true));
+    const gm = h("div", "sk-meta");
+    const exact = g.score != null && Math.abs(g.hi - g.lo) < 0.05;   // canlı ELO kesin: ölçekte belirsizlik yok
+    gm.appendChild(h("span", "tnum", g.score == null ? "Canlı ELO alınamadı." : (exact ? "Canlı ELO birebir: aralık yok" : "%90 aralık " + Math.round(g.lo) + "–" + Math.round(g.hi))));
+    gm.appendChild(h("span", "", "çubuk: seviye 1 → 10"));
+    gen.appendChild(gm);
+    gen.appendChild(h("p", "sk-note", "Düello olasılığı bu puanın kaynağı olan canlı ELO'dan hesaplanır."));
+    root.appendChild(gen);
+
+    // Silah satırları: ham galibiyet / düello, puan yok
+    const ws = h("section", "sk-sec"); ws.appendChild(h("h3", "sk-tag", "Silahla düello kaydı"));
+    for (const [k, nm] of WEAPONS) if (c.weapons[k]) ws.appendChild(weaponRow(nm, c.weapons[k]));
+    root.appendChild(ws);
+
+    // Betimleyiciler
+    if (!opts.compact) {
+      const ds = h("section", "sk-sec"); ds.appendChild(h("h3", "sk-tag", "Betimleyiciler"));
+      for (const [k, nm, kind] of DESC) ds.appendChild(descRow(nm, kind, c.descriptive[k]));
+      root.appendChild(ds);
+    }
+
+    // Alt şerit
+    const strip = h("div", "sk-strip");
+    for (const [v, t] of [[c.counts.demos, "yüklü demo"], [c.counts.rounds, "analiz edilen round"], [c.counts.duels, "düello"]]) {
+      const d = h("div"); d.appendChild(h("b", "", Number(v).toLocaleString("tr-TR"))); d.appendChild(h("span", "", t)); strip.appendChild(d);
+    }
+    root.appendChild(strip);
+    if (!opts.compact && g.combined_elo != null) {
+      const cb = h("div", "sk-comb");
+      cb.appendChild(h("span", "", "Stat ekiyle (kanıtı zayıf): birleşik ELO " + Math.round(g.combined_elo)));
+      root.appendChild(cb);
+    }
+    root.appendChild(h("p", "sk-foot", FOOT));
+    return root;
+  }
+
+  function skeleton() { return h("div", "sk-skel"); }
+
+  // İki kartı yan yana kıyasla. "Belirgin" yalnız %90 aralıklar ayrıkken; aksi halde "belirsiz".
+  function compare(a, b) {
+    const tbl = h("table", "sk-cmp"), thead = h("thead"), tr = h("tr");
+    for (const t of ["", a.nickname || "A", b.nickname || "B", "Fark"]) tr.appendChild(h("th", "", t));
+    thead.appendChild(tr); tbl.appendChild(thead);
+    const body = h("tbody"); tbl.appendChild(body);
+    const cell = (x, fmt) => { const td = h("td", "num"); if (x.value == null) { td.textContent = "veri yok"; td.style.color = "var(--muted)"; } else { td.textContent = fmt(x.value); if (x.lo != null && x.hi - x.lo >= 0.05) td.appendChild(h("i", "", fmt(x.lo) + "–" + fmt(x.hi))); } return td; };
+    function add(label, x, y, fmt) {
+      const r = h("tr"); r.appendChild(h("td", "", label));
+      const ca = cell(x, fmt), cb = cell(y, fmt); r.append(ca, cb);
+      let verdict = "veri yok";
+      if (x.value != null && y.value != null) {
+        if (x.lo != null && y.lo != null && x.hi - x.lo < 0.05 && y.hi - y.lo < 0.05) {
+          verdict = "kesin ELO sıralaması";   // iki ELO da birebir: aralık yok, "belirgin" denmez
+          if (x.value > y.value) ca.classList.add("win"); else if (y.value > x.value) cb.classList.add("win");
+        } else if (x.lo != null && y.lo != null) {
+          if (x.lo > y.hi) { verdict = "belirgin: " + (a.nickname || "A"); ca.classList.add("win"); }
+          else if (y.lo > x.hi) { verdict = "belirgin: " + (b.nickname || "B"); cb.classList.add("win"); }
+          else verdict = "belirsiz";
+        } else verdict = "aralık yok";
+      }
+      r.appendChild(h("td", "sep", verdict)); body.appendChild(r);
+    }
+    const sc = (c) => ({ value: c.general.score, lo: c.general.lo, hi: c.general.hi });
+    add("Genel (seviye ölçeği)", sc(a), sc(b), (v) => String(Math.round(v)));
+    const ev = (c) => ({ value: c.elo, lo: c.elo, hi: c.elo });   // FACEIT'ten birebir: aralık yok
+    add("Canlı ELO", ev(a), ev(b), (v) => String(Math.round(v)));
+    for (const [k, nm] of WEAPONS) {
+      const wr = (c) => { const w = c.weapons[k]; return w && w.n >= 20 && w.lo != null ? { value: w.wins / w.n, lo: w.lo, hi: w.hi } : { value: null }; };
+      add(nm + " (galibiyet, doğrulanmadı)", wr(a), wr(b), pct);
+    }
+    for (const [k, nm, kind] of DESC) {
+      const d = (c) => c.descriptive[k] || { value: null };
+      add(nm, d(a), d(b), kind === "pct" ? pct : num);
+    }
+    return tbl;
+  }
+  return { render, skeleton, compare, FOOT };
+})();
+</script>

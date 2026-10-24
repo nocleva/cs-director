@@ -88,6 +88,7 @@
     {% set path = request.url.path %}
     <nav class="nav" aria-label="Bölümler">
       <a href="/arena"{% if path.startswith("/arena") %} aria-current="page"{% endif %}>Arena</a>
+      <a href="/kartlar"{% if path.startswith("/kartlar") %} aria-current="page"{% endif %}>Kartlar</a>
       <a href="/ben"{% if path == "/ben" %} aria-current="page"{% endif %}>Genel bakış</a>
       <a href="/demolar"{% if path == "/demolar" %} aria-current="page"{% endif %}>Demo yönetimi</a>
       <a href="/takimlar"{% if path.startswith("/takimlar") %} aria-current="page"{% endif %}>Takımlarım</a>
