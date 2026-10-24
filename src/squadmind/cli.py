@@ -379,6 +379,7 @@ def web(
         FACEIT_CLIENT_SECRET,
         FACEIT_FLOW,
         FACEIT_SCOPE,
+        FACEIT_STORE_SENSITIVE,
         MAIL_FROM,
         SMTP_HOST,
         SMTP_PASSWORD,
@@ -423,7 +424,8 @@ def web(
                                              pkce=FACEIT_PKCE, pkce_method=FACEIT_PKCE_METHOD,
                                              minimal_authorize=FACEIT_AUTHORIZE_MINIMAL,
                                              authorize_base=FACEIT_AUTHORIZE_URL,
-                                             flow=FACEIT_FLOW, scope=FACEIT_SCOPE))
+                                             flow=FACEIT_FLOW, scope=FACEIT_SCOPE),
+                           store_sensitive=FACEIT_STORE_SENSITIVE)
     if not settings.mailer.configured:
         console.print("[yellow]SMTP ayarlı değil (SMTP_HOST / MAIL_FROM): e-posta doğrulama ve "
                       "şifre sıfırlama kapalı.[/yellow]")

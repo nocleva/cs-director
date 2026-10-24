@@ -58,6 +58,18 @@
   </section>
 </div>
 
+<section class="card" aria-labelledby="h-data" style="margin-top:16px">
+  <h2 id="h-data">FACEIT'ten alınan veriler</h2>
+  <p class="note" style="margin:0 0 8px">Bunlar FACEIT'in girişinde bize gönderdiği kendi verilerin. Giriş anahtarların (token) saklanmaz; ad, soyad, doğum tarihi ve ihlal kayıtları da saklanmaz.</p>
+  {% for s in snapshots %}
+  <h3 style="font-size:13px;margin:14px 0 4px">{{ {"userinfo": "Giriş bilgisi", "id_token": "Kimlik belirteci iddiaları (imza doğrulanmadı)", "data_api_player": "FACEIT profil ve oyun verisi"}.get(s.source, s.source) }}
+    <span class="muted" style="font-weight:400">· alınma: {{ s.taken_at.strftime("%d.%m.%Y %H:%M") if s.taken_at else "-" }}</span></h3>
+  {% for k, v in s.fields %}<div class="row"><span class="k">{{ k }}</span><span style="word-break:break-all;text-align:right">{{ v }}</span></div>{% endfor %}
+  {% else %}<p class="note">Henüz FACEIT verisi alınmadı (bir sonraki FACEIT girişinde alınır).</p>{% endfor %}
+  <p style="margin-top:14px"><a class="btn small ghost" href="/hesap/verilerim.json" download>Verilerimi indir (JSON)</a>
+    <a class="btn small ghost" href="/hesap/sil">Hesabımı sil</a></p>
+</section>
+
 {% if password_login %}<section class="card acc-form" aria-labelledby="h-pw" style="margin-top:16px; max-width:480px">
   <h2 id="h-pw">{% if has_password %}Şifre değiştir{% else %}Şifre belirle{% endif %}</h2>
   <form method="post" action="/hesap/sifre">

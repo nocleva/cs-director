@@ -292,7 +292,7 @@ def test_schema_v10_migration_is_idempotent():
     con.execute("DELETE FROM schema_version")
     con.execute("INSERT INTO schema_version VALUES (9)")
     init_db(con)
-    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 11
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 12
     cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
                                       "WHERE table_name = 'web_users'").fetchall()}
     assert "auto_demo" in cols

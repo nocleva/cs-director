@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Hesabı sil · SquadMind{% endblock %}
+{% block body %}
+<div class="eyebrow">Hesap</div>
+<h1>Hesabımı sil</h1>
+{% if error %}<p class="msg" role="alert" style="color:var(--enemy)">{{ error }}</p>{% endif %}
+<section class="card" style="max-width:560px;margin-top:16px">
+  <p>Şunlar silinir: hesabın{% if account.email %} ({{ account.email }}){% endif %}, FACEIT bağlantın, FACEIT'ten alınan tüm veri kayıtları ve bu tarayıcıdaki oturumun.</p>
+  <p><strong>Silinmeyenler:</strong> maç ve demo istatistik tabloları (round'lar, kill'ler, skor tabloları). Bunlar aynı maçta oynayan diğer oyunculara da ait olduğu için hesabınla birlikte silinmez; bunların da silinmesini istersen <a href="mailto:support@squadmind.info">support@squadmind.info</a> adresine yaz.</p>
+  <form method="post" action="/hesap/sil">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="onay" style="display:block;font-size:12px;font-weight:600;margin:12px 0 6px">Onaylamak için SIL yaz</label>
+    <input id="onay" name="onay" autocomplete="off" required style="height:42px;padding:0 12px;border:1px solid var(--bg-3);border-radius:10px;background:var(--bg-0);color:var(--line)">
+    <p style="margin-top:14px"><button type="submit">Hesabımı kalıcı olarak sil</button> <a href="/hesap">Vazgeç</a></p>
+  </form>
+</section>
+{% endblock %}

@@ -38,6 +38,7 @@ from squadmind.analysis import team_builder as tb
 from squadmind.ingest import demos as demo_rules
 from squadmind.ingest.matches import profile_to_player_row, upsert_players
 from squadmind.web import accounts as acc
+from squadmind.web import faceit_data as fdata
 from squadmind.web.faceit_auth import FaceitAuthError, FaceitOAuth, pkce_pair
 from squadmind.web.mailer import MailError, Mailer
 from squadmind.web.store import OPEN_STATES, QUEUED, UPLOADING, Store, WebUser
@@ -106,6 +107,8 @@ class WebSettings:
     # E-posta + şifre / nickname-davet girişi ve kayıt: kullanıcı kararı (24.10) ile arayüzden
     # kalktı, yalnız FACEIT ile giriş var. Kod duruyor; .env WEB_PASSWORD_LOGIN=1 ile geri açılır
     password_login: bool = False
+    # KVKK / GDPR: ad, soyad, doğum tarihi, ihlaller varsayılan SAKLANMAZ (.env FACEIT_STORE_SENSITIVE=1)
+    store_sensitive: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -258,6 +261,12 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         except acc.AccountError:
             return None
 
+    def split_user(user: dict) -> tuple[dict, dict]:
+        """fetch_user yanıtı → (userinfo, anlık görüntü girdileri). Alt çizgili alanlar ayrılır."""
+        info = {k: v for k, v in user.items() if not k.startswith("_")}
+        return info, {"userinfo": info, "id_claims": user.get("_id_claims"),
+                      "token_meta": user.get("_token_meta")}
+
     def session_response(request: Request, steam_id: str, target: str = "/ben") -> RedirectResponse:
         """Oturum çerezini kurup yönlendirir (eski çerezle aynı biçim: steam_id)."""
         resp = RedirectResponse(target, status_code=303)
@@ -289,7 +298,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         return out
 
     def enter(request: Request, profile: dict, invited: bool, davet: str, verified: bool = False,
-              email: str | None = None):
+              email: str | None = None, snap: dict | None = None):
         """FACEIT profiliyle oturum aç.
 
         FACEIT girişinde (kimlik doğrulanmış) davet gerekmeden herkes girer, hesabı açılır ve
@@ -312,6 +321,11 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             acct_id = acc.ensure_faceit_account(store, row["steam_id"], email)
             if acct_id:
                 acc.touch_login(store, acct_id)
+                if snap is not None:
+                    # FACEIT'ten alınan ham veriler (anahtarlar değil): anlık görüntü + hesap alanları
+                    fdata.record_login(store, acct_id, row["faceit_id"], snap["userinfo"],
+                                       snap.get("id_claims"), snap.get("token_meta"), profile,
+                                       store_sensitive=settings.store_sensitive)
         worker.submit(Job("sync", row["steam_id"]))  # her girişte maç geçmişi tazelenir
         return session_response(request, row["steam_id"])
 
@@ -409,7 +423,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, str(exc))
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
-        done = enter(request, profile, invite_ok(davet), davet, verified=True, email=faceit_email(user))
+        done = enter(request, profile, invite_ok(davet), davet, verified=True, email=faceit_email(user),
+                     snap=split_user(user)[1])
         return done
 
     @app.post("/giris/faceit/anahtar", response_class=HTMLResponse)
@@ -437,7 +452,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             return join_page(request, davet, str(exc))
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
-        done = enter(request, profile, invite_ok(davet), davet, verified=True, email=faceit_email(user))
+        done = enter(request, profile, invite_ok(davet), davet, verified=True, email=faceit_email(user),
+                     snap=split_user(user)[1])
         return popup_bridge(done) if pending.get("p") else done
 
     # --- hesaplar: e-posta ile kayıt / giriş, hesap sayfası ---------------------------------
@@ -617,7 +633,49 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         return form_page(request, "account.html", user=user, account=account, link=link,
                          has_password=bool(account.password_hash), flash=FLASH.get(m),
                          level=info[0] if info else None, elo=info[1] if info else None,
-                         faceit_login=oauth is not None)
+                         faceit_login=oauth is not None,
+                         snapshots=[{**s, "fields": fdata.display_fields(s["payload"])}
+                                    for s in fdata.latest_snapshots(store, account.account_id)])
+
+    @app.get("/hesap/verilerim.json")
+    def my_data(request: Request):
+        """Yalnız oturumdaki kullanıcının kendi hesabı ve FACEIT verileri (JSON indirme)."""
+        user = require_user(request)
+        found = acc.account_of(store, user.steam_id)
+        if found is None:
+            raise HTTPException(404, "Bağlı hesap yok.")
+        body = json.dumps(fdata.export_account(store, found[0].account_id), ensure_ascii=False,
+                          indent=2, default=str)
+        return Response(body, media_type="application/json; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="squadmind-verilerim.json"',
+                                 "Cache-Control": "no-store"})
+
+    @app.get("/hesap/sil", response_class=HTMLResponse)
+    def delete_form(request: Request):
+        ctx = cookie_account(request)
+        if ctx is None:
+            return RedirectResponse(login_url, status_code=303)
+        if ctx[1] is None:
+            return RedirectResponse("/ben", status_code=303)
+        return form_page(request, "account_delete.html", user=ctx[0], account=ctx[1])
+
+    @app.post("/hesap/sil")
+    def delete_account(request: Request, csrf: str = Form(""), onay: str = Form("")):
+        ctx = cookie_account(request)
+        if ctx is None:
+            return RedirectResponse(login_url, status_code=303)
+        if ctx[1] is None:
+            return RedirectResponse("/ben", status_code=303)
+        if not csrf_ok(request, csrf):
+            return form_page(request, "account_delete.html", 400, user=ctx[0], account=ctx[1],
+                             error=CSRF_MSG)
+        if onay.strip().upper() != "SIL":
+            return form_page(request, "account_delete.html", 400, user=ctx[0], account=ctx[1],
+                             error="Onay için kutuya SIL yaz.")
+        fdata.delete_account(store, ctx[1].account_id)
+        resp = RedirectResponse("/", status_code=303)
+        resp.delete_cookie(COOKIE)
+        return resp
 
     @app.get("/hesap/eposta", response_class=HTMLResponse)
     def add_email_form(request: Request):

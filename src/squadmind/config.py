@@ -75,8 +75,9 @@ FACEIT_WEBHOOK_SECRET = os.getenv("FACEIT_WEBHOOK_SECRET", "").strip()
 # App Studio'daki "Header Name" (değeri FACEIT_WEBHOOK_SECRET); sorgu parametresi ?gizli= de kabul edilir
 FACEIT_WEBHOOK_HEADER = os.getenv("FACEIT_WEBHOOK_HEADER", "X-Squadmind-Webhook").strip()
 # FACEIT girişinde istenen kapsam (e-posta ancak App Studio'da izin verilince eklenir)
-# 24.10.2026: "email" istemciye tanımlı değil (FACEIT: "Invalid scope: email"), varsayılan e-postasız
-FACEIT_SCOPE = os.getenv("FACEIT_SCOPE", "openid profile").strip() or "openid profile"
+# 24.10.2026 akşam: App Studio'da istemciye email izni eklendi → varsayılan e-postalı.
+# (İzin yokken "email" istenirse FACEIT "Invalid scope: email" verir; o durumda FACEIT_SCOPE="openid profile")
+FACEIT_SCOPE = os.getenv("FACEIT_SCOPE", "openid profile email").strip() or "openid profile email"
 # E-posta gönderimi (doğrulama, şifre sıfırlama). SMTP_HOST ya da MAIL_FROM boşsa bu uçlar kapalıdır.
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587") or 587)
@@ -85,3 +86,6 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 MAIL_FROM = os.getenv("MAIL_FROM", "").strip()
 # Web'den gelen dosyaların parça parça birleştirildiği klasör
 WEB_UPLOADS = DATA_DIR / "web_uploads"
+
+# KVKK / GDPR: ad, soyad, doğum tarihi ve ihlaller varsayılan saklanmaz; 1 ile açılır
+FACEIT_STORE_SENSITIVE = os.getenv("FACEIT_STORE_SENSITIVE", "0").strip() == "1"

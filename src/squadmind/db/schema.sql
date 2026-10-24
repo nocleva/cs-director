@@ -228,7 +228,28 @@ CREATE TABLE IF NOT EXISTS accounts (
     password_hash  VARCHAR,              -- argon2 (yedek: scrypt); FACEIT'le açılan hesapta boş olabilir
     email_verified BOOLEAN DEFAULT false,
     created_at     TIMESTAMP DEFAULT current_timestamp,
-    last_login_at  TIMESTAMP
+    last_login_at  TIMESTAMP,
+    faceit_nickname VARCHAR,             -- (v12) FACEIT'ten en son alınan değerler
+    faceit_avatar  VARCHAR,
+    faceit_country VARCHAR,
+    faceit_locale  VARCHAR,
+    login_count    INTEGER DEFAULT 0,    -- (v12) FACEIT girişi sayısı
+    token_meta     VARCHAR               -- (v12) son girişin kapsamı / süresi (anahtarın kendisi saklanmaz)
+);
+
+-- FACEIT'ten alınan ham veriler (şema v12). Her girişte userinfo yanıtı, id_token iddiaları ve Data API
+-- oyuncu yanıtı; içerik değişmediyse yeni satır eklenmez (last_seen_at güncellenir).
+-- Erişim / yenileme / id token'ın KENDİSİ saklanmaz.
+CREATE TABLE IF NOT EXISTS faceit_identity_snapshots (
+    account_id   VARCHAR,
+    faceit_id    VARCHAR,
+    taken_at     TIMESTAMP DEFAULT current_timestamp,
+    last_seen_at TIMESTAMP DEFAULT current_timestamp,
+    source       VARCHAR,                -- 'userinfo' | 'id_token' | 'data_api_player'
+    payload      VARCHAR,                -- JSON metni
+    content_hash VARCHAR,                -- payload'ın sha256 özeti (aynı içerik tekrar yazılmaz)
+    verified     BOOLEAN DEFAULT true,   -- id_token imzası doğrulandı mı (şimdilik false)
+    token_meta   VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS web_uploads (

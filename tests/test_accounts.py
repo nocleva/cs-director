@@ -426,7 +426,7 @@ def test_schema_v11_migration_is_idempotent():
     con.execute("INSERT INTO schema_version VALUES (10)")
     init_db(con)
     init_db(con)
-    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 11
+    assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 12
     cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
                                       "WHERE table_name = 'web_users'").fetchall()}
     assert {"account_id", "faceit_link"} <= cols

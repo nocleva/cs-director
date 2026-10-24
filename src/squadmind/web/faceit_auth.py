@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
@@ -45,6 +47,17 @@ def pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
+def decode_jwt_claims(token: str | None) -> dict[str, Any] | None:
+    """id_token gövdesi (iddialar). İMZA DOĞRULANMAZ (verified=false olarak kaydedilir);
+    bozuksa None. Güvenlik kararı buna dayanmaz: kimlik userinfo'dan, anahtar FACEIT'e sorularak gelir."""
+    try:
+        part = (token or "").split(".")[1]
+        data = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    except (IndexError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 @dataclass
 class FaceitOAuth:
     client_id: str
@@ -70,8 +83,8 @@ class FaceitOAuth:
     # İstenen kapsam. 24.10.2026 kök neden: "email" bu istemciye tanımlı değil; FACEIT Connect
     # sayfası /api/v1/authorize'dan 400 {"message":"Invalid scope: email"} alıyor ve hatayı
     # yalnız Sentry'ye yazıp ekranda hiçbir şey göstermiyor ("Continue as …" tepkisiz).
-    # E-posta gerekirse istemciye izin verildikten sonra FACEIT_SCOPE ile eklenir.
-    scope: str = "openid profile"
+    # İzin sonradan eklendi (24.10 akşam): varsayılan artık e-postalı.
+    scope: str = "openid profile email"
 
     @property
     def configured(self) -> bool:
@@ -182,10 +195,20 @@ class FaceitOAuth:
                 tok = self._exchange(http, code, verifier)
                 if tok.status_code != 200:
                     raise FaceitAuthError(f"FACEIT giriş anahtarı verilmedi ({tok.status_code}).")
-                access = tok.json().get("access_token")
+                body = tok.json()
         except httpx.HTTPError as exc:
             raise FaceitAuthError(f"FACEIT'e ulaşılamadı: {exc}") from exc
-        return self.user_from_token(access)
+        user = self.user_from_token(body.get("access_token"))
+        # Ham anahtarlar BURADA kalır; çağırana yalnız üst veri ve id_token iddiaları gider
+        user["_token_meta"] = {
+            "scope": body.get("scope"), "expires_in": body.get("expires_in"),
+            "token_type": body.get("token_type"),
+            "obtained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        claims = decode_jwt_claims(body.get("id_token"))
+        if claims:
+            user["_id_claims"] = claims
+        return user
 
     def user_from_token(self, access_token: str) -> dict[str, Any]:
         """Erişim anahtarı → kullanıcı bilgisi (en az `guid`). Anahtar FACEIT'e sorularak

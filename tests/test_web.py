@@ -359,13 +359,13 @@ def test_faceit_authorize_url_pkce_toggle():
     assert "code_challenge=ch" in on and "code_challenge_method=plain" in on
 
 
-def test_faceit_default_scope_has_no_email_and_flow_is_code():
+def test_faceit_default_scope_has_email_and_flow_is_code():
     # 24.10.2026: "email" istemciye tanımlı değil → FACEIT Connect 400 "Invalid scope: email",
     # "Continue as …" sessizce takılıyordu. Varsayılan: code akışı, PKCE, scope openid profile
     from urllib.parse import parse_qs, urlsplit
     from squadmind.web.faceit_auth import FaceitOAuth
     q = parse_qs(urlsplit(FaceitOAuth("id", "sec", "https://app.squadmind.info").authorize_url("st", "ch")).query)
-    assert q["scope"] == ["openid profile"] and q["response_type"] == ["code"]
+    assert q["scope"] == ["openid profile email"] and q["response_type"] == ["code"]
     assert q["code_challenge"] == ["ch"] and q["code_challenge_method"] == ["plain"]
     assert q["redirect_uri"] == ["https://app.squadmind.info/giris/faceit/donus"]
 

@@ -20,7 +20,8 @@ SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 # v9: demo_files.source (tam demo / tarayıcı paketi) ve dem_sha256 (açılmış .dem özeti).
 # v10: faceit_demo_events (DEMO_READY webhook olayları) ve web_users.auto_demo (otomatik demo izni).
 # v11: accounts (e-posta hesabı) ve web_users.account_id / faceit_link (FACEIT bağlantısı).
-SCHEMA_VERSION = 11
+# v12: accounts'a FACEIT alanları ve faceit_identity_snapshots (FACEIT'ten alınan ham veri).
+SCHEMA_VERSION = 12
 
 # v3'te mevcut tablolara eklenen kolonlar (eski DB'ler için)
 _V3_COLUMNS = (
@@ -50,6 +51,16 @@ _V10_COLUMNS = (
 _V11_COLUMNS = (
     ("web_users", "account_id", "VARCHAR"),
     ("web_users", "faceit_link", "VARCHAR"),
+)
+
+# v12'de accounts'a eklenen kolonlar
+_V12_COLUMNS = (
+    ("accounts", "faceit_nickname", "VARCHAR"),
+    ("accounts", "faceit_avatar", "VARCHAR"),
+    ("accounts", "faceit_country", "VARCHAR"),
+    ("accounts", "faceit_locale", "VARCHAR"),
+    ("accounts", "login_count", "INTEGER DEFAULT 0"),
+    ("accounts", "token_meta", "VARCHAR"),
 )
 
 # v1'deki demo tabloları; v1'de hiç doldurulmadıkları için yeniden kurmak güvenli
@@ -94,6 +105,9 @@ def init_db(con: duckdb.DuckDBPyConnection) -> list[str]:
             con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {typ}")
     if version < 11:
         for table, column, typ in _V11_COLUMNS:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {typ}")
+    if version < 12:
+        for table, column, typ in _V12_COLUMNS:
             con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {typ}")
     if version < SCHEMA_VERSION:
         con.execute("INSERT INTO schema_version VALUES (?)", [SCHEMA_VERSION])
