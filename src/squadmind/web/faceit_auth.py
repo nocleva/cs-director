@@ -105,22 +105,17 @@ class FaceitOAuth:
             if tok.status_code != 200:
                 self._log_token_failure(tok, len(code), "PKCE'siz")
             return tok
-        # 24.10.2026 (geçerli secret ile): Basic + code_verifier → 401; Basic, doğrulayıcısız →
-        # 400 "PKCE mismatch" (secret geçerli, doğrulayıcı şart). Doğrulayıcı varken FACEIT kimliği
-        # gövdede bekliyor (PKCE'li public client). Kod 401'den sonra geçerli kaldığı için aynı
-        # girişte sırayla: gövdede client_id + doğrulayıcı → gövdede client_id + secret +
-        # doğrulayıcı → Basic + doğrulayıcı. İlk 200'de durur; en fazla 3 istek.
-        pk = {**form, "code_verifier": verifier, "client_id": self.client_id}
-        attempts: list[tuple[str, dict[str, Any]]] = [("public (client_id + doğrulayıcı)", {"data": pk})]
-        if self.client_secret:
-            attempts.append(("client_secret_post + doğrulayıcı",
-                             {"data": {**pk, "client_secret": self.client_secret}}))
-            attempts.append(("Basic + doğrulayıcı",
-                             {"data": {**form, "code_verifier": verifier},
-                              "auth": (self.client_id, self.client_secret)}))
+        # 24.10.2026 (geçerli secret ile): doğrulayıcısız → 400 "PKCE mismatch" (secret geçerli);
+        # doğrulayıcılı her biçim (Basic / gövde / public) → 401. FACEIT'in token sunucusu (Spring)
+        # PKCE doğrulamasını istemci kimliği adımında yapar ve uyuşmazlığı 401 döndürür → sorun
+        # kimlik değil, doğrulayıcı. Olası neden: Connect sayfası code_challenge_method'u iletmiyor
+        # ve sunucu "plain" varsayıyor (doğrulayıcı = challenge). Aynı kodla sırayla: S256
+        # doğrulayıcısı → plain (challenge). Kod 401'den sonra geçerli kalıyor (gözlendi).
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
         tok = None
-        for kind, kw in attempts:
-            tok = http.post(TOKEN_URL, **kw)
+        for kind, v in (("Basic + S256 doğrulayıcı", verifier), ("Basic + plain (challenge)", challenge)):
+            tok = self._token(http, {**form, "code_verifier": v})
             if tok.status_code == 200:
                 log.info("FACEIT token alındı (%s)", kind)
                 return tok
