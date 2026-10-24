@@ -52,6 +52,11 @@ class FaceitOAuth:
     # sayfası code_challenge'ı onay isteğine (GET/POST /api/v1/authorize) aynen iletir; Auth.js'in
     # FACEIT sağlayıcısı da PKCE + client_secret_basic kullanır. FACEIT_PKCE=0 ile kapatılır
     pkce: bool = True
+    # PKCE yöntemi. 24.10.2026: FACEIT gönüllü geliştiricilerinin ÇALIŞAN örnekleri
+    # (github.com/Faceit-Volunteer-Dev-Team/OAuth2-Template, Express + Laravel, 2025) "plain"
+    # kullanıyor (challenge = verifier) ve token isteğinde redirect_uri göndermiyor. S256 ile
+    # doğrulayıcılı her token isteği 401 almıştı. FACEIT_PKCE_METHOD=S256 ile değiştirilir.
+    pkce_method: str = "plain"
     authorize_base: str = AUTHORIZE_URL
     # Akış: "code" (yetki kodu + token adımı, standart) ya da "implicit" (anahtar dönüş adresinin
     # # kısmında). 24.10.2026: eski 401'lerin çoğu geçersiz secret'tandı; varsayılan code
@@ -84,7 +89,7 @@ class FaceitOAuth:
         # FACEIT Connect, PKCE türündeki istemcide akıştan bağımsız challenge istiyor
         # (24.10: implicit + challenge'sız → onay tepkisiz, büyük olasılıkla pkce_required)
         if self.pkce:
-            params |= {"code_challenge": challenge, "code_challenge_method": "S256"}
+            params |= {"code_challenge": challenge, "code_challenge_method": self.pkce_method}
         return f"{self.authorize_base}?{urlencode(params)}"
 
     def _token(self, http: httpx.Client, form: dict[str, str]) -> httpx.Response:
@@ -107,26 +112,18 @@ class FaceitOAuth:
             if tok.status_code != 200:
                 self._log_token_failure(tok, len(code), "PKCE'siz")
             return tok
-        # 24.10.2026 (geçerli secret ile): doğrulayıcısız → 400 "PKCE mismatch" (secret geçerli);
-        # doğrulayıcılı her biçim (Basic / gövde / public) → 401. FACEIT'in token sunucusu (Spring)
-        # PKCE doğrulamasını istemci kimliği adımında yapar ve uyuşmazlığı 401 döndürür → sorun
-        # kimlik değil, doğrulayıcı. Olası neden: Connect sayfası code_challenge_method'u iletmiyor
-        # ve sunucu "plain" varsayıyor (doğrulayıcı = challenge). Aynı kodla sırayla: S256
-        # doğrulayıcısı → plain (challenge). Kod 401'den sonra geçerli kalıyor (gözlendi).
-        challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
-        # İlk deneme passport-faceit (amber-gg, 2022) biçimi: Basic başlık + gövdede client_id ve
-        # client_secret (passport-oauth2 ikisini birlikte gönderir) — buna doğrulayıcı eklenir
-        body_ids = {"client_id": self.client_id, "client_secret": self.client_secret}
+        # 24.10.2026: çalışan FACEIT örnekleri (OAuth2-Template) token isteğini Basic + code +
+        # grant_type + code_verifier ile, redirect_uri'SİZ yapıyor. Önce o biçim, sonra
+        # redirect_uri'li; en fazla 2 istek (kod 401'den sonra geçerli kalıyor, gözlendi).
+        base = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
         tok = None
-        for kind, v, extra in (("passport-faceit biçimi + S256", verifier, body_ids),
-                               ("Basic + S256 doğrulayıcı", verifier, {}),
-                               ("Basic + plain (challenge)", challenge, {})):
-            tok = self._token(http, {**form, **extra, "code_verifier": v})
+        for kind, body in (("Basic, redirect_uri'siz (örnek biçimi)", base),
+                           ("Basic, redirect_uri'li", {**base, "redirect_uri": self.redirect_uri})):
+            tok = self._token(http, body)
             if tok.status_code == 200:
-                log.info("FACEIT token alındı (%s)", kind)
+                log.info("FACEIT token alındı (%s, %s)", kind, self.pkce_method)
                 return tok
-            self._log_token_failure(tok, len(code), kind)
+            self._log_token_failure(tok, len(code), f"{kind}, {self.pkce_method}")
             if tok.status_code not in (400, 401):
                 break
         return tok

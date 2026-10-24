@@ -345,6 +345,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             raise HTTPException(404, "FACEIT ile giriş ayarlı değil.")
         state = secrets.token_urlsafe(24)
         verifier, challenge = pkce_pair()
+        if getattr(oauth, "pkce_method", "S256") == "plain":
+            challenge = verifier          # plain: challenge = doğrulayıcının kendisi (RFC 7636 §4.2)
         resp = RedirectResponse(oauth.authorize_url(state, challenge), status_code=303)
         # Tanı (24.10): challenge ve state'in başı; FACEIT Connect sayfasının /api/v1/authorize
         # isteğinde ilettiği code_challenge ile karşılaştırmak için (ikisi de adreste açık değerler)

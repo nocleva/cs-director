@@ -356,7 +356,7 @@ def test_faceit_authorize_url_pkce_toggle():
     assert "code_challenge" not in off and "redirect_popup=true" in off and "state=st" in off
     on = FaceitOAuth("id", "sec", "https://app.squadmind.info", flow="code").authorize_url("st", "ch")
     assert on.startswith("https://accounts.faceit.com?")
-    assert "code_challenge=ch" in on and "code_challenge_method=S256" in on
+    assert "code_challenge=ch" in on and "code_challenge_method=plain" in on
 
 
 def test_faceit_default_scope_has_no_email_and_flow_is_code():
@@ -366,34 +366,30 @@ def test_faceit_default_scope_has_no_email_and_flow_is_code():
     from squadmind.web.faceit_auth import FaceitOAuth
     q = parse_qs(urlsplit(FaceitOAuth("id", "sec", "https://app.squadmind.info").authorize_url("st", "ch")).query)
     assert q["scope"] == ["openid profile"] and q["response_type"] == ["code"]
-    assert q["code_challenge"] == ["ch"] and q["code_challenge_method"] == ["S256"]
+    assert q["code_challenge"] == ["ch"] and q["code_challenge_method"] == ["plain"]
     assert q["redirect_uri"] == ["https://app.squadmind.info/giris/faceit/donus"]
 
 
 def test_faceit_exchange_basic_pkce_then_single_fallback():
-    # PKCE açık: Basic + S256 doğrulayıcı → (400/401'de) Basic + plain (doğrulayıcı = challenge)
-    import base64, hashlib
+    # PKCE açık (OAuth2-Template biçimi): Basic + code + grant_type + code_verifier, önce
+    # redirect_uri'siz, 400/401'de redirect_uri'li; en fazla 2 istek, başka hatada bırakır
     import httpx
     from urllib.parse import parse_qs
     from squadmind.web.faceit_auth import FaceitOAuth
-    chal = base64.urlsafe_b64encode(hashlib.sha256(b"ver").digest()).rstrip(b"=").decode()
-    for statuses, sent in (([200], ["ver"]), ([401, 200], ["ver", "ver"]),
-                           ([401, 401, 200], ["ver", "ver", chal]), ([401, 401, 401], ["ver", "ver", chal]),
-                           ([500], ["ver"])):
+    for statuses, with_ru in (([200], [False]), ([401, 200], [False, True]),
+                              ([401, 401], [False, True]), ([500], [False])):
         seen = []
 
         def handler(req: httpx.Request, statuses=statuses, seen=seen) -> httpx.Response:
             assert req.headers["authorization"].startswith("Basic ")
             body = parse_qs(req.content.decode())
-            assert body["redirect_uri"] == ["https://app.squadmind.info/giris/faceit/donus"]
             assert body["grant_type"] == ["authorization_code"] and body["code"] == ["abc123"]
-            # ilk deneme passport-faceit biçimi: gövdede client_id + client_secret da var
-            assert ("client_secret" in body) == (len(seen) == 0)
-            seen.append(body["code_verifier"][0])
+            assert body["code_verifier"] == ["ver"] and "client_secret" not in body
+            seen.append("redirect_uri" in body)
             return httpx.Response(statuses[len(seen) - 1], json={})
         with httpx.Client(transport=httpx.MockTransport(handler)) as http:
             tok = FaceitOAuth("id", "sec", "https://app.squadmind.info")._exchange(http, "abc123", "ver")
-        assert seen == sent and tok.status_code == statuses[-1]
+        assert seen == with_ru and tok.status_code == statuses[-1]
     # PKCE kapalıyken tek istek, doğrulayıcısız
     seen2 = []
     def h2(req: httpx.Request) -> httpx.Response:

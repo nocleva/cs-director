@@ -386,6 +386,7 @@ def web(
         SMTP_USER,
         FACEIT_AUTHORIZE_URL,
         FACEIT_PKCE,
+        FACEIT_PKCE_METHOD,
         WEB_BASE_URL,
         WEB_INVITE_CODE,
         WEB_MAP,
@@ -418,7 +419,7 @@ def web(
                            base_url=WEB_BASE_URL, password_login=WEB_PASSWORD_LOGIN,
                            mailer=Mailer(SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, MAIL_FROM),
                            oauth=FaceitOAuth(FACEIT_CLIENT_ID, FACEIT_CLIENT_SECRET, WEB_BASE_URL,
-                                             pkce=FACEIT_PKCE,
+                                             pkce=FACEIT_PKCE, pkce_method=FACEIT_PKCE_METHOD,
                                              authorize_base=FACEIT_AUTHORIZE_URL,
                                              flow=FACEIT_FLOW, scope=FACEIT_SCOPE))
     if not settings.mailer.configured:
