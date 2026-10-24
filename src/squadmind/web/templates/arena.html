@@ -117,9 +117,9 @@
 </div>
 
 <section class="vsstage" id="vs" aria-label="Düello karşılaşması">
-  <div class="fighter a" id="fA"><span class="tagwin">KAZANAN</span><div class="vsx-slot" id="aGfx"></div><div class="fi"><div class="fn" id="aName"></div><div class="fe" id="aElo"></div><div class="fp" id="aP"></div></div></div>
+  <div class="fighter a" id="fA"><span class="tagwin">FAVORİ</span><div class="vsx-slot" id="aGfx"></div><div class="fi"><div class="fn" id="aName"></div><div class="fe" id="aElo"></div><div class="fp" id="aP"></div></div></div>
   <div class="vsmid"><b>VS</b><span id="vsNote">Dust2 · düello</span></div>
-  <div class="fighter b" id="fB"><span class="tagwin">KAZANAN</span><div class="vsx-slot" id="bGfx"></div><div class="fi"><div class="fn" id="bName"></div><div class="fe" id="bElo"></div><div class="fp" id="bP"></div></div></div>
+  <div class="fighter b" id="fB"><span class="tagwin">FAVORİ</span><div class="vsx-slot" id="bGfx"></div><div class="fi"><div class="fn" id="bName"></div><div class="fe" id="bElo"></div><div class="fp" id="bP"></div></div></div>
 </section>
 
 <div class="layout">
@@ -129,7 +129,7 @@
       {{ board | safe }}
       <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-label="Oyuncular"></svg>
     </div>
-    <div class="legend"><span><i style="background:#FF8A3D"></i>Sen</span><span><i style="background:#FF5C62"></i>Rakip</span><span><i style="background:#3FD07A"></i>Kazanan</span></div>
+    <div class="legend"><span><i style="background:#FF8A3D"></i>Sen</span><span><i style="background:#FF5C62"></i>Rakip</span></div>
     <p class="note" style="text-align:center">Jetonları sürükle; görüş çizgisi ve olasılık anında güncellenir. <button type="button" class="ghost small replay" id="replay" hidden>Tekrar oynat</button></p>
   </section>
   <aside class="result" aria-live="polite">
@@ -241,7 +241,7 @@ function draw(result) {
     sight.setAttribute("stroke", vis ? C.ok : C.muted); sight.setAttribute("opacity", result && result.visible !== null ? (vis ? .9 : .5) : 0);
     for (const [tk, isA] of [[tokA, true], [tokB, false]]) {
       tk.g.classList.remove("win", "lose");
-      if (vis && result.p != null) tk.g.classList.add((isA ? result.p >= .5 : result.p < .5) ? "win" : "lose");
+      // Kullanıcı kararı 24.10: kazanan yalnız animasyonda (olasılığa göre örnek); haritada sabit favori yeşili yok
     }
     stage(result);
   }
