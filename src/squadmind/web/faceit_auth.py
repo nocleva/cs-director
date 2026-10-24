@@ -20,8 +20,8 @@ from urllib.parse import urlencode
 
 import httpx
 
-# Keşif belgesindeki yetki adresi. Eski "FACEIT Connect" sayfası (/accounts) kodu veriyor ama
-# PKCE bilgisini kayda geçirmiyor gibi: token adımı 401 (23.10.2026). FACEIT_AUTHORIZE_URL ile değişir.
+# Keşif belgesindeki yetki adresi (FACEIT Connect; sayfa /accounts'a gider ve onayı
+# accounts.faceit.com/api/v1/authorize'a sorar). FACEIT_AUTHORIZE_URL ile değişir.
 AUTHORIZE_URL = "https://accounts.faceit.com"
 TOKEN_URL = "https://api.faceit.com/auth/v1/oauth/token"
 USERINFO_URL = "https://api.faceit.com/auth/v1/resources/userinfo"
@@ -48,16 +48,19 @@ class FaceitOAuth:
     client_secret: str          # "Authorization Code with PKCE" istemcisinde boş olabilir
     base_url: str               # ör. https://app.squadmind.info (dönüş adresi bundan)
     timeout: float = 15.0
-    # PKCE: FACEIT'in "Authorization Code with PKCE" istemcisi token adımında doğrulayıcı istiyor
-    # (doğrulayıcısız istek doğru gizli anahtarla da 401); FACEIT_PKCE=0 ile kapatılır
+    # PKCE (S256): App Studio'daki tek istemci türü "Authorization Code with PKCE". FACEIT Connect
+    # sayfası code_challenge'ı onay isteğine (GET/POST /api/v1/authorize) aynen iletir; Auth.js'in
+    # FACEIT sağlayıcısı da PKCE + client_secret_basic kullanır. FACEIT_PKCE=0 ile kapatılır
     pkce: bool = True
     authorize_base: str = AUTHORIZE_URL
-    # Akış: "implicit" (FACEIT erişim anahtarını dönüş adresinin # kısmında verir; token adımı
-    # yok) ya da "code" (yetki kodu + token adımı). 23.10.2026: code akışında token adımı her
-    # biçimde 401 verdiği için varsayılan implicit; FACEIT_FLOW ile değişir
-    flow: str = "implicit"
-    # İstenen kapsam: "email" ile hesap FACEIT e-postasıyla açılır (portalda izin gerekebilir)
-    scope: str = "openid profile email"
+    # Akış: "code" (yetki kodu + token adımı, standart) ya da "implicit" (anahtar dönüş adresinin
+    # # kısmında). 24.10.2026: eski 401'lerin çoğu geçersiz secret'tandı; varsayılan code
+    flow: str = "code"
+    # İstenen kapsam. 24.10.2026 kök neden: "email" bu istemciye tanımlı değil; FACEIT Connect
+    # sayfası /api/v1/authorize'dan 400 {"message":"Invalid scope: email"} alıyor ve hatayı
+    # yalnız Sentry'ye yazıp ekranda hiçbir şey göstermiyor ("Continue as …" tepkisiz).
+    # E-posta gerekirse istemciye izin verildikten sonra FACEIT_SCOPE ile eklenir.
+    scope: str = "openid profile"
 
     @property
     def configured(self) -> bool:
@@ -89,21 +92,30 @@ class FaceitOAuth:
         return http.post(TOKEN_URL, data={**form, "client_id": self.client_id})
 
     def _exchange(self, http: httpx.Client, code: str, verifier: str) -> httpx.Response:
-        """Kod → token (standart: client_secret_basic + code_verifier + redirect_uri).
+        """Kod → token: client_secret_basic + redirect_uri (+ PKCE açıksa code_verifier).
 
-        23.10.2026: FACEIT bu istemciyle gerçek kodu her biçimde 401 ile reddetti (6 biçim
-        denendi: secret Basic / gövdede, PKCE'li / PKCE'siz, redirect'li / redirect'siz).
-        Sahte kodla aynı istek 400 (kimlik tanınıyor). FACEIT desteğine soruldu; cevap gelene
-        kadar giriş davet koduyla da yapılabilir.
+        Biçim Auth.js'in çalışan FACEIT sağlayıcısıyla aynı (Basic başlık, gövdede grant_type /
+        code / redirect_uri / code_verifier). PKCE'li istek 401 alırsa bir kez doğrulayıcısız
+        denenir (23.10: doğrulayıcı varken FACEIT secret'a bakmıyor gibiydi); fazlası yok, çünkü
+        art arda başarısız token istekleri istemciyi geçici kilitliyor.
         """
         form = {"grant_type": "authorization_code", "code": code, "redirect_uri": self.redirect_uri}
-        if self.pkce:
-            form["code_verifier"] = verifier
-        tok = self._token(http, form)
+        kind = "PKCE'li" if self.pkce else "PKCE'siz"
+        tok = self._token(http, {**form, "code_verifier": verifier} if self.pkce else form)
+        if tok.status_code == 401 and self.pkce:
+            self._log_token_failure(tok, len(code), kind)
+            kind = "doğrulayıcısız yedek"
+            tok = self._token(http, form)
         if tok.status_code != 200:
-            log.warning("FACEIT token yanıtı %s: %s (kod uzunluğu %d)", tok.status_code,
-                        tok.headers.get("www-authenticate"), len(code))
+            self._log_token_failure(tok, len(code), kind)
         return tok
+
+    @staticmethod
+    def _log_token_failure(tok: httpx.Response, code_len: int, kind: str) -> None:
+        """Token hatasını günlüğe yazar: durum, WWW-Authenticate ve FACEIT hata gövdesinin başı
+        (gövde secret içermez; kodun kendisi yazılmaz, yalnız uzunluğu)."""
+        log.warning("FACEIT token yanıtı (%s) %s: %s %s (kod uzunluğu %d)", kind, tok.status_code,
+                    tok.headers.get("www-authenticate"), " ".join(tok.text[:200].split()), code_len)
 
     def check_credentials(self, http: httpx.Client | None = None) -> str:
         # Dikkat (23.10.2026): FACEIT kısa sürede birkaç başarısız token isteğinden sonra

@@ -62,7 +62,7 @@ FACEIT_CLIENT_SECRET = os.getenv("FACEIT_CLIENT_SECRET", "").strip()
 WEB_BASE_URL = os.getenv("WEB_BASE_URL", "https://app.squadmind.info").strip()
 # FACEIT girişinde PKCE ve yetki adresi (bkz. web/faceit_auth.py)
 FACEIT_PKCE = os.getenv("FACEIT_PKCE", "1").strip() in ("1", "true", "evet")
-FACEIT_FLOW = os.getenv("FACEIT_FLOW", "implicit").strip() or "implicit"
+FACEIT_FLOW = os.getenv("FACEIT_FLOW", "code").strip() or "code"
 FACEIT_AUTHORIZE_URL = os.getenv("FACEIT_AUTHORIZE_URL", "https://accounts.faceit.com").strip()
 # FACEIT Downloads API ile "FACEIT'ten getir" ve DEMO_READY webhook'u. Yetki açılana kadar KAPALI
 # (arayüzde görünmez, uç noktalar 404). Webhook gizli değeri ayrı: boşsa uç nokta 404.
@@ -70,8 +70,9 @@ FACEIT_DOWNLOADS_ENABLED = os.getenv("FACEIT_DOWNLOADS_ENABLED", "0").strip() in
 FACEIT_WEBHOOK_SECRET = os.getenv("FACEIT_WEBHOOK_SECRET", "").strip()
 # App Studio'daki "Header Name" (değeri FACEIT_WEBHOOK_SECRET); sorgu parametresi ?gizli= de kabul edilir
 FACEIT_WEBHOOK_HEADER = os.getenv("FACEIT_WEBHOOK_HEADER", "X-Squadmind-Webhook").strip()
-# FACEIT girişinde istenen kapsam: e-posta, hesabı FACEIT'ten gelen e-postayla açmak için
-FACEIT_SCOPE = os.getenv("FACEIT_SCOPE", "openid profile email").strip() or "openid profile email"
+# FACEIT girişinde istenen kapsam (e-posta ancak App Studio'da izin verilince eklenir)
+# 24.10.2026: "email" istemciye tanımlı değil (FACEIT: "Invalid scope: email"), varsayılan e-postasız
+FACEIT_SCOPE = os.getenv("FACEIT_SCOPE", "openid profile").strip() or "openid profile"
 # E-posta gönderimi (doğrulama, şifre sıfırlama). SMTP_HOST ya da MAIL_FROM boşsa bu uçlar kapalıdır.
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587") or 587)

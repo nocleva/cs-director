@@ -343,7 +343,8 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         return resp
 
     @app.get("/giris/faceit/donus", response_class=HTMLResponse)
-    def faceit_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    def faceit_callback(request: Request, code: str = "", state: str = "", error: str = "",
+                        error_description: str = ""):
         if oauth is None:
             raise HTTPException(404, "FACEIT ile giriş ayarlı değil.")
         try:
@@ -355,7 +356,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
             # Anahtar adresin # kısmında: sunucuya gelmez, küçük sayfa okuyup POST eder
             return page(request, "faceit_return.html")
         if error or not code:
-            return join_page(request, davet, "FACEIT girişi tamamlanmadı.")
+            # FACEIT hata kodunu dönüş adresine yazar (ör. access_denied); günlük ve kullanıcı için
+            log.warning("FACEIT dönüşü kodsuz: %s %s", error[:80], error_description[:200])
+            detail = f" ({error[:80]})" if error else ""
+            return join_page(request, davet, f"FACEIT girişi tamamlanmadı{detail}.")
         if not hmac.compare_digest(state, str(pending.get("s", ""))):
             return join_page(request, davet, "Giriş isteği doğrulanamadı; tekrar dene.")
         try:
