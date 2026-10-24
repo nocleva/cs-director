@@ -77,8 +77,6 @@
   <div><label for="oppSel">ya da oyuncu</label><select id="oppSel"><option value="">— seviye seçili —</option></select></div>
   <div><label for="wA">Silahın</label><select id="wA"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
   <div><label for="wB">Rakibin silahı</label><select id="wB"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
-  <div><label for="hpA">Canın</label><input id="hpA" type="number" min="1" max="100" value="100" inputmode="numeric" style="width:5.5em"></div>
-  <div><label for="hpB">Rakibin canı</label><input id="hpB" type="number" min="1" max="100" value="100" inputmode="numeric" style="width:5.5em"></div>
 </div>
 
 <div class="layout">
@@ -201,8 +199,8 @@ async function refresh() {
   const rb = state.b.sid ? P.ratings[state.b.sid] : null;
   document.getElementById("bElo").textContent = rb ? `FACEIT ELO ${rb.elo ?? "?"}` : `ELO ${state.b.elo} (seviyenin ortalaması)`;
   const my = ++seq, body = { side_a: state.side, weapon_a: document.getElementById("wA").value, weapon_b: document.getElementById("wB").value,
-    a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y, hp: hpVal("hpA") },
-    b: state.b.sid ? { steam_id: state.b.sid, x: state.b.x, y: state.b.y, hp: hpVal("hpB") } : { elo: state.b.elo, x: state.b.x, y: state.b.y, hp: hpVal("hpB") } };
+    a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y, hp: 100 },
+    b: state.b.sid ? { steam_id: state.b.sid, x: state.b.x, y: state.b.y, hp: 100 } : { elo: state.b.elo, x: state.b.x, y: state.b.y, hp: 100 } };
   const out = document.getElementById("out");
   let r;
   try {
@@ -242,8 +240,8 @@ function descHtml(r) {
 }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
 // Can girdisi: 1-100 (boş / geçersiz → 100)
-function hpVal(id) { const v = Math.round(Number(document.getElementById(id).value)); return v >= 1 && v <= 100 ? v : 100; }
-["wA", "wB", "hpA", "hpB"].forEach((id) => document.getElementById(id).addEventListener("change", refresh));
+// Kullanıcı kararı 24.10: karşılaştırma her zaman 100 can varsayımıyla (can girdisi kaldırıldı)
+["wA", "wB"].forEach((id) => document.getElementById(id).addEventListener("change", refresh));
 
 // Oyuncu kartları (yan panel): seçili iki oyuncunun küçük kartı. Düello sonucuna dokunmaz;
 // kartlar /api/kart/{id}'den gelir (sunucuda 60 sn önbellekli, burada da 60 sn)
