@@ -28,9 +28,9 @@
 <main>
   <div class="wrap hero">
     <section aria-labelledby="h">
-      <div class="eyebrow">CS2 düello arenası</div>
+      <div class="eyebrow">FACEIT bağlantılı CS2 oyuncu karşılaştırma platformu</div>
       <h1 id="h">Peek'te kim<br><em>daha iyi?</em></h1>
-      <p class="lead">FACEIT ile katıl, kendini haritaya yerleştir, rakibini seç. Canlı ELO'na göre düelloyu kimin alacağını, aralığıyla birlikte gör.</p>
+      <p class="lead">SquadMind, FACEIT hesabınla CS2 oyuncularını karşılaştırır: kendi demolarından kartını çıkarır, arenada iki oyuncuyu aynı peek'te karşı karşıya koyar ve canlı ELO'ya göre düelloyu kimin alacağını aralığıyla birlikte gösterir.</p>
 
       <div class="card">
         {% if error %}<p class="err" role="alert">{{ error }}</p>{% endif %}
@@ -68,9 +68,9 @@
       {% if password_login %}<p class="note" style="margin-top:14px">E-posta ile de girebilirsin: <a href="/giris" style="color:var(--accent)">giriş yap</a> · <a href="/kayit{% if davet %}?davet={{ davet | urlencode }}{% endif %}" style="color:var(--accent)">kayıt ol</a></p>{% endif %}
 
       <ol class="steps">
-        <li><span class="n">01</span><div><b>{% if faceit_login or not password_login %}FACEIT ile gir{% else %}Nickname'inle katıl{% endif %}</b><span>Hesabın otomatik açılır; her girişte aynı hesaba girersin, yaptıkların orada kayıtlı kalır.</span></div></li>
-        <li><span class="n">02</span><div><b>Demolarını yükle</b><span>Aynı maç bir kez yüklenir; takım arkadaşının yüklediği senin için de sayılır.</span></div></li>
-        <li><span class="n">03</span><div><b>Arenada düello kur</b><span>Kendini ve rakibi Dust2'ye yerleştir; görüş varsa kazanma ihtimali aralığıyla çıkar.</span></div></li>
+        <li><span class="n">01</span><div><b>{% if faceit_login or not password_login %}FACEIT ile gir{% else %}Nickname'inle katıl{% endif %}</b><span>Hesabın otomatik açılır; her girişte aynı hesaba girersin.</span></div></li>
+        <li><span class="n">02</span><div><b>Demolarını yükle</b><span>Aynı maç bir kez yüklenir; her demo 10 oyuncunun analizine katkı verir.</span></div></li>
+        <li><span class="n">03</span><div><b>Kartını ve arenada düellolarını gör</b><span>Kartın demolarından çıkar; arenada kendini ve rakibi Dust2'ye yerleştir, görüş varsa olasılık aralığıyla çıkar.</span></div></li>
       </ol>
     </section>
 

@@ -50,6 +50,28 @@
   .note { font-size: 11px; color: var(--muted); margin: 12px 0 0; }
   .nosee { text-align: center; padding: 14px 6px; color: var(--text-2); }
   select { width: 100%; }
+  /* Arena v3: adımlı akış */
+  .steps3 { display: grid; gap: 12px; margin-bottom: 14px; }
+  .stp { background: var(--bg-2); border: 1px solid var(--bg-3); border-radius: 16px; padding: 12px 14px; display: grid; gap: 10px; }
+  .stp > h2 { margin: 0; font: italic 700 14px var(--font-display); letter-spacing: .3px; display: flex; align-items: center; gap: 8px; }
+  .stp > h2 i { font-style: italic; color: var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: flex-end; }
+  .row > div { min-width: 0; max-width: 100%; }
+  .row label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .6px; }
+  .spotbar { height: 8px; border-radius: 4px; background: var(--bg-3); overflow: hidden; }
+  .spotbar > div { height: 100%; background: var(--accent); transition: width 400ms cubic-bezier(.2,.7,.2,1); }
+  .spotp { margin: 0; font-size: 12px; color: var(--text-2); }
+  .spotp a { color: var(--accent); }
+  .eloc { display: grid; gap: 8px; }
+  .eloc .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .eloc .top label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .eloc output { font: italic 700 22px var(--font-display); color: var(--line); }
+  .eloc input[type=range] { width: 100%; accent-color: var(--accent); }
+  .eloc.off { opacity: .45; }
+  .replay[hidden] { display: none; }
+  .stage-anim { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+  @media (max-width: 560px) { .row > div, .row select { width: 100%; } .stp { padding: 12px; } }
+  @media (prefers-reduced-motion: reduce) { .spotbar > div { transition: none; } }
   /* Oyuncu kartı paneli (yan panel, küçük kart) */
   .cardpane { margin-top: 14px; border-top: 1px solid var(--bg-3); padding-top: 12px; }
   .cardpane-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -66,16 +88,32 @@
   <div class="seg modes" style="margin-bottom:10px" role="tablist" aria-label="Arena modu"><a class="mode" href="/arena" aria-current="page">Düello</a><a class="mode" href="/arena/taktik">Taktik</a></div>
   <div class="eyebrow">Arena · Dust2</div>
   <h1>Kim kazanır?</h1>
-  <p class="sub">Kendini ve rakibini haritaya yerleştir. Birbirinizi görüyorsanız, düelloyu kimin alacağı canlı FACEIT ELO'na, silahına ve canına göre hesaplanır.</p>
+  <p class="sub">Kendini ve rakibini haritaya yerleştir. Birbirinizi görüyorsanız, düelloyu kimin alacağı canlı FACEIT ELO'na ve silahına göre hesaplanır.</p>
 </div>
 
-<div class="controls">
-  <div><label for="playerSel">Sen / oyuncu</label><select id="playerSel"></select></div>
-  <div><label>Taraf</label><div class="seg" id="sideSeg"><button type="button" data-side="T" aria-pressed="true">T</button><button type="button" data-side="CT" aria-pressed="false">CT</button></div></div>
-  <div><label>Rakip: FACEIT seviyesi (ortalama oyuncu)</label><div class="seg levels" id="levels"></div></div>
-  <div><label for="oppSel">ya da oyuncu</label><select id="oppSel"><option value="">— seviye seçili —</option></select></div>
-  <div><label for="wA">Silahın</label><select id="wA"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
-  <div><label for="wB">Rakibin silahı</label><select id="wB"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
+<div class="steps3">
+  <section class="stp" aria-labelledby="s1"><h2 id="s1"><i>01</i> Oyuncu</h2>
+    <div class="row">
+      <div><label for="playerSel">Sen / oyuncu</label><select id="playerSel"></select></div>
+      <div><label>Taraf</label><div class="seg" id="sideSeg"><button type="button" data-side="T" aria-pressed="true">T</button><button type="button" data-side="CT" aria-pressed="false">CT</button></div></div>
+      <div><label for="wA">Silahın</label><select id="wA"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
+    </div>
+  </section>
+  <section class="stp" aria-labelledby="s2"><h2 id="s2"><i>02</i> Spot önerisi</h2>
+    <div class="spotbar" role="progressbar" aria-label="Spot analizi ilerlemesi" aria-valuemin="0" aria-valuemax="40" id="spotBar"><div id="spotFill"></div></div>
+    <p class="spotp" id="spotTxt"></p>
+  </section>
+  <section class="stp" aria-labelledby="s3"><h2 id="s3"><i>03</i> Rakip</h2>
+    <div class="row">
+      <div><label for="oppSel">Oyuncu (kartı olan)</label><select id="oppSel"><option value="">ELO karakteri (aşağıda)</option></select></div>
+      <div><label for="wB">Rakibin silahı</label><select id="wB"><option value="rifle">Tüfek</option><option value="pistol">Tabanca</option><option value="awp">AWP</option></select></div>
+    </div>
+    <div class="eloc" id="eloc">
+      <div class="top"><label for="eloRange">ELO karakteri: o ELO'da ortalama oyuncu</label><output id="eloOut" for="eloRange"></output></div>
+      <input type="range" id="eloRange" min="100" max="3000" step="25">
+      <div class="seg levels" id="levels" aria-label="FACEIT seviyesi ön ayarı"></div>
+    </div>
+  </section>
 </div>
 
 <section class="vsstage" id="vs" aria-label="Düello karşılaşması">
@@ -87,11 +125,12 @@
 <div class="layout">
   <section class="boardwrap on-dark" aria-label="Arena haritası">
     <div class="board" id="board">
+      <div class="stage-anim" id="animHost"></div>
       {{ board | safe }}
       <svg class="ov" id="ov" viewBox="0 0 {{ w }} {{ h }}" aria-label="Oyuncular"></svg>
     </div>
     <div class="legend"><span><i style="background:#FF8A3D"></i>Sen</span><span><i style="background:#FF5C62"></i>Rakip</span><span><i style="background:#3FD07A"></i>Kazanan</span></div>
-    <p class="note" style="text-align:center">Jetonları sürükle; görüş çizgisi ve olasılık anında güncellenir.</p>
+    <p class="note" style="text-align:center">Jetonları sürükle; görüş çizgisi ve olasılık anında güncellenir. <button type="button" class="ghost small replay" id="replay" hidden>Tekrar oynat</button></p>
   </section>
   <aside class="result" aria-live="polite">
     <div id="out"></div>
@@ -127,17 +166,36 @@ for (const p of P.players) {
 }
 playerSel.value = P.me;
 playerSel.onchange = () => { state.a.sid = playerSel.value; refresh(); };
-oppSel.onchange = () => { state.b.sid = oppSel.value; renderLevels(); refresh(); };
-const levels = document.getElementById("levels");
+oppSel.onchange = () => { state.b.sid = oppSel.value; renderLevels(); refresh(true); };
+const levels = document.getElementById("levels"), eloRange = document.getElementById("eloRange"), eloOut = document.getElementById("eloOut"), eloc = document.getElementById("eloc");
 function renderLevels() {
   levels.innerHTML = "";
+  eloc.classList.toggle("off", !!state.b.sid);
+  eloRange.disabled = !!state.b.sid;
+  eloRange.value = state.b.elo; eloOut.textContent = state.b.sid ? "–" : state.b.elo;
   for (const l of P.levels) {
     const b = document.createElement("button"); b.type = "button"; b.textContent = l.level; b.title = `Seviye ${l.level}: ELO ${l.range}, ortalama ${l.elo}`;
     b.setAttribute("aria-pressed", !state.b.sid && state.b.elo === l.elo ? "true" : "false");
-    b.onclick = () => { state.b.sid = ""; state.b.elo = l.elo; oppSel.value = ""; renderLevels(); refresh(); };
+    b.onclick = () => { state.b.sid = ""; state.b.elo = l.elo; oppSel.value = ""; renderLevels(); refresh(true); };
     levels.appendChild(b);
   }
 }
+// ELO kaydırıcısı: sürüklerken yalnız etiket, bırakınca hesap (sunucuya b.elo olarak gider)
+eloRange.addEventListener("input", () => { state.b.sid = ""; oppSel.value = ""; state.b.elo = +eloRange.value; eloOut.textContent = state.b.elo; });
+eloRange.addEventListener("change", () => { renderLevels(); refresh(true); });
+// Spot önerisi paneli: 40 işlenmiş Dust2 maçına kadar sıralama KAPALI
+(function spotPanel() {
+  const sp = P.spots || { n: 0, min: 40 }, pct = Math.min(100, Math.round(100 * sp.n / sp.min));
+  document.getElementById("spotFill").style.width = pct + "%";
+  document.getElementById("spotBar").setAttribute("aria-valuenow", Math.min(sp.n, sp.min));
+  const t = document.getElementById("spotTxt");
+  if (sp.n < sp.min) {
+    t.append(`Spot analizi: ${sp.n}/${sp.min} Dust2 maçı. Spot sıralaması ${sp.min} maça kadar kapalı: veri toplanıyor; bir demo 10 oyuncunun analizine katkı verir. `);
+    const a = document.createElement("a"); a.href = "/demolar"; a.textContent = "Demo yükle"; t.append(a, ". Şimdilik jetonu elle yerleştir.");
+  } else {
+    t.textContent = `Spot analizi: ${sp.n}/${sp.min} Dust2 maçı. Eşik doldu; sıralama istatistik ekibinin onayını bekliyor, o zamana dek jetonu elle yerleştir.`;
+  }
+})();
 document.querySelectorAll("#sideSeg button").forEach((b) => b.onclick = () => {
   state.side = b.dataset.side; document.querySelectorAll("#sideSeg button").forEach((x) => x.setAttribute("aria-pressed", x === b ? "true" : "false")); refresh();
 });
@@ -163,19 +221,18 @@ ov.addEventListener("pointermove", (e) => {
   moved = true; const p = svgPoint(e); [state[drag].x, state[drag].y] = toWorld(p.x, p.y); draw();
 });
 // Sürükleme bitince hesapla; sürüklenmediyse (tıklama) o jetonun kartını aç
-const drop = () => { if (drag) { const k = drag; drag = null; if (moved) refresh(); else showCard(k); } };
+const drop = () => { if (drag) { const k = drag; drag = null; if (moved) refresh(true); else showCard(k); } };
 ov.addEventListener("pointerup", drop); ov.addEventListener("pointercancel", drop);
 
 function names() {
   const a = byId[state.a.sid], b = state.b.sid ? byId[state.b.sid] : null;
-  const lv = P.levels.find((l) => l.elo === state.b.elo);
-  return { a: a ? a.nickname : "?", b: b ? b.nickname : `Ort. seviye ${lv ? lv.level : ""}` };
+  return { a: a ? a.nickname : "?", b: b ? b.nickname : `ELO ${state.b.elo}` };
 }
 function draw(result) {
   const [ax, ay] = toPx(state.a.x, state.a.y), [bx, by] = toPx(state.b.x, state.b.y), nm = names();
   tokA.g.setAttribute("transform", `translate(${ax.toFixed(1)},${ay.toFixed(1)})`);
   tokB.g.setAttribute("transform", `translate(${bx.toFixed(1)},${by.toFixed(1)})`);
-  tokA.t.textContent = nm.a.slice(0, 2).toUpperCase(); tokB.t.textContent = state.b.sid ? nm.b.slice(0, 2).toUpperCase() : "L" + (P.levels.find((l) => l.elo === state.b.elo) || {}).level;
+  tokA.t.textContent = nm.a.slice(0, 2).toUpperCase(); tokB.t.textContent = state.b.sid ? nm.b.slice(0, 2).toUpperCase() : "L" + (levelOf(state.b.elo) ?? "");
   tokA.n.textContent = nm.a; tokB.n.textContent = nm.b;
   Object.assign(sight.attributes, {});
   sight.setAttribute("x1", ax); sight.setAttribute("y1", ay); sight.setAttribute("x2", bx); sight.setAttribute("y2", by);
@@ -221,14 +278,34 @@ function stage(r) {
 }
 
 // Sunucuya sor: görüş + olasılık
-let seq = 0;
-async function refresh() {
+let seq = 0, lastR = null;
+// Animasyon (ayrı modül; yoksa sessizce animasyonsuz): sonuç sunucunun p'sinden tohumlu örneklenir.
+// Panel kazananı değil olasılığı söyler; "Tekrar oynat" yeni tohumla örnekler (sonuç değişebilir)
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function sampleOutcome(p, seed) { return mulberry32(seed)() < p ? "a" : "b"; }
+let animMod = null, animHandle = null;
+import("/static/js/sm-duel-anim.js").then((m) => { animMod = m; document.getElementById("replay").hidden = false; }).catch(() => {});
+function playAnim(r) {
+  try {
+    if (animHandle) { animHandle.stop(); animHandle = null; }
+    if (!animMod || !r || !r.visible || r.p == null) return;
+    const host = document.getElementById("animHost"), sc = host.clientWidth / ov.viewBox.baseVal.width;
+    const pos = (s) => { const [x, y] = toPx(s.x, s.y); return { x: x * sc, y: y * sc }; };
+    const nm = names(), seed = (Math.random() * 4294967296) >>> 0;
+    animHandle = animMod.playDuel(host, {
+      a: { ...pos(state.a), side: state.side, weapon: document.getElementById("wA").value, label: nm.a },
+      b: { ...pos(state.b), side: state.side === "T" ? "CT" : "T", weapon: document.getElementById("wB").value, label: nm.b },
+      visible: true, seed, outcome: sampleOutcome(r.p, seed), onEnd: () => { animHandle = null; } });
+  } catch { animHandle = null; }
+}
+document.getElementById("replay").onclick = () => playAnim(lastR);
+async function refresh(play = false) {
   draw();
   const nm = names();
   const ra = P.ratings[state.a.sid], rb = state.b.sid ? P.ratings[state.b.sid] : null;
   const eloA = ra ? ra.elo : null, eloB = rb ? rb.elo : state.b.elo;
   fighter("a", nm.a, eloA, ra ? `Canlı FACEIT ELO ${ra.elo ?? "?"}` : "");
-  fighter("b", nm.b, eloB, rb ? `Canlı FACEIT ELO ${rb.elo ?? "?"}` : `ELO ${state.b.elo} (seviyenin ortalaması)`);
+  fighter("b", nm.b, eloB, rb ? `Canlı FACEIT ELO ${rb.elo ?? "?"}` : `ELO karakteri ${state.b.elo} (o ELO'da ortalama)`);
   const my = ++seq, body = { side_a: state.side, weapon_a: document.getElementById("wA").value, weapon_b: document.getElementById("wB").value,
     a: { steam_id: state.a.sid, x: state.a.x, y: state.a.y, hp: 100 },
     b: state.b.sid ? { steam_id: state.b.sid, x: state.b.x, y: state.b.y, hp: 100 } : { elo: state.b.elo, x: state.b.x, y: state.b.y, hp: 100 } };
@@ -241,6 +318,8 @@ async function refresh() {
   } catch { out.innerHTML = `<p class="nosee">Sunucuya ulaşılamadı.</p>`; return; }
   if (my !== seq) return;          // daha yeni bir istek var
   draw(r);
+  lastR = r;
+  if (play) playAnim(r);
   if (!r.visible) { out.innerHTML = `<p class="nosee"></p>`; out.firstChild.textContent = r.reason || "Düello yok."; return; }
   const pa = r.p * 100, winner = r.p >= .5 ? nm.a : nm.b;
   out.innerHTML = `<div class="big" style="color:${r.p >= .5 ? C.ok : C.b}"></div>
@@ -250,6 +329,7 @@ async function refresh() {
     <p class="note" style="margin-top:8px">Stat düzeltmesiyle %${Math.round(r.p_stat * 100)} (kanıtı zayıf, fark en çok ±3 puan).</p>
     ${r.hp ? `<p class="note" style="margin-top:8px">Can eşitken: %${Math.round(r.hp.p_eq * 100)} [%${Math.round(r.hp.lo_eq * 100)}-%${Math.round(r.hp.hi_eq * 100)}] · Girdiğin canlarla (${r.hp.a} / ${r.hp.b}): %${Math.round(pa)} [%${Math.round(r.lo * 100)}-%${Math.round(r.hi * 100)}]</p>
     <p class="note">Can etkisi sınamada doğrulandı (2.607 düello, kill'le biten). Can senin girdiğin bir durumdur, oyuncu gücü değildir.</p>` : ""}
+    <p class="note">Animasyon bu olasılıkla rastgele bir sonuç oynatır; tekrar oynatınca farklı çıkabilir.</p>
     ${descHtml(r)}
     ${r.big_gap ? `<p class="note">Bu kadar büyük farkta az örneğimiz var; olasılık yaklaşık.</p>` : ""}
     ${r.weapon ? `<p class="note">Silah etkisi (Dust2, 2.853 düello): tabanca tüfeğe karşı ~−18 puan, AWP uzakta ~+20 puan, yakında fark yok. Silah ekonomiyle iç içe: tabanca roundları çoğunlukla eco; etki silah + ekonominin ortak etkisidir.</p>` : ""}`;
@@ -272,7 +352,7 @@ function descHtml(r) {
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
 // Can girdisi: 1-100 (boş / geçersiz → 100)
 // Kullanıcı kararı 24.10: karşılaştırma her zaman 100 can varsayımıyla (can girdisi kaldırıldı)
-["wA", "wB"].forEach((id) => document.getElementById(id).addEventListener("change", refresh));
+["wA", "wB"].forEach((id) => document.getElementById(id).addEventListener("change", () => refresh(true)));
 
 // Oyuncu kartları (yan panel): seçili iki oyuncunun küçük kartı. Düello sonucuna dokunmaz;
 // kartlar /api/kart/{id}'den gelir (sunucuda 60 sn önbellekli, burada da 60 sn)
@@ -295,8 +375,8 @@ function syncCards() {
     if (slot.dataset.sid === sid && slot.dataset.ready) continue;
     slot.dataset.sid = sid; slot.dataset.ready = ""; slot.replaceChildren();
     if (!sid) {
-      const lv = P.levels.find((l) => l.elo === state.b.elo), m = document.createElement("p");
-      m.className = "note"; m.textContent = `Rakip: seviye ${lv ? lv.level : ""} ortalama oyuncu. Gerçek bir oyuncu olmadığı için kartı yok.`; slot.appendChild(m); slot.dataset.ready = "1"; continue;
+      const m = document.createElement("p");
+      m.className = "note"; m.textContent = `Rakip: ELO ${state.b.elo} karakteri (o ELO'da ortalama oyuncu). Gerçek bir oyuncu olmadığı için kartı yok.`; slot.appendChild(m); slot.dataset.ready = "1"; continue;
     }
     slot.appendChild(SMCard.skeleton());
     cardOf(sid).then((c) => {

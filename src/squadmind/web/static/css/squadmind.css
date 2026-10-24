@@ -310,3 +310,14 @@ footer.foot a { color: inherit; }
   .sk-bar .rng, .sk-skel, .vsstage.hit .fighter, .vsstage.hit .vsmid b { animation: none; }
   .sk-bar .pt, .fighter { transition: none; }
 }
+
+/* Veri şeridi (arena v3): her sayfanın üstünde, demo toplamaya çağrı; ince, tek satır */
+.datastrip { background: var(--bg-1); border-bottom: 1px solid var(--bg-3); }
+.datastrip .wrap { display: flex; }
+.datastrip a { display: flex; align-items: center; gap: 8px; min-height: 30px; width: 100%; font-size: 12px; color: var(--text-2); text-decoration: none; white-space: nowrap; overflow: hidden; }
+.datastrip a i { flex: none; width: 8px; height: 8px; background: var(--accent); transform: rotate(45deg); }
+.datastrip a span { overflow: hidden; text-overflow: ellipsis; }
+.datastrip a b { color: var(--line); font-weight: 700; }
+.datastrip a em { margin-left: auto; flex: none; font-style: normal; font-weight: 600; color: var(--accent); transition: transform var(--t-fast) var(--ease); }
+.datastrip a:hover em { transform: translateX(-3px); }
+@media (prefers-reduced-motion: reduce) { .datastrip a em { transition: none; } .datastrip a:hover em { transform: none; } }

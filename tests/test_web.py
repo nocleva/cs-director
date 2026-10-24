@@ -616,3 +616,48 @@ def test_card_pages_render_and_nav(web):
         assert t in page.text, t
     assert "bu puanın kaynağı olan" not in page.text
     assert "/api/kart/" in client.get("/ben").text
+
+
+# --- Arena v3: veri şeridi, spot paneli eşiği, ELO karakteri -----------------------------------
+
+def test_data_strip_on_logged_in_pages(web):
+    client, store = web
+    _join(client)
+    t = client.get("/ben").text
+    assert "Dust2 veri:" in t and "oyuncu analizi" in t and 'href="/demolar"' in t
+    # Menü sırası: Arena, Kartlar, Takımlar, Demolar, Hesap
+    nav = t[t.index('<nav class="nav"'):t.index("</nav>")]
+    order = [nav.index(x) for x in ('<span>Arena', '<span>Kartlar', '<span>Takımlar', '<span>Demolar', '<span>Hesap')]
+    assert order == sorted(order)
+
+
+def test_spot_status_is_closed_under_threshold(web):
+    client, store = web
+    assert client.get("/api/arena/spot-durumu").status_code == 401
+    _join(client)
+    r = client.get("/api/arena/spot-durumu").json()
+    assert r["min"] == 40 and r["n"] < 40 and r["open"] is False
+
+
+def test_arena_template_has_spot_text_slider_and_outcome_note():
+    from pathlib import Path
+    import squadmind.web as w
+    t = (Path(w.__file__).parent / "templates" / "arena.html").read_text(encoding="utf-8")
+    assert "kapalı: veri toplanıyor; bir demo 10 oyuncunun analizine katkı verir" in t
+    assert 'min="100" max="3000" step="25"' in t
+    assert "rastgele bir sonuç oynatır" in t
+
+
+def test_arena_elo_character_uses_slider_value(web):
+    _needs_dust2()
+    client, store = web
+    _join(client)
+    base = {"a": {"steam_id": SELF, "x": 681, "y": 835}, "side_a": "T"}
+    out = {}
+    for elo in (800, 2300):
+        r = client.post("/api/arena/duel", json={**base, "b": {"elo": elo, "x": 1408, "y": 1293}})
+        if r.status_code != 200 or not r.json().get("visible"):
+            pytest.skip("fixture'da düello modeli / görüş yok")
+        out[elo] = r.json()
+    # Rakip ELO'su kaydırıcı değeridir; yüksek ELO'lu rakipte A'nın olasılığı düşer
+    assert out[800]["b_elo"] < out[2300]["b_elo"] and out[800]["p"] > out[2300]["p"]

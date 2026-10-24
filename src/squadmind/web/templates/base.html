@@ -21,16 +21,19 @@
     <nav class="nav" aria-label="Bölümler">
       <a href="/arena"{% if path.startswith("/arena") %} aria-current="page"{% endif %}><span>Arena</span></a>
       <a href="/kartlar"{% if path.startswith("/kartlar") %} aria-current="page"{% endif %}><span>Kartlar</span></a>
-      <a href="/ben"{% if path == "/ben" %} aria-current="page"{% endif %}><span>Genel bakış</span></a>
-      <a href="/demolar"{% if path == "/demolar" %} aria-current="page"{% endif %}><span>Demo yönetimi</span></a>
-      <a href="/takimlar"{% if path.startswith("/takimlar") %} aria-current="page"{% endif %}><span>Takımlarım</span></a>
+      <a href="/takimlar"{% if path.startswith("/takimlar") %} aria-current="page"{% endif %}><span>Takımlar</span></a>
+      <a href="/demolar"{% if path == "/demolar" %} aria-current="page"{% endif %}><span>Demolar</span></a>
+      <a href="/hesap"{% if path == "/hesap" %} aria-current="page"{% endif %}><span>Hesap</span></a>
     </nav>
-    <div class="acct"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Açık / koyu tema"><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/></svg><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg></button><span class="avatar" title="{{ me.nickname }}">{{ me.nickname[:2] | upper }}</span><a href="/hesap"{% if path == "/hesap" %} aria-current="page"{% endif %}>Hesabım</a><a href="/cikis">Çıkış</a></div>
+    <div class="acct"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Açık / koyu tema"><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/></svg><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg></button><span class="avatar" title="{{ me.nickname }}">{{ me.nickname[:2] | upper }}</span><a href="/cikis">Çıkış</a></div>
     {% else %}
     <button type="button" class="theme-toggle" data-theme-toggle aria-label="Açık / koyu tema"><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/></svg><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg></button>
     {% endif %}
   </div>
 </header>
+{% if me and strip %}
+<div class="datastrip"><div class="wrap"><a href="/demolar" title="Demo yükle: her demo 10 oyuncunun analizine katkı verir"><i aria-hidden="true"></i><span>Dust2 veri: <b>{{ strip.n }}</b> maç · <b>{{ strip.players }}</b> oyuncu analizi</span><em>Demo yükle</em></a></div></div>
+{% endif %}
 <main class="wrap">{% block body %}{% endblock %}</main>
 <footer class="foot"><div class="wrap"><span>SquadMind · FACEIT / CS2 takım analizi</span><span><a href="/privacy">Gizlilik</a> · <a href="/terms">Kullanım şartları</a></span></div></footer>
 <script src="/static/js/sm-assets.js" defer></script>
