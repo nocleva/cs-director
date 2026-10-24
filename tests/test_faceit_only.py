@@ -149,3 +149,14 @@ def test_popup_login_returns_bridge_page_with_cookie(site):
     back = client.get(f"/giris/faceit/donus?code=kod&state={state}", follow_redirects=False)
     assert back.status_code == 200 and "window.opener" in back.text and '"/ben"' in back.text
     assert "squadmind_oturum" in back.headers.get("set-cookie", "")
+
+
+def test_popup_login_error_moves_to_main_window(site):
+    """Açılır pencerede biten hatalı giriş: köprü sayfası ana pencereyi '/'a yollar, mesaj orada görünür."""
+    client = site[0]
+    start = client.get("/giris/faceit?popup=1", follow_redirects=False)
+    back = client.get("/giris/faceit/donus?error=access_denied", follow_redirects=False)
+    assert back.status_code == 200 and "window.opener" in back.text and '"/"' in back.text
+    home = client.get("/")
+    assert "FACEIT girişi tamamlanmadı" in home.text
+    assert "FACEIT girişi tamamlanmadı" not in client.get("/").text   # tek seferlik

@@ -47,6 +47,7 @@ log = logging.getLogger("squadmind.web")
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).with_name("templates")))
 COOKIE = "squadmind_oturum"
+ERROR_COOKIE = "squadmind_giris_hata"  # açılır pencereden ana sayfaya taşınan giriş hatası
 # FACEIT girişi sürerken (state + PKCE doğrulayıcı + davet) tutulan kısa ömürlü çerez
 LOGIN_COOKIE = "squadmind_giris"
 LOGIN_SECONDS = 600
@@ -205,9 +206,19 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     # --- katılım --------------------------------------------------------------------
 
     def join_page(request: Request, davet: str = "", error: str | None = None) -> HTMLResponse:
-        return page(request, "join.html", davet=davet, error=error,
+        if error is None:
+            # Açılır pencereden taşınan giriş hatası (tek seferlik)
+            try:
+                error = login_signer.loads(request.cookies.get(ERROR_COOKIE, ""), max_age=120)
+            except BadSignature:
+                error = None
+        resp = page(request, "join.html", davet=davet, error=error,
                     closed=not settings.invite_code, faceit_login=oauth is not None,
                     invited=bool(davet), board=join_art())
+        resp.squadmind_error = error
+        if request.cookies.get(ERROR_COOKIE):
+            resp.delete_cookie(ERROR_COOKIE)
+        return resp
 
     def need_pw() -> None:
         """Şifre / nickname girişi kapalıyken bu uçlar yok sayılır (POST'lar 404)."""
@@ -335,6 +346,10 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         state = secrets.token_urlsafe(24)
         verifier, challenge = pkce_pair()
         resp = RedirectResponse(oauth.authorize_url(state, challenge), status_code=303)
+        # Tanı (24.10): challenge ve state'in başı; FACEIT Connect sayfasının /api/v1/authorize
+        # isteğinde ilettiği code_challenge ile karşılaştırmak için (ikisi de adreste açık değerler)
+        log.warning("FACEIT giriş başladı: state=%s… challenge=%s… popup=%s",
+                    state[:6], challenge[:10], popup == "1")
         # "p": giriş açılır pencerede başladı (dönüşte ana pencereye köprü sayfası döner)
         resp.set_cookie(LOGIN_COOKIE, login_signer.dumps({"s": state, "v": verifier, "d": davet,
                                                           "p": popup == "1"}),
@@ -345,6 +360,25 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
     @app.get("/giris/faceit/donus", response_class=HTMLResponse)
     def faceit_callback(request: Request, code: str = "", state: str = "", error: str = "",
                         error_description: str = ""):
+        resp = _faceit_callback(request, code, state, error, error_description)
+        popup = False
+        try:
+            popup = bool(login_signer.loads(request.cookies.get(LOGIN_COOKIE, ""),
+                                            max_age=LOGIN_SECONDS).get("p"))
+        except BadSignature:
+            pass
+        if popup and isinstance(resp, RedirectResponse):
+            return popup_bridge(resp)
+        if popup:
+            # Hata sayfası açılır pencerede kalmasın: mesaj kısa ömürlü imzalı çerezle ana sayfaya
+            msg = getattr(resp, "squadmind_error", None) or "FACEIT girişi tamamlanamadı."
+            bridge = popup_bridge(RedirectResponse("/", status_code=303))
+            bridge.set_cookie(ERROR_COOKIE, login_signer.dumps(msg), max_age=120, httponly=True,
+                              samesite="lax", secure=request.url.scheme == "https")
+            return bridge
+        return resp
+
+    def _faceit_callback(request: Request, code: str, state: str, error: str, error_description: str):
         if oauth is None:
             raise HTTPException(404, "FACEIT ile giriş ayarlı değil.")
         try:
@@ -371,7 +405,7 @@ def create_app(settings: WebSettings, store: Store, worker: Worker,
         except FaceitAPIError as exc:
             return join_page(request, davet, f"FACEIT profili alınamadı: {exc}")
         done = enter(request, profile, invite_ok(davet), davet, verified=True, email=faceit_email(user))
-        return popup_bridge(done) if pending.get("p") else done
+        return done
 
     @app.post("/giris/faceit/anahtar", response_class=HTMLResponse)
     def faceit_token(request: Request, access_token: str = Form(""), state: str = Form(""),
