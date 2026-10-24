@@ -377,7 +377,8 @@ def test_faceit_exchange_basic_pkce_then_single_fallback():
     from urllib.parse import parse_qs
     from squadmind.web.faceit_auth import FaceitOAuth
     chal = base64.urlsafe_b64encode(hashlib.sha256(b"ver").digest()).rstrip(b"=").decode()
-    for statuses, sent in (([200], ["ver"]), ([401, 200], ["ver", chal]), ([401, 401], ["ver", chal]),
+    for statuses, sent in (([200], ["ver"]), ([401, 200], ["ver", "ver"]),
+                           ([401, 401, 200], ["ver", "ver", chal]), ([401, 401, 401], ["ver", "ver", chal]),
                            ([500], ["ver"])):
         seen = []
 
@@ -386,6 +387,8 @@ def test_faceit_exchange_basic_pkce_then_single_fallback():
             body = parse_qs(req.content.decode())
             assert body["redirect_uri"] == ["https://app.squadmind.info/giris/faceit/donus"]
             assert body["grant_type"] == ["authorization_code"] and body["code"] == ["abc123"]
+            # ilk deneme passport-faceit biçimi: gövdede client_id + client_secret da var
+            assert ("client_secret" in body) == (len(seen) == 0)
             seen.append(body["code_verifier"][0])
             return httpx.Response(statuses[len(seen) - 1], json={})
         with httpx.Client(transport=httpx.MockTransport(handler)) as http:

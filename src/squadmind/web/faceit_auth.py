@@ -113,9 +113,14 @@ class FaceitOAuth:
         # doğrulayıcısı → plain (challenge). Kod 401'den sonra geçerli kalıyor (gözlendi).
         challenge = base64.urlsafe_b64encode(
             hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+        # İlk deneme passport-faceit (amber-gg, 2022) biçimi: Basic başlık + gövdede client_id ve
+        # client_secret (passport-oauth2 ikisini birlikte gönderir) — buna doğrulayıcı eklenir
+        body_ids = {"client_id": self.client_id, "client_secret": self.client_secret}
         tok = None
-        for kind, v in (("Basic + S256 doğrulayıcı", verifier), ("Basic + plain (challenge)", challenge)):
-            tok = self._token(http, {**form, "code_verifier": v})
+        for kind, v, extra in (("passport-faceit biçimi + S256", verifier, body_ids),
+                               ("Basic + S256 doğrulayıcı", verifier, {}),
+                               ("Basic + plain (challenge)", challenge, {})):
+            tok = self._token(http, {**form, **extra, "code_verifier": v})
             if tok.status_code == 200:
                 log.info("FACEIT token alındı (%s)", kind)
                 return tok
